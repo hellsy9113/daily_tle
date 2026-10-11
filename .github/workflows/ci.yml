@@ -1,5 +1,7 @@
-
 name: Next.js CI
+
+permissions:
+  contents: read
 
 on:
   push:
@@ -24,8 +26,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint
-        run: npm run lint --if-present
+      - name: Check formatting, lint, types, and tests
+        run: npm run check
 
       - name: Build Next.js
         run: npm run build

@@ -1,19 +1,14 @@
-import fetchUserProfile from "@/controllers/fetchUserProfile"
-
-import query from "@/GQLqueries/userProfile"
-
-import {formatUserProfileData} from "@/utils/fomatUserProfile"
+import { errorResponse } from "@/lib/http/api-error";
+import { getUserProfile } from "@/lib/leetcode/user-profile";
 
 export async function GET(
-    _request: Request,
-    {params}:{params:Promise<{username:string}>},
-
-){
-   const {username}= await params;
-   const data= await fetchUserProfile(
-    query,
-    {username},
-    formatUserProfileData
-   )
-   return Response.json(data)
+  _request: Request,
+  context: RouteContext<"/api/user/[username]">,
+): Promise<Response> {
+  try {
+    const { username } = await context.params;
+    return Response.json(await getUserProfile(username));
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
