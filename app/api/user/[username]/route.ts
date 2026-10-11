@@ -5,6 +5,7 @@ import query from "@/GQLqueries/userProfile"
 import {formatUserProfileData} from "@/utils/fomatUserProfile"
 
 export async function GET(
+    _request: Request,
     {params}:{params:Promise<{username:string}>},
 
 ){

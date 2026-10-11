@@ -63,6 +63,24 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Import this repository into Vercel with the **Next.js** framework preset and
+   the repository root as the root directory. Use `npm run build` as the build
+   command and keep the default output directory.
+2. In your Vercel project's **Settings → Environment Variables**, add
+   `TELEGRAM_BOT_TOKEN` and, if you use webhook verification,
+   `TELEGRAM_WEBHOOK_SECRET`. Select **Production** (and **Preview** only if you
+   intend to test that deployment). `.env.local` stays on your computer;
+   `.env.example` is a blank template and is not loaded as production configuration.
+3. Deploy or redeploy after saving the variables. Environment variable changes
+   only apply to new deployments. See
+   [Vercel's environment variable documentation](https://vercel.com/docs/environment-variables).
+4. Once deployment is ready, run the `setWebhook` command above with your production
+   URL: `https://YOUR_PROJECT.vercel.app/api/telegram/webhook`. Use your current bot
+   token and the same webhook secret as the Vercel environment variable.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The webhook accepts **POST** requests. Opening its URL in a browser sends GET and
+returns `405 Method Not Allowed`; test by sending `hello` in Telegram instead.
+
+Keep real credentials out of `.env.example`. If a token was shared or committed,
+regenerate it through BotFather and update both your local environment and Vercel
+before registering the webhook again.
