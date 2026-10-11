@@ -1,3 +1,7 @@
+import fetchWeeklyQuestion from "@/controllers/fetechWeeklyQuestion";
+import weeklySolvedQuestionQuery from "@/GQLqueries/weeklySolved";
+import formatTelegramSubmissions from "@/utils/formatTelegramSubmissions";
+
 type TelegramUpdate = {
   message?: {
     text?: string;
@@ -28,10 +32,16 @@ export async function POST(request: Request) {
 
   if (
     typeof message?.text !== "string" ||
-    message.text.trim().toLowerCase() !== "hello" ||
     typeof chatId !== "number" ||
     !Number.isSafeInteger(chatId)
   ) {
+    return Response.json({ ok: true });
+  }
+
+  const text = message.text.trim();
+  const isNameCommand = /^name\s*:/i.test(text);
+
+  if (text.toLowerCase() !== "hello" && !isNameCommand) {
     return Response.json({ ok: true });
   }
 
@@ -44,23 +54,46 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    const response = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: "welcome" }),
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
-    const result = await response.json();
+  let replies = ["welcome"];
 
-    if (!response.ok || result?.ok !== true) {
-      return Response.json(
-        { error: "Telegram could not send the message" },
-        { status: 502 },
+  if (isNameCommand) {
+    const username = text.slice(text.indexOf(":") + 1).trim();
+
+    if (!username || /\s/.test(username)) {
+      replies = ["Send name:your_leetcode_username (for example, name:leetcode)."];
+    } else {
+      try {
+        const data = await fetchWeeklyQuestion(weeklySolvedQuestionQuery, {
+          username,
+        });
+        replies = formatTelegramSubmissions(username, data);
+      } catch {
+        replies = [
+          "Could not fetch recent submissions. Check your LeetCode username and try again shortly.",
+        ];
+      }
+    }
+  }
+
+  try {
+    for (const reply of replies) {
+      const response = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: reply }),
+          signal: AbortSignal.timeout(10_000),
+        },
       );
+      const result = await response.json();
+
+      if (!response.ok || result?.ok !== true) {
+        return Response.json(
+          { error: "Telegram could not send the message" },
+          { status: 502 },
+        );
+      }
     }
   } catch {
     return Response.json(

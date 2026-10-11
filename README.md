@@ -3,8 +3,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 ## Telegram webhook
 
 `POST /api/telegram/webhook` replies with `welcome` in the same chat when someone
-sends `hello` to your bot. Matching ignores case and surrounding whitespace;
-other messages and update types are acknowledged without a reply.
+sends `hello` to your bot. Send `name:your_leetcode_username` (for example,
+`name:leetcode`) to fetch the same results as
+`GET /api/user/weeklySolved/[username]` and receive a list of titles, statuses,
+languages, and problem links. The existing API returns up to 20 recent submissions;
+it does not filter them to the past seven days. Long replies are split into multiple
+Telegram messages. Matching ignores case for `hello` and the `name:` prefix,
+and allows surrounding whitespace. Other messages and update types are
+acknowledged without a reply.
 
 1. Copy `.env.example` to `.env.local` if you do not already have a local env file,
    then set `TELEGRAM_BOT_TOKEN` to your BotFather token. You can also set
@@ -25,6 +31,8 @@ other messages and update types are acknowledged without a reply.
    empty, omit the `secret_token` line. Telegram needs a publicly reachable HTTPS
    URL; `localhost` alone will not work. Restart the server after changing env values.
 4. Open a private chat with your bot and send `hello`. It should reply `welcome`.
+   Send `name:your_leetcode_username` to receive your recent submissions.
+   An empty username gets a usage message. A lookup failure gets a retry message.
 
 You can inspect delivery errors with
 `https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo`. The handler returns a
