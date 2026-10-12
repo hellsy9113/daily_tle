@@ -1,0 +1,112 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TrackingPanel, type TrackingStatus } from "@/components/tracking-panel";
+
+const initial: TrackingStatus = {
+  username: null,
+  connected: false,
+  status: "pending",
+  lastDelivery: null,
+};
+let container: HTMLDivElement;
+let root: Root;
+const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+
+beforeEach(() => {
+  environment.IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+afterEach(async () => {
+  await act(() => root.unmount());
+  container.remove();
+  vi.useRealTimers();
+  delete environment.IS_REACT_ACT_ENVIRONMENT;
+});
+async function render(status = initial) {
+  await act(() => root.render(<TrackingPanel initialStatus={status} />));
+}
+async function click(text: string) {
+  const button = [...container.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes(text),
+  );
+  expect(button).toBeDefined();
+  await act(() => button!.click());
+}
+async function enterUsername(value: string) {
+  const input = container.querySelector<HTMLInputElement>('input[name="username"]')!;
+  await act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+async function acknowledge() {
+  await act(() => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+}
+async function submit() {
+  await act(() =>
+    container
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+}
+
+describe("registration and connection interactions", () => {
+  it("keeps the typed username and acknowledgement after a recoverable failure", async () => {
+    await render();
+    await enterUsername("my_username");
+    await acknowledge();
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(
+      false,
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      Response.json({ error: "LeetCode is temporarily unavailable." }, { status: 502 }),
+    );
+    await submit();
+    expect(container.querySelector<HTMLInputElement>('input[name="username"]')!.value).toBe(
+      "my_username",
+    );
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+      "temporarily unavailable",
+    );
+  });
+  it("locks the registered username and moves keyboard focus to the next step", async () => {
+    await render();
+    await enterUsername("my_username");
+    await acknowledge();
+    vi.mocked(fetch).mockResolvedValue(Response.json({ ...initial, username: "Canonical_User" }));
+    await submit();
+    expect(container.querySelector('input[name="username"]')).toBeNull();
+    expect(container.textContent).toContain("Canonical_User");
+    expect(document.activeElement?.id).toBe("setup-title");
+    expect(container.querySelector('[role="status"]')!.textContent).toContain(
+      "permanently registered",
+    );
+  });
+  it("expires a personal link, offers regeneration, and refreshes the connection", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-13T03:00:00Z"));
+    await render({ ...initial, username: "my_username" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        url: "https://t.me/test_bot?start=private-token",
+        expiresAt: "2026-10-13T03:15:00Z",
+      }),
+    );
+    await click("Connect Telegram");
+    expect(container.querySelector('a[href^="https://t.me/"]')).not.toBeNull();
+    await act(() => vi.advanceTimersByTime(15 * 60 * 1000));
+    expect(container.querySelector('a[href^="https://t.me/"]')).toBeNull();
+    expect(container.textContent).toContain("Create new connection link");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+    );
+    await click("check connection");
+    expect(container.textContent).toContain("Connected");
+    expect(container.textContent).toContain("No daily commands needed");
+  });
+});

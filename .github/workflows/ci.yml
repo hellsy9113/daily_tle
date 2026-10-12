@@ -12,6 +12,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tracker
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tracker -d tracker_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout repository
@@ -31,3 +45,8 @@ jobs:
 
       - name: Build Next.js
         run: npm run build
+
+      - name: Verify database constraints and delivery recovery
+        run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgres://tracker:test-password@localhost:5432/tracker_test

@@ -12,12 +12,21 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "db:migrate": "node scripts/migrate.mjs",
+    "test:db": "vitest run --config vitest.database.config.mts",
+    "bot:setup": "node scripts/setup-tracking-bot.mjs"
   },
   "dependencies": {
+    "@neon/config": "^1.8.7",
+    "@neon/env": "^1.5.4",
+    "drizzle-orm": "^0.45.4",
     "next": "16.3.8",
+    "openid-client": "^6.8.8",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -26,6 +35,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "jsdom": "^27.4.0",
     "prettier": "3.9.10",
     "tailwindcss": "^4",
     "typescript": "^5",

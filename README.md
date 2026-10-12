@@ -1,7 +1,128 @@
 # LeetCode Tracker
 
 A Next.js API server that retrieves LeetCode profiles and recent submissions,
-with a Telegram bot interface. The homepage provides an accessible command guide.
+with an existing command bot and an independent daily-tracking bot. The website
+provides Telegram sign-in, permanent username registration, and account status.
+
+## Daily tracking setup
+
+Users sign in with Telegram, register one LeetCode username, and tap **Start** on
+their personal connection link. Yesterday's unique Accepted problems arrive at
+**8:30–9:30 a.m. Asia/Kolkata**. Failed or interrupted reports are retried during
+**9:30–10:30 a.m.** Daily commands are unnecessary; `/stop` pauses delivery and
+`/start` resumes the same account.
+
+The tracking bot uses `/api/telegram/tracking/webhook`. The original
+`/api/telegram/webhook`, its credentials, and all existing commands remain independent.
+
+Configure these server-side variables in `.env.local` and Vercel:
+
+| Variable                           | Purpose                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `DATABASE_URL`                     | Pooled Neon runtime connection                                              |
+| `DATABASE_URL_UNPOOLED`            | Direct connection for migrations                                            |
+| `APP_URL`                          | Canonical website origin; `https://daily-tle-ruby.vercel.app` in production |
+| `TRACKING_TELEGRAM_BOT_TOKEN`      | Second bot token, different from the existing bot                           |
+| `TRACKING_TELEGRAM_BOT_USERNAME`   | Second bot's username                                                       |
+| `TRACKING_TELEGRAM_WEBHOOK_SECRET` | Separate secret, 1–256 letters, digits, underscores, or hyphens             |
+| `TELEGRAM_LOGIN_CLIENT_ID`         | Second bot's login client ID from BotFather                                 |
+| `TELEGRAM_LOGIN_CLIENT_SECRET`     | Second bot's login client secret from BotFather                             |
+| `CRON_SECRET`                      | Random bearer secret used by Vercel cron                                    |
+| `TRACKING_REGISTRATION_ENABLED`    | `true` to open registration after setup; defaults to closed                 |
+
+In the second bot's **Login Widget** settings in BotFather, register the website
+origin and exact callback URL:
+`https://daily-tle-ruby.vercel.app/api/auth/telegram/callback`.
+For local sign-in, also allow `http://localhost:3000` and
+`http://localhost:3000/api/auth/telegram/callback`. The client ID must match the
+second bot's ID. Login uses OpenID Connect, PKCE, nonce, state, and signature
+verification; it does not request phone numbers or direct-message permission.
+
+If BotFather's chat says web login is unavailable and asks to link a website,
+use `/setdomain`, select the tracking bot, and submit `daily-tle-ruby.vercel.app`.
+That chat flow configures the legacy login widget. For this implementation's
+OpenID Connect credentials, open **BotFather's mini app → tracking bot → Login
+Widget**, add the allowed URLs there, and copy the displayed Client ID and
+Client Secret. Keep its signing algorithm at the default **RS256**.
+
+Apply the additive migrations, deploy with the variables above, and configure
+only the second webhook:
+
+```bash
+npm run db:migrate
+APP_URL=https://daily-tle-ruby.vercel.app npm run bot:setup
+```
+
+The setup script checks the second bot's identity before changing its webhook.
+To verify onboarding before general release, temporarily enable registration
+on a test deployment, sign in, register a test username, and connect the bot.
+Invoke the authenticated daily cron route to send a real report to that test
+account, then inspect the dashboard. Cron eligibility includes accounts connected
+before 8:30 a.m. IST; connections after that cutoff start the following day.
+Use a separate test bot and database branch when testing previews so the
+production webhook and registrations remain stable. Enable production registration
+after verification.
+
+### Account and delivery guarantees
+
+The first registration reserves a LeetCode username case-insensitively. Existence
+is checked, but LeetCode ownership is unverified. Usernames, Telegram identities,
+and connected private chats cannot be reassigned. Database triggers enforce
+immutability even if application validation is bypassed. Private account and
+delivery data are session-scoped; the existing public LeetCode APIs stay public.
+
+Connection links expire in 15 minutes, are single-use, store only a token hash,
+and work only for the same Telegram identity used on the website. Website sessions
+expire after 30 days and are revoked on logout. Mutation endpoints require a
+matching Origin header.
+
+The primary and recovery cron routes are protected by `CRON_SECRET`; each runs
+once daily on Vercel Hobby with hour-level scheduling precision. Fluid Compute
+and a 300-second limit are configured in `vercel.json`. Processing uses ten
+workers, five Telegram messages per second, per-chat spacing, and a 260-second
+work budget. Delivery records retain the period, prepared messages, completed
+parts, attempts, and retry delays. A database lease prevents overlapping dispatchers.
+Unfinished reports can be retried up to three times on their delivery day; older
+unfinished records are marked failed. A missed primary run is reconciled by recovery.
+
+Empty results send `hmm..no question found.do it today, I will be waiting`.
+Incomplete public history adds a coverage warning. LeetCode failures are recorded
+as failed attempts and never reported as empty results. Telegram rate limits stop
+new work until recovery; blocked chats are disabled. A crash after Telegram accepts
+a message but before progress is saved can still produce a duplicate on retry.
+The first release targets 100 users; monitor runtime and failures before increasing
+that volume or adding a queue.
+
+### Tracking API
+
+| Method | Endpoint                         | Behavior                                                           |
+| ------ | -------------------------------- | ------------------------------------------------------------------ |
+| GET    | `/api/tracking`                  | Signed-in account's username, connection, and latest report status |
+| POST   | `/api/tracking`                  | Permanently register `{ "username": "name" }`                      |
+| POST   | `/api/tracking/telegram-link`    | Create a personal bot link with its expiry                         |
+| GET    | `/api/auth/telegram/login`       | Begin Telegram sign-in                                             |
+| GET    | `/api/auth/telegram/callback`    | Verify Telegram identity and issue a session                       |
+| POST   | `/api/auth/logout`               | Revoke the current session                                         |
+| POST   | `/api/telegram/tracking/webhook` | Second bot's private-chat activation and pause/resume              |
+| GET    | `/api/cron/tracking/daily`       | Prepare and dispatch yesterday's reports                           |
+| GET    | `/api/cron/tracking/retry`       | Reconcile and resume unfinished reports                            |
+
+Unauthorized account requests return `401`, cross-origin mutations `403`, and
+registration conflicts `409`. Existing LeetCode validation and upstream error
+statuses are preserved. Account responses do not expose chat IDs or tokens.
+
+## Database verification
+
+```bash
+npm run test:db
+```
+
+Tests use `TEST_DATABASE_URL`, or the local `DATABASE_URL_UNPOOLED`, to create
+a random isolated `tracking_test_…` schema and remove only that schema afterward.
+They exercise real Postgres constraints, concurrent registrations, sessions,
+connection-token ownership and expiry, delivery leases, message-part recovery,
+blocked chats, retry delays, and a 100-user batch. All Telegram calls are mocked.
+CI runs these tests against an isolated Postgres service.
 
 ## Local development
 
@@ -30,9 +151,13 @@ app/
   api/                         HTTP entry points; validation and service calls
   globals.css                  Responsive styles and keyboard focus states
   layout.tsx                   Metadata, language, fonts, and skip link
-  page.tsx                     Telegram command guide
+  page.tsx                     Daily tracking introduction and command guide
+  tracking/                    Registration and account status
   not-found.tsx                Accessible missing-page response
 lib/
+  auth/                        Telegram OpenID Connect and hashed database sessions
+  db/                          Drizzle schema and pooled connection
+  tracking/                    Registration, second webhook, and durable daily dispatch
   http/                        Shared API errors and runtime type guards
   leetcode/
     client.ts                  GraphQL transport, timeout, and safe errors
@@ -54,6 +179,8 @@ lib/
     webhook.ts                 Authentication and webhook orchestration
     types.ts                   Message and command types
 tests/                         Unit and route integration tests with mocked HTTP
+migrations/                    Additive tracking schema and identity constraints
+scripts/                       Migration and second-bot setup commands
 .github/workflows/ci.yml        Automated checks and production build
 ```
 

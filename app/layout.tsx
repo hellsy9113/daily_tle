@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "LeetCode Tracker",
-  description: "Check your recent LeetCode submissions through Telegram.",
+  description:
+    "Register once and receive a daily recap of your solved LeetCode questions in Telegram.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

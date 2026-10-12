@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
+  "crons": [
+    { "path": "/api/cron/tracking/daily", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/tracking/retry", "schedule": "0 4 * * *" }
+  ]
+}

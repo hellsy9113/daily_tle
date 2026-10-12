@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { SiteShell } from "@/components/site-shell";
+
 const commands = [
   {
     command: "hello",
@@ -24,56 +27,53 @@ const commands = [
 
 export default function Home() {
   return (
-    <div className="page-shell">
-      <header className="site-header">
-        <span className="brand">LeetCode Tracker</span>
-        <nav aria-label="Main navigation">
-          <a href="#getting-started">Getting started</a>
-          <a href="#commands">Commands</a>
-        </nav>
-      </header>
+    <SiteShell>
+      <div className="intro">
+        <p className="eyebrow">Your practice, at a glance</p>
+        <h1>
+          Your daily LeetCode recap.
+          <br />
+          Right in Telegram.
+        </h1>
+        <p className="lead">
+          Register once. Connect Telegram. Get yesterday&apos;s solved questions delivered every
+          morning.
+        </p>
+        <Link className="button primary" href="/tracking">
+          Start tracking <span aria-hidden="true">→</span>
+        </Link>
+        <p className="hero-caption">One-time setup · Daily reports · No daily commands</p>
+      </div>
 
-      <main id="main-content" tabIndex={-1}>
-        <div className="intro">
-          <p className="eyebrow">Your practice, at a glance</p>
-          <h1>Check your LeetCode progress in Telegram.</h1>
-          <p className="lead">
-            Send your username to the bot and get your recent submissions without leaving the chat.
-          </p>
+      <section id="getting-started" aria-labelledby="getting-started-title">
+        <h2 id="getting-started-title">Prefer to check on demand?</h2>
+        <ol className="steps">
+          <li>Open a private chat with your configured Telegram bot.</li>
+          <li>
+            Send <code>name:your_leetcode_username</code>, replacing the username with yours.
+          </li>
+          <li>Read your results and follow a problem link to keep practicing.</li>
+        </ol>
+      </section>
+
+      <section id="commands" aria-labelledby="commands-title">
+        <h2 id="commands-title">Existing bot commands</h2>
+        <div className="command-grid">
+          {commands.map(({ command, title, description }) => (
+            <article className="command-card" key={command}>
+              <h3>{title}</h3>
+              <code>{command}</code>
+              <p>{description}</p>
+            </article>
+          ))}
         </div>
-
-        <section id="getting-started" aria-labelledby="getting-started-title">
-          <h2 id="getting-started-title">Getting started</h2>
-          <ol className="steps">
-            <li>Open a private chat with your configured Telegram bot.</li>
-            <li>
-              Send <code>name:your_leetcode_username</code>, replacing the username with yours.
-            </li>
-            <li>Read your results and follow a problem link to keep practicing.</li>
-          </ol>
-        </section>
-
-        <section id="commands" aria-labelledby="commands-title">
-          <h2 id="commands-title">Bot commands</h2>
-          <div className="command-grid">
-            {commands.map(({ command, title, description }) => (
-              <article className="command-card" key={command}>
-                <h3>{title}</h3>
-                <code>{command}</code>
-                <p>{description}</p>
-              </article>
-            ))}
-          </div>
-          <p className="note">
-            The name command includes recent unsuccessful attempts. Lastweek and lastday count
-            unique Accepted problems from available public history and warn when that history may
-            not cover the full period. Send one command per message. Commands accept surrounding
-            whitespace; username capitalization is preserved.
-          </p>
-        </section>
-      </main>
-
-      <footer className="site-footer">LeetCode Tracker · Telegram command guide</footer>
-    </div>
+        <p className="note">
+          The name command includes recent unsuccessful attempts. Lastweek and lastday count unique
+          Accepted problems from available public history and warn when that history may not cover
+          the full period. Send one command per message. Commands accept surrounding whitespace;
+          username capitalization is preserved.
+        </p>
+      </section>
+    </SiteShell>
   );
 }
