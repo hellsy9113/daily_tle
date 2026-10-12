@@ -29,3 +29,13 @@ query getRecentSubmissions($username: String!, $limit: Int = 20) {
     ${SUBMISSION_FIELDS}
   }
 }`;
+
+export const RECENT_ACCEPTED_SUBMISSIONS_QUERY = `#graphql
+query getRecentAcceptedSubmissions($username: String!, $limit: Int = 20) {
+  matchedUser(username: $username) { username }
+  recentAcSubmissionList(username: $username, limit: $limit) {
+    title
+    titleSlug
+    timestamp
+  }
+}`;

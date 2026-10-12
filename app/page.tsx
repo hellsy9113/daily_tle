@@ -9,6 +9,17 @@ const commands = [
     title: "Check your submissions",
     description: "Get recent problem titles, verdicts, languages, and links in the same chat.",
   },
+  {
+    command: "lastweek:your_leetcode_username",
+    title: "Review last week",
+    description:
+      "Find unique Accepted problems from the previous Monday–Sunday week in Asia/Kolkata.",
+  },
+  {
+    command: "lastday:your_leetcode_username",
+    title: "Review yesterday",
+    description: "Find unique Accepted problems from yesterday in Asia/Kolkata.",
+  },
 ];
 
 export default function Home() {
@@ -54,8 +65,10 @@ export default function Home() {
             ))}
           </div>
           <p className="note">
-            Results include up to 20 recent submissions, including unsuccessful attempts. Commands
-            accept surrounding whitespace; username capitalization is preserved.
+            The name command includes recent unsuccessful attempts. Lastweek and lastday count
+            unique Accepted problems from available public history and warn when that history may
+            not cover the full period. Send one command per message. Commands accept surrounding
+            whitespace; username capitalization is preserved.
           </p>
         </section>
       </main>

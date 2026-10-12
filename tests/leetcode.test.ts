@@ -83,6 +83,26 @@ describe("LeetCode services", () => {
 });
 
 describe("LeetCode transport", () => {
+  it("maps the real missing-user GraphQL field error to 404", async () => {
+    upstream({
+      data: { matchedUser: null, recentAcSubmissionList: [] },
+      errors: [{ message: "That user does not exist.", path: ["matchedUser"] }],
+    });
+    await expect(queryLeetCode("query", { username: "missing" })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it.each([
+    { message: "Internal resolver failure", path: ["matchedUser"] },
+    { message: "That user does not exist.", path: ["anotherField"] },
+  ])("keeps unrelated field errors as upstream failures: %j", async (error) => {
+    upstream({ data: { matchedUser: null }, errors: [error] });
+    await expect(queryLeetCode("query", { username: "user" })).rejects.toMatchObject({
+      status: 502,
+    });
+  });
+
   it.each([null, {}, { data: null }, { errors: [{ message: "private upstream details" }] }])(
     "rejects malformed or unsuccessful GraphQL envelope %j",
     async (body) => {

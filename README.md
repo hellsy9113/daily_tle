@@ -38,6 +38,10 @@ lib/
     client.ts                  GraphQL transport, timeout, and safe errors
     queries.ts                 Queries and shared submission fields
     recent-submissions.ts      Recent-submission service
+    last-week-solved.ts        Previous calendar-week solved questions
+    last-day-solved.ts         Yesterday's solved questions
+    calendar-periods.ts        Asia/Kolkata calendar boundaries
+    solved-questions.ts        Accepted-history validation, filtering, and deduplication
     user-profile.ts            Profile service and summary mapping
     validation.ts              Username and upstream-response validation
     types.ts                   API and domain types
@@ -45,6 +49,7 @@ lib/
     client.ts                  Telegram sendMessage transport
     commands.ts                Incoming update and command parsing
     format-submissions.ts      Plain-text formatting and message splitting
+    format-solved-questions.ts Calendar-period results and coverage warnings
     replies.ts                 Command replies using LeetCode services
     webhook.ts                 Authentication and webhook orchestration
     types.ts                   Message and command types
@@ -59,12 +64,14 @@ kebab-case names and named exports.
 
 ## API reference
 
-| Method | Endpoint                            | Behavior                                                      |
-| ------ | ----------------------------------- | ------------------------------------------------------------- |
-| GET    | `/api/user/[username]`              | Formatted profile, difficulty counts, and submission calendar |
-| GET    | `/api/user/weeklySolved/[username]` | Up to 20 recent submissions                                   |
-| GET    | `/api/user`                         | `400` with instructions to supply a username                  |
-| POST   | `/api/telegram/webhook`             | Process supported bot commands                                |
+| Method | Endpoint                            | Behavior                                                                 |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------ |
+| GET    | `/api/user/[username]`              | Formatted profile, difficulty counts, and submission calendar            |
+| GET    | `/api/user/weeklySolved/[username]` | Up to 20 recent submissions                                              |
+| GET    | `/api/user/lastweek/[username]`     | Unique Accepted problems from the previous calendar week in Asia/Kolkata |
+| GET    | `/api/user/lastday/[username]`      | Unique Accepted problems from yesterday in Asia/Kolkata                  |
+| GET    | `/api/user`                         | `400` with instructions to supply a username                             |
+| POST   | `/api/telegram/webhook`             | Process supported bot commands                                           |
 
 Replace `[username]` with a LeetCode username. Surrounding whitespace is trimmed;
 empty names and names containing whitespace are rejected.
@@ -73,6 +80,39 @@ empty names and names containing whitespace are rejected.
 recent submissions, with no seven-day filter or deduplication. Its response remains
 `{ "recentSubmissionList": [...] }`. The profile API preserves its existing fields,
 including `contributionPoint` and the array-valued `totalSubmissions`.
+
+### Calendar-period solved questions
+
+`lastweek` covers the previous Monday–Sunday week, and `lastday` covers yesterday,
+both in **Asia/Kolkata**. These are calendar periods, rather than rolling seven-day
+or 24-hour windows. The start is inclusive and the end is exclusive; both are
+serialized as UTC ISO timestamps.
+
+The services request the 20 most recent public **Accepted** submissions and count
+each `titleSlug` once within the selected period. Re-solving an older problem
+qualifies. Each question retains its newest Accepted timestamp within the period,
+and questions are ordered newest first.
+
+Both endpoints return this shape:
+
+```json
+{
+  "username": "example",
+  "period": "lastweek",
+  "timezone": "Asia/Kolkata",
+  "start": "2026-10-04T18:30:00.000Z",
+  "end": "2026-10-11T18:30:00.000Z",
+  "count": 1,
+  "questions": [{ "title": "Two Sum", "titleSlug": "two-sum", "timestamp": "1791455400" }],
+  "mayBeIncomplete": true
+}
+```
+
+That example covers 5–11 October 2026 in Asia/Kolkata. `period` is `lastweek` or
+`lastday`; `count` describes matching unique problems found in available history.
+`mayBeIncomplete` is false only when a returned entry predates the period's start.
+Otherwise it is true, including when public history is empty. Partial results still
+return `200`; do not interpret an incomplete result as a complete period total.
 
 API errors use `{ "error": "message" }`:
 
@@ -113,13 +153,20 @@ to `localhost` alone. See the [Telegram Bot API](https://core.telegram.org/bots/
 
 Send these messages in a private chat with your bot:
 
-| Message                       | Reply                                                      |
-| ----------------------------- | ---------------------------------------------------------- |
-| `hello`                       | `welcome`                                                  |
-| `name:your_leetcode_username` | Recent submissions, verdicts, languages, and problem links |
-| `name:`                       | Usage instructions                                         |
+| Message                           | Reply                                                         |
+| --------------------------------- | ------------------------------------------------------------- |
+| `hello`                           | `welcome`                                                     |
+| `name:your_leetcode_username`     | Recent submissions, verdicts, languages, and problem links    |
+| `lastweek:your_leetcode_username` | Unique Accepted problems from the previous Monday–Sunday week |
+| `lastday:your_leetcode_username`  | Unique Accepted problems from yesterday                       |
+| `name:`                           | Usage instructions                                            |
 
 The command prefix is case-insensitive; username capitalization is preserved.
+Send one command per message. Empty usernames and semicolon batches such as
+`lastweek:example; lastday:example` receive usage instructions. The period replies
+include calendar dates, timezone, a unique count, problem titles and links, and a
+coverage warning when results may be incomplete. Empty results say no matching
+problems were found in available public history.
 Other messages and non-text updates are acknowledged without a reply. Replies are
 split at Telegram's message-length limit while preserving complete emoji.
 
@@ -168,7 +215,9 @@ The homepage includes a skip link to the main content and wrapping command text.
 3. Deploy or redeploy after saving variables; changes apply to new deployments.
    See [Vercel's environment variable documentation](https://vercel.com/docs/environment-variables).
 4. Register your production URL with Telegram using the command above, then test
-   `hello` and `name:your_leetcode_username` in Telegram.
+   `hello`, `name:your_leetcode_username`, `lastweek:your_leetcode_username`, and
+   `lastday:your_leetcode_username` in Telegram. An existing webhook registration
+   continues to use the same URL after redeployment.
 
 If a token was shared or committed, regenerate it through BotFather and update
 both local and deployed configuration before registering the webhook again.

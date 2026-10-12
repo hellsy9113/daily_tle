@@ -22,6 +22,27 @@ export interface RecentSubmissions {
   recentSubmissionList: Submission[];
 }
 
+export interface AcceptedSubmission {
+  title: string;
+  titleSlug: string;
+  /** Unix seconds, retained in LeetCode's string format. */
+  timestamp: string;
+}
+
+export type SolvedPeriod = "lastweek" | "lastday";
+
+export interface SolvedQuestionsResult {
+  username: string;
+  period: SolvedPeriod;
+  timezone: "Asia/Kolkata";
+  /** UTC ISO boundaries: start is inclusive and end is exclusive. */
+  start: string;
+  end: string;
+  count: number;
+  questions: AcceptedSubmission[];
+  mayBeIncomplete: boolean;
+}
+
 export interface SubmissionStats {
   acSubmissionNum: SubmissionCount[];
   totalSubmissionNum: SubmissionCount[];

@@ -18,10 +18,25 @@ export function parseTextMessage(update: unknown): TelegramTextMessage | null {
 
 export function parseCommand(value: string): BotCommand {
   const text = value.trim();
+  if (text.includes(";") && /^(hello\s*;|(?:name|lastweek|lastday)\s*:)/i.test(text)) {
+    return { type: "usage" };
+  }
   if (text.toLowerCase() === "hello") return { type: "greeting" };
-  if (!/^name\s*:/i.test(text)) return { type: "ignored" };
+  const match = /^(name|lastweek|lastday)\s*:/i.exec(text);
+  if (!match) return { type: "ignored" };
+
   try {
-    return { type: "submissions", username: parseUsername(text.slice(text.indexOf(":") + 1)) };
+    const username = parseUsername(text.slice(text.indexOf(":") + 1));
+    switch (match[1].toLowerCase()) {
+      case "name":
+        return { type: "submissions", username };
+      case "lastweek":
+        return { type: "lastweek", username };
+      case "lastday":
+        return { type: "lastday", username };
+      default:
+        return { type: "ignored" };
+    }
   } catch {
     return { type: "usage" };
   }
