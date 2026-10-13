@@ -1,9 +1,25 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import postgres from "postgres";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db, closeDatabase } from "@/lib/db/client";
-import { accounts, connectionTokens, deliveries, sessions } from "@/lib/db/schema";
+import {
+  accounts,
+  acceptedActivity,
+  activityDays,
+  connectionTokens,
+  deliveries,
+  sessions,
+} from "@/lib/db/schema";
+import { getAcceptedHistory } from "@/lib/leetcode/accepted-history";
+import { getAccountActivity } from "@/lib/activity/service";
+import { observeAcceptedHistory } from "@/lib/activity/observations";
+import {
+  claimActivitySync,
+  readActivity,
+  saveActivitySync,
+  writeActivityObservation,
+} from "@/lib/activity/store";
 import { accountForToken, createSession, revokeSession } from "@/lib/auth/session";
 import { getLeetCodeIdentity } from "@/lib/leetcode/user-identity";
 import { getLastDaySolvedQuestions } from "@/lib/leetcode/last-day-solved";
@@ -15,6 +31,7 @@ import {
   acquireDispatchLock,
   claimDelivery,
   prepareDeliveries,
+  prepareDeliveryReport,
   releaseDispatchLock,
 } from "@/lib/tracking/delivery-store";
 import { dispatchTracking } from "@/lib/tracking/dispatch";
@@ -24,6 +41,7 @@ vi.mock("@/lib/leetcode/user-identity", () => ({
   getLeetCodeIdentity: vi.fn(async (username: string) => username),
 }));
 vi.mock("@/lib/leetcode/last-day-solved", () => ({ getLastDaySolvedQuestions: vi.fn() }));
+vi.mock("@/lib/leetcode/accepted-history", () => ({ getAcceptedHistory: vi.fn() }));
 vi.mock("@/lib/tracking/telegram-client", async (original) => ({
   ...(await original<typeof import("@/lib/tracking/telegram-client")>()),
   sendTrackingMessage: vi.fn(async () => {}),
@@ -41,11 +59,19 @@ const admin = postgres(process.env.DATABASE_URL!, {
 const now = new Date("2026-10-13T03:00:00Z");
 
 beforeAll(async () => {
-  const migration = (await readFile("migrations/0001_tracking.sql", "utf8")).replace(
-    /\btracking\b/g,
-    namespace,
+  for (const filename of (await readdir("migrations"))
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
+    const migration = (await readFile(`migrations/${filename}`, "utf8")).replace(
+      /\btracking\b/g,
+      namespace,
+    );
+    await admin.unsafe(migration);
+  }
+  // Postgres's real clock cannot be mocked by Vitest. Match this test-only default to the fixed clock.
+  await admin.unsafe(
+    `ALTER TABLE ${namespace}.deliveries ALTER COLUMN next_attempt_at SET DEFAULT '${now.toISOString()}'::timestamptz`,
   );
-  await admin.unsafe(migration);
 });
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -63,6 +89,7 @@ beforeEach(async () => {
   vi.mocked(getLeetCodeIdentity).mockImplementation(async (username) => username);
   vi.mocked(sendTrackingMessage).mockResolvedValue();
   vi.mocked(getLastDaySolvedQuestions).mockRejectedValue(new ApiError(502, "Upstream unavailable"));
+  vi.mocked(getAcceptedHistory).mockResolvedValue({ username: "user_101", submissions: [] });
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -92,6 +119,176 @@ async function activeAccount(telegramId = 101) {
   return result;
 }
 const startToken = (url: string) => new URL(url).searchParams.get("start")!;
+
+const accepted = (titleSlug: string, instant: string) => ({
+  title: titleSlug,
+  titleSlug,
+  timestamp: String(Date.parse(instant) / 1000),
+});
+const record = (accountId: string, history: ReturnType<typeof accepted>[], at = now) =>
+  db().transaction((tx) =>
+    writeActivityObservation(tx, accountId, observeAcceptedHistory(history, at)),
+  );
+const onDay = (result: Awaited<ReturnType<typeof readActivity>>, date: string) =>
+  result.days.find((day) => day.date === date)!;
+
+describe("account-scoped Accepted activity", () => {
+  it("deduplicates per account and day, retains newest titles, and counts unique problems across days", async () => {
+    const first = await activeAccount(101);
+    const second = await activeAccount(102);
+    const history = [
+      accepted("two-sum", "2026-10-11T01:00:00Z"),
+      accepted("two-sum", "2026-10-11T02:00:00Z"),
+      accepted("two-sum", "2026-10-12T02:00:00Z"),
+      accepted("other", "2026-10-12T02:01:00Z"),
+    ];
+    await record(first.id, history);
+    await record(first.id, history.slice(0, 1));
+    await record(second.id, [accepted("private-other", "2026-10-12T02:00:00Z")]);
+    const result = await readActivity(first, now);
+    expect(onDay(result, "2026-10-11").count).toBe(1);
+    expect(onDay(result, "2026-10-12").count).toBe(2);
+    expect(result.uniqueQuestions).toBe(2);
+    expect(result.activeDays).toBe(2);
+    const rows = await db()
+      .select()
+      .from(acceptedActivity)
+      .where(eq(acceptedActivity.accountId, first.id));
+    expect(rows).toHaveLength(3);
+    expect(rows.find((row) => row.date === "2026-10-11")?.acceptedAt.toISOString()).toBe(
+      "2026-10-11T02:00:00.000Z",
+    );
+    expect((await readActivity(second, now)).uniqueQuestions).toBe(1);
+  });
+  it("marks the earliest day partial and covered later days complete, including confirmed zero days", async () => {
+    const user = await activeAccount();
+    await record(user.id, [accepted("first", "2026-10-11T02:00:00Z")]);
+    const result = await readActivity(user, now);
+    expect(onDay(result, "2026-10-10")).toMatchObject({ coverage: "unknown", count: 0 });
+    expect(onDay(result, "2026-10-11")).toMatchObject({ coverage: "partial", count: 1 });
+    expect(onDay(result, "2026-10-12")).toMatchObject({ coverage: "complete", count: 0 });
+    expect(onDay(result, "2026-10-13").coverage).toBe("complete");
+  });
+  it("does not freeze today's coverage at midnight when the following observation has a gap", async () => {
+    const user = await activeAccount();
+    const earlier = new Date("2026-10-12T03:00:00Z");
+    await record(user.id, [accepted("old", "2026-10-11T02:00:00Z")], earlier);
+    expect(onDay(await readActivity(user, earlier), "2026-10-12").coverage).toBe("complete");
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("partial");
+    await record(user.id, [accepted("new", "2026-10-12T10:00:00Z")]);
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("partial");
+    await record(user.id, [accepted("bridge", "2026-10-12T02:59:59Z")]);
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("complete");
+  });
+  it("never promotes empty history to proven zero or discards coverage after an older refresh", async () => {
+    const user = await activeAccount();
+    await record(user.id, []);
+    expect(onDay(await readActivity(user, now), "2026-10-13")).toMatchObject({
+      count: 0,
+      coverage: "partial",
+    });
+    await record(user.id, [accepted("old", "2026-10-11T02:00:00Z")]);
+    await record(user.id, [], new Date("2026-10-12T03:00:00Z"));
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("complete");
+  });
+  it("enforces the IST day in the database and rolls back observations for a lost lease", async () => {
+    const user = await activeAccount();
+    await expect(
+      db()
+        .insert(acceptedActivity)
+        .values({
+          accountId: user.id,
+          date: "2026-10-12",
+          titleSlug: "wrong-day",
+          title: "Wrong day",
+          acceptedAt: new Date("2026-10-12T18:30:00Z"),
+        }),
+    ).rejects.toThrow();
+    await claimActivitySync(user.id, "owner", now);
+    await expect(
+      saveActivitySync(
+        user.id,
+        "forged",
+        observeAcceptedHistory([accepted("never-committed", "2026-10-12T02:00:00Z")], now),
+      ),
+    ).rejects.toThrow("lease expired");
+    expect(await db().select().from(acceptedActivity)).toHaveLength(0);
+    expect(await db().select().from(activityDays)).toHaveLength(0);
+  });
+  it("leases and throttles simultaneous refreshes without leaking another account's activity", async () => {
+    const user = await activeAccount();
+    const other = await activeAccount(102);
+    const claims = await Promise.all([
+      claimActivitySync(user.id, "first", now),
+      claimActivitySync(user.id, "second", now),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await saveActivitySync(
+      user.id,
+      claims[0] ? "first" : "second",
+      observeAcceptedHistory([accepted("own", "2026-10-12T02:00:00Z")], now),
+    );
+    expect(await claimActivitySync(user.id, "early", new Date(now.getTime() + 59_000))).toBe(false);
+    expect((await getAccountActivity(user, now)).uniqueQuestions).toBe(1);
+    expect(getAcceptedHistory).not.toHaveBeenCalled();
+    expect((await readActivity(other, now)).uniqueQuestions).toBe(0);
+    expect(await claimActivitySync(user.id, "later", new Date(now.getTime() + 60_000))).toBe(true);
+  });
+  it("serves saved activity after upstream failure and backs off retries", async () => {
+    const user = await activeAccount();
+    vi.mocked(getAcceptedHistory).mockResolvedValueOnce({
+      username: user.leetcodeUsername!,
+      submissions: [accepted("known", "2026-10-12T02:00:00Z")],
+    });
+    expect((await getAccountActivity(user, now)).uniqueQuestions).toBe(1);
+    vi.mocked(getAcceptedHistory).mockRejectedValueOnce(new ApiError(504, "Timed out"));
+    const later = new Date(now.getTime() + 60_000);
+    expect(await getAccountActivity(user, later)).toMatchObject({
+      uniqueQuestions: 1,
+      refreshFailed: true,
+      refreshing: false,
+    });
+    expect((await getAccountActivity(user, new Date(later.getTime() + 10_000))).refreshFailed).toBe(
+      true,
+    );
+    expect(getAcceptedHistory).toHaveBeenCalledTimes(2);
+  });
+  it("keeps first-refresh failures as errors and requires a registered connection", async () => {
+    const pending = await account(102, "not-connected");
+    await expect(getAccountActivity(pending, now)).rejects.toMatchObject({ status: 409 });
+    const user = await activeAccount();
+    vi.mocked(getAcceptedHistory).mockRejectedValue(new ApiError(502, "Malformed history"));
+    await expect(getAccountActivity(user, now)).rejects.toMatchObject({ status: 502 });
+    await expect(getAccountActivity(user, now)).rejects.toMatchObject({ status: 502 });
+    expect(await db().select().from(acceptedActivity)).toHaveLength(0);
+    expect(getAcceptedHistory).toHaveBeenCalledTimes(1);
+  });
+  it("saves report observations atomically with prepared messages and resumes without losing the calendar", async () => {
+    const user = await activeAccount();
+    await prepareDeliveries(now);
+    const delivery = (await claimDelivery("2026-10-12", now))!;
+    const result = {
+      username: "user_101",
+      period: "lastday" as const,
+      timezone: "Asia/Kolkata" as const,
+      start: "2026-10-11T18:30:00Z",
+      end: "2026-10-12T18:30:00Z",
+      count: 1,
+      questions: [accepted("two-sum", "2026-10-12T02:00:00Z")],
+      mayBeIncomplete: false,
+    };
+    await expect(
+      prepareDeliveryReport({ ...delivery, leaseToken: "forged" }, ["report"], result),
+    ).rejects.toThrow();
+    expect(await db().select().from(acceptedActivity)).toHaveLength(0);
+    await prepareDeliveryReport(delivery, ["report"], result);
+    expect(onDay(await readActivity(user, now), "2026-10-12")).toMatchObject({
+      count: 1,
+      coverage: "complete",
+    });
+    expect((await db().select().from(deliveries))[0].messages).toEqual(["report"]);
+  });
+});
 
 describe("registration and database invariants", () => {
   it("saves the canonical name once and rejects subsequent edits", async () => {

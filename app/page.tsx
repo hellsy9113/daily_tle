@@ -37,12 +37,12 @@ export default function Home() {
         </h1>
         <p className="lead">
           Register once. Connect Telegram. Get yesterday&apos;s solved questions delivered every
-          morning.
+          morning, and follow your Accepted activity on a daily calendar.
         </p>
         <Link className="button primary" href="/tracking">
           Start tracking <span aria-hidden="true">→</span>
         </Link>
-        <p className="hero-caption">One-time setup · Daily reports · No daily commands</p>
+        <p className="hero-caption">One-time setup · Daily reports · Your practice calendar</p>
       </div>
 
       <section id="getting-started" aria-labelledby="getting-started-title">

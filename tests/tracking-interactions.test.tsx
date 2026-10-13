@@ -4,6 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TrackingPanel, type TrackingStatus } from "@/components/tracking-panel";
 
+const replace = vi.hoisted(() => vi.fn());
+const router = { replace };
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+
 const initial: TrackingStatus = {
   username: null,
   connected: false,
@@ -15,6 +19,7 @@ let root: Root;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
 beforeEach(() => {
+  replace.mockClear();
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.append(container);
@@ -108,5 +113,41 @@ describe("registration and connection interactions", () => {
     await click("check connection");
     expect(container.textContent).toContain("Connected");
     expect(container.textContent).toContain("No daily commands needed");
+    expect(replace).toHaveBeenCalledWith("/dashboard");
+  });
+  it("checks on return from Telegram and redirects a connected account", async () => {
+    await render({ ...initial, username: "my_username" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        url: "https://t.me/test_bot?start=token",
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      }),
+    );
+    await click("Connect Telegram");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+    );
+    await act(() => window.dispatchEvent(new Event("focus")));
+    expect(fetch).toHaveBeenLastCalledWith("/api/tracking", { cache: "no-store" });
+    expect(replace).toHaveBeenCalledWith("/dashboard");
+  });
+  it("polls briefly while waiting for Start and stops after connecting", async () => {
+    vi.useFakeTimers();
+    await render({ ...initial, username: "my_username" });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        url: "https://t.me/test_bot?start=token",
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      }),
+    );
+    await click("Connect Telegram");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+    );
+    await act(() => vi.advanceTimersByTime(5000));
+    expect(replace).toHaveBeenCalledWith("/dashboard");
+    const count = vi.mocked(fetch).mock.calls.length;
+    await act(() => vi.advanceTimersByTime(60_000));
+    expect(fetch).toHaveBeenCalledTimes(count);
   });
 });

@@ -11,6 +11,11 @@
   --accent: #171717;
   --error: #b91c1c;
   --success: #166534;
+  --activity-0: #ebedf0;
+  --activity-1: #a5ddb0;
+  --activity-2: #59b975;
+  --activity-3: #268744;
+  --activity-4: #145c2c;
 }
 @theme inline {
   --color-background: var(--background);
@@ -29,6 +34,11 @@
     --accent: #ededed;
     --error: #fca5a5;
     --success: #86efac;
+    --activity-0: #20252b;
+    --activity-1: #104c29;
+    --activity-2: #19733c;
+    --activity-3: #2da44e;
+    --activity-4: #56d364;
   }
 }
 * {
@@ -254,6 +264,199 @@ button:disabled {
 }
 .tracking-intro h1 {
   font-size: clamp(2.25rem, 4vw, 3.25rem);
+}
+.dashboard-layout {
+  padding-block: clamp(2rem, 6vw, 4rem);
+}
+.bot-status-panel,
+.activity-panel {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  min-width: 0;
+}
+.activity-panel {
+  margin-top: 2rem;
+}
+.bot-status-heading,
+.activity-heading,
+.dashboard-actions,
+.calendar-caption,
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.dashboard-actions {
+  gap: 1.25rem;
+}
+.bot-status-heading .eyebrow {
+  margin-bottom: 0.4rem;
+}
+.bot-status-details,
+.activity-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-block: 1.5rem;
+}
+.bot-status-details dt,
+.activity-stats dt {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.bot-status-details dd,
+.activity-stats dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+.activity-heading h1 {
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  margin: 0;
+  letter-spacing: -0.04em;
+}
+.activity-heading .eyebrow {
+  margin-bottom: 0.5rem;
+}
+.activity-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--border);
+  padding-block: 1.25rem;
+  margin-block: 1.5rem 2rem;
+}
+.activity-stats dd {
+  font-size: 1.5rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.activity-stats dd span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.calendar-scroll {
+  overflow-x: auto;
+  padding: 6px;
+  margin-inline: -6px;
+}
+.calendar {
+  --calendar-cell: 13px;
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  margin-inline: auto;
+}
+.calendar-months {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  height: 22px;
+}
+.calendar-months span {
+  overflow: visible;
+}
+.calendar-months,
+.calendar-weekdays {
+  font-size: 0.625rem;
+  color: var(--muted);
+}
+.calendar-week,
+.calendar-weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, var(--calendar-cell));
+  gap: 4px;
+  align-items: center;
+}
+.calendar-day,
+.legend-cell {
+  display: block;
+  width: var(--calendar-cell, 13px);
+  height: var(--calendar-cell, 13px);
+  border: 1px solid var(--control-border);
+  border-radius: 3px;
+  padding: 0;
+}
+.calendar-day[aria-pressed="true"] {
+  outline: 1px solid var(--foreground);
+  outline-offset: 2px;
+}
+.calendar-day:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+.activity-level-0 {
+  background: var(--activity-0);
+}
+.activity-level-1 {
+  background: var(--activity-1);
+}
+.activity-level-2 {
+  background: var(--activity-2);
+}
+.activity-level-3 {
+  background: var(--activity-3);
+}
+.activity-level-4 {
+  background: var(--activity-4);
+}
+.activity-unknown {
+  background: repeating-linear-gradient(135deg, var(--surface) 0 3px, var(--border) 3px 4px);
+}
+.activity-partial {
+  border: 1px dotted var(--foreground);
+}
+.calendar-caption {
+  align-items: start;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.calendar-caption p {
+  margin: 0;
+  flex: 1 1 300px;
+}
+.calendar-legend {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.calendar-legend span:first-child {
+  margin-right: 4px;
+}
+.calendar-legend span:last-child {
+  margin-left: 4px;
+}
+.activity-coverage,
+.activity-empty-note {
+  margin-top: 1.5rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  max-width: 90ch;
+}
+.activity-empty,
+.dashboard-loading {
+  padding-block: 3rem;
+  text-align: center;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .bot-status-details {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .activity-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .calendar {
+    --calendar-cell: 18px;
+  }
+  .activity-heading > .field-help {
+    margin: 0;
+  }
 }
 .setup-steps {
   display: grid;

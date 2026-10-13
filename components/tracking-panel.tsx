@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export interface TrackingStatus {
   username: string | null;
@@ -28,6 +29,8 @@ const friendlyDate = (value: string) =>
   }).format(new Date(`${value}T12:00:00+05:30`));
 
 export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus }) {
+  const router = useRouter();
+  const checking = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const [status, setStatus] = useState(initialStatus);
   const [username, setUsername] = useState("");
@@ -50,19 +53,43 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
     return () => clearInterval(timer);
   }, [link]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
     setRefreshing(true);
     setError("");
     try {
-      setStatus(await api<TrackingStatus>("/api/tracking"));
+      const next = await api<TrackingStatus>("/api/tracking");
+      setStatus(next);
+      if (next.username && next.connected) router.replace("/dashboard");
     } catch (failure) {
       setError(
         failure instanceof Error ? failure.message : "Could not refresh tracking. Try again.",
       );
     } finally {
       setRefreshing(false);
+      checking.current = false;
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    if (!link || expired || status.connected) return;
+    const started = Date.now();
+    const check = () => {
+      if (document.visibilityState === "visible" && Date.now() < Date.parse(link.expiresAt))
+        void refresh();
+    };
+    const timer = setInterval(() => {
+      if (Date.now() - started < 120_000) check();
+    }, 5000);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [link, expired, status.connected, refresh]);
 
   async function register(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -217,7 +244,8 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
                     Open Telegram and tap Start <span aria-hidden="true">↗</span>
                   </a>
                   <p className="field-help" role="status">
-                    This personal link expires in 15 minutes.
+                    This personal link expires in 15 minutes. Return here after Start; we’ll check
+                    your connection automatically.
                   </p>
                 </>
               ) : (

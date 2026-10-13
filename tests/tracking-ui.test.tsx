@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TrackingPanel, type TrackingStatus } from "@/components/tracking-panel";
 import { SiteShell } from "@/components/site-shell";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 
 const initial: TrackingStatus = {
   username: null,

@@ -9,6 +9,7 @@ import {
   deliveryIsActive,
   failDelivery,
   prepareDeliveries,
+  prepareDeliveryReport,
   releaseDispatchLock,
   updateDelivery,
   type ClaimedDelivery,
@@ -57,7 +58,7 @@ export async function dispatchTracking({
           // Retry against the stored calendar period, even if the wall clock changes.
           const result = await getLastDaySolvedQuestions(delivery.username, new Date(delivery.end));
           messages = formatDailyReport(result);
-          await updateDelivery(delivery, { messages });
+          await prepareDeliveryReport(delivery, messages, result);
         }
         for (let index = delivery.sentParts; index < messages.length; index++) {
           ensureTime();

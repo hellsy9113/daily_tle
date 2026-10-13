@@ -2,7 +2,7 @@
 
 A Next.js API server that retrieves LeetCode profiles and recent submissions,
 with an existing command bot and an independent daily-tracking bot. The website
-provides Telegram sign-in, permanent username registration, and account status.
+provides Telegram sign-in, permanent username registration, and an Accepted-activity dashboard.
 
 ## Daily tracking setup
 
@@ -11,6 +11,41 @@ their personal connection link. Yesterday's unique Accepted problems arrive at
 **8:30–9:30 a.m. Asia/Kolkata**. Failed or interrupted reports are retried during
 **9:30–10:30 a.m.** Daily commands are unnecessary; `/stop` pauses delivery and
 `/start` resumes the same account.
+
+After connecting the bot, setup redirects to `/dashboard`: bot status at the top,
+a 365-day calendar in the center. Returning from Telegram checks the connection
+automatically; the manual check remains available. Connected accounts visiting
+`/tracking` go straight to their dashboard, including paused or blocked accounts.
+
+### Accepted-activity calendar
+
+Every day uses Asia/Kolkata boundaries and counts distinct Accepted `titleSlug`s.
+Re-solving a problem on another day counts for that day; repeated accepts on the
+same day count once. The unique-problems summary deduplicates across the full
+displayed range. Green intensity represents 1, 2–3, 4–7, and 8+ problems.
+
+The authenticated `GET /api/tracking/activity` reads only the session account's
+fixed username. It reuses `recentAcSubmissionList(limit: 20)` with public user
+existence information, validates responses through the shared Accepted-history
+service, and persists observations. One refresh per account per minute is enforced
+with a database lease. Daily-report preparation also saves its Accepted problems
+and coverage in the same transaction as its message parts.
+
+Public history is limited: the live API returns at most 20 entries even when
+asked for 100. Complete historical unique Accepted activity cannot be reconstructed
+from the submission calendar, which lacks problem identities. Unavailable days are
+hatched, partial days have dotted borders, and counts/streaks are lower bounds when
+coverage is incomplete. Empty history never proves a zero-solve day. Overlapping
+observations extend known coverage; missing intervals remain unknown. Today reflects
+the latest observation, while a completed day requires coverage through midnight.
+Saved activity remains visible when a refresh fails. Keyboard users can navigate
+the calendar with arrow keys, Home, and End; each day exposes its date, count, and
+coverage to screen readers.
+
+Migration `0002_accepted_activity.sql` adds three account-scoped tables:
+`accepted_activity` (one problem per day), `activity_days` (coverage), and
+`activity_sync` (refresh state and leases). No new credentials or dependencies are
+required. Apply migrations before deploying this dashboard update.
 
 The tracking bot uses `/api/telegram/tracking/webhook`. The original
 `/api/telegram/webhook`, its credentials, and all existing commands remain independent.

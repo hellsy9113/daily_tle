@@ -13,6 +13,9 @@ import {
 } from "@/lib/db/schema";
 import { getPreviousCalendarPeriod } from "@/lib/leetcode/calendar-periods";
 import { randomToken } from "./security";
+import { writeActivityObservation } from "@/lib/activity/store";
+import { observeSolvedPeriod } from "@/lib/activity/observations";
+import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
@@ -141,6 +144,32 @@ export async function updateDelivery(
     )
     .returning({ id: deliveries.id });
   if (!result.length) throw new Error("Delivery is no longer leased.");
+}
+
+export async function prepareDeliveryReport(
+  delivery: ClaimedDelivery,
+  messages: string[],
+  result: SolvedQuestionsResult,
+) {
+  await db().transaction(async (transaction) => {
+    await writeActivityObservation(
+      transaction,
+      delivery.accountId,
+      observeSolvedPeriod(result, new Date()),
+    );
+    const rows = await transaction
+      .update(deliveries)
+      .set({ messages })
+      .where(
+        and(
+          eq(deliveries.id, delivery.id),
+          eq(deliveries.leaseToken, delivery.leaseToken!),
+          eq(deliveries.status, "sending"),
+        ),
+      )
+      .returning({ id: deliveries.id });
+    if (!rows.length) throw new Error("Delivery is no longer leased.");
+  });
 }
 
 export async function failDelivery(delivery: ClaimedDelivery, reason: string, retryAfter = 60) {

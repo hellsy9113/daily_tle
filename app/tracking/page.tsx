@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
 import { TrackingPanel } from "@/components/tracking-panel";
 import { serverAccount } from "@/lib/auth/session";
@@ -23,6 +24,7 @@ export default async function TrackingPage({
   } catch {
     unavailable = true;
   }
+  if (status?.username && status.connected) redirect("/dashboard");
   return (
     <SiteShell signedIn={Boolean(account)}>
       <div className="tracking-layout">

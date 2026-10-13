@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -105,6 +106,45 @@ export const dispatchLock = tracking.table("dispatch_lock", {
   token: text("token").notNull(),
   expiresAt: time("expires_at").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+});
+
+export const acceptedActivity = tracking.table(
+  "accepted_activity",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    date: date("activity_date").notNull(),
+    titleSlug: text("title_slug").notNull(),
+    title: text("title").notNull(),
+    acceptedAt: time("accepted_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.date, table.titleSlug] })],
+);
+
+export const activityDays = tracking.table(
+  "activity_days",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    date: date("activity_date").notNull(),
+    observedFrom: time("observed_from"),
+    observedUntil: time("observed_until").notNull(),
+    coveredUntil: time("covered_until"),
+    checkedAt: time("checked_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+);
+
+export const activitySync = tracking.table("activity_sync", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id),
+  refreshedAt: time("refreshed_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: time("lease_until"),
+  lastError: integer("last_error"),
 });
 
 export type Account = typeof accounts.$inferSelect;

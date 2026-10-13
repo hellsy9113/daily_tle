@@ -17,7 +17,9 @@ export function SiteShell({
           LeetCode Tracker
         </Link>
         <nav aria-label="Main navigation">
-          <Link href="/tracking">Tracking</Link>
+          <Link href={signedIn ? "/dashboard" : "/tracking"}>
+            {signedIn ? "Dashboard" : "Tracking"}
+          </Link>
           <Link href="/#commands">Commands</Link>
           {signedIn && (
             <form action="/api/auth/logout" method="post">
