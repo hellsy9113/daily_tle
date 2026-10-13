@@ -32,6 +32,7 @@ let overrides: Record<string, unknown>;
 let wrongSignature: boolean;
 let tokenError: string | undefined;
 let attempt: { state: string; nonce: string; verifier: string };
+const loginSecret = "client-secret_with-punctuation";
 
 beforeEach(() => {
   vi.stubEnv("APP_URL", "http://localhost:3000");
@@ -41,7 +42,7 @@ beforeEach(() => {
   vi.stubEnv("TRACKING_TELEGRAM_BOT_USERNAME", "second_bot");
   vi.stubEnv("TRACKING_TELEGRAM_WEBHOOK_SECRET", "second-secret");
   vi.stubEnv("TELEGRAM_LOGIN_CLIENT_ID", "42");
-  vi.stubEnv("TELEGRAM_LOGIN_CLIENT_SECRET", "client-secret");
+  vi.stubEnv("TELEGRAM_LOGIN_CLIENT_SECRET", loginSecret);
   overrides = {};
   wrongSignature = false;
   tokenError = undefined;
@@ -49,7 +50,7 @@ beforeEach(() => {
   database.returning.mockImplementation(async () => [attempt]);
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("/.well-known/openid-configuration"))
         return Response.json({
@@ -64,6 +65,13 @@ beforeEach(() => {
         });
       if (url.endsWith("/.well-known/jwks.json")) return Response.json({ keys: [jwk] });
       if (url.endsWith("/token")) {
+        const body = new URLSearchParams(String(init?.body));
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (
+          body.get("client_id") !== "42" ||
+          authorization !== `Basic ${Buffer.from(`42:${loginSecret}`).toString("base64")}`
+        )
+          return Response.json({ error: "invalid_client" });
         if (tokenError) return Response.json({ error: tokenError });
         const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test-key" })).toString(
           "base64url",
@@ -121,6 +129,24 @@ describe("Telegram OpenID Connect", () => {
     const { login, callback } = await begin();
     expect((await finishTelegramLogin(callback, login.token)).telegramId).toBe(123);
     expect(database.values).toHaveBeenLastCalledWith({ telegramId: 123 });
+  });
+  it("sends Telegram's client ID in the form and raw punctuation in Basic credentials", async () => {
+    const { login, callback } = await begin();
+    await finishTelegramLogin(callback, login.token);
+    const request = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/token"));
+    expect(request).toBeDefined();
+    const body = new URLSearchParams(String(request?.[1]?.body));
+    expect(Object.fromEntries(body)).toEqual({
+      client_id: "42",
+      grant_type: "authorization_code",
+      code: "test-code",
+      redirect_uri: "http://localhost:3000/api/auth/telegram/callback",
+      code_verifier: attempt.verifier,
+    });
+    expect(new Headers(request?.[1]?.headers).get("authorization")).toBe(
+      `Basic ${Buffer.from(`42:${loginSecret}`).toString("base64")}`,
+    );
+    expect(body.has("client_secret")).toBe(false);
   });
   it.each([
     { nonce: "wrong" },
