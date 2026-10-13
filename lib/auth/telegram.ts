@@ -59,16 +59,17 @@ async function configuration() {
 }
 
 export function telegramUserId(claims: Record<string, unknown>): number {
-  if (
-    typeof claims.sub !== "string" ||
-    !claims.sub ||
-    typeof claims.id !== "number" ||
-    !Number.isSafeInteger(claims.id) ||
-    claims.id <= 0
-  )
-    throw new TelegramLoginFailure("identity", "invalid_telegram_identity");
+  if (typeof claims.sub !== "string" || !claims.sub)
+    throw new TelegramLoginFailure("identity", "telegram_subject_invalid");
+  const rawId = claims.id;
+  const id = typeof rawId === "string" && /^[1-9]\d*$/.test(rawId) ? Number(rawId) : rawId;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)
+    throw new TelegramLoginFailure(
+      "identity",
+      rawId == null ? "telegram_id_missing" : "telegram_id_invalid",
+    );
   // OIDC sub is opaque; the profile's id is the Bot API user identifier.
-  return claims.id;
+  return id;
 }
 
 export async function beginTelegramLogin() {

@@ -126,11 +126,15 @@ describe("Telegram OpenID Connect", () => {
     expect(login.url.searchParams.get("scope")).toBe("openid profile");
     expect(database.values.mock.calls[0][0]).not.toHaveProperty("token", login.token);
   });
-  it("verifies a signed token and uses the Bot API id rather than OIDC sub", async () => {
-    const { login, callback } = await begin();
-    expect((await finishTelegramLogin(callback, login.token)).telegramId).toBe(123);
-    expect(database.values).toHaveBeenLastCalledWith({ telegramId: 123 });
-  });
+  it.each([123, "123"])(
+    "normalizes the verified profile id %j and keeps the opaque subject separate",
+    async (id) => {
+      const { login, callback } = await begin();
+      overrides = { id };
+      expect((await finishTelegramLogin(callback, login.token)).telegramId).toBe(123);
+      expect(database.values).toHaveBeenLastCalledWith({ telegramId: 123 });
+    },
+  );
   it("uses Telegram's advertised form authentication and preserves punctuation in the secret", async () => {
     const { login, callback } = await begin();
     await finishTelegramLogin(callback, login.token);
@@ -155,7 +159,7 @@ describe("Telegram OpenID Connect", () => {
     { iss: "https://attacker.test" },
     { aud: "different-bot" },
     { exp: 1 },
-    { id: "123" },
+    { id: "123abc" },
   ])("rejects invalid claims %j", async (claims) => {
     const { login, callback } = await begin();
     overrides = claims;
@@ -211,5 +215,56 @@ describe("Telegram OpenID Connect", () => {
   });
   it("rejects an opaque OIDC subject without a usable Telegram id", () => {
     expect(() => telegramUserId({ sub: "opaque", id: Number.MAX_SAFE_INTEGER + 1 })).toThrow();
+  });
+  it.each([1, "1", Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER)])(
+    "normalizes a safe positive Telegram id %j",
+    (id) => {
+      expect(telegramUserId({ sub: "opaque-subject", id })).toBe(Number(id));
+    },
+  );
+  it.each([
+    undefined,
+    null,
+    {},
+    [],
+    true,
+    "",
+    0,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    "0",
+    "-123",
+    "+123",
+    "123.0",
+    "1e3",
+    "0x7b",
+    " 123 ",
+    "123abc",
+    "0123",
+    "9007199254740992",
+  ])("rejects an unsafe or malformed profile id %j", (id) => {
+    expect(() => telegramUserId({ sub: "opaque-subject", id })).toThrow();
+  });
+  it("does not substitute a numeric subject when the profile ID is missing", () => {
+    try {
+      telegramUserId({ sub: "123" });
+      throw new Error("An absent profile ID must be rejected.");
+    } catch (error) {
+      expect(error).toMatchObject({ stage: "identity", reason: "telegram_id_missing" });
+    }
+  });
+  it.each([undefined, null, "", 123])("rejects an invalid subject %j", (sub) => {
+    expect(() => telegramUserId({ sub, id: "123" })).toThrow();
+  });
+  it("rejects a signed token without the profile ID before creating an account", async () => {
+    const { login, callback } = await begin();
+    overrides = { id: undefined };
+    await expect(finishTelegramLogin(callback, login.token)).rejects.toMatchObject({
+      stage: "identity",
+      reason: "telegram_id_missing",
+    });
+    expect(database.values).toHaveBeenCalledTimes(1);
   });
 });

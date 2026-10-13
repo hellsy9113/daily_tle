@@ -51,6 +51,9 @@ const knownCodes = new Set([
   "expired_or_consumed_login_attempt",
   "missing_id_token_claims",
   "invalid_telegram_identity",
+  "telegram_subject_invalid",
+  "telegram_id_missing",
+  "telegram_id_invalid",
   "missing_account",
   "unexpected_error",
 ]);

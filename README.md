@@ -102,6 +102,13 @@ a callback URL mismatch, or failed PKCE validation. `account_save` or
 Fix the reported setting and retry; keep RS256, state, nonce, PKCE, and signature
 verification enabled.
 
+The verified profile's `id` accepts a positive safe integer or a decimal string
+and is normalized before saving the account. The OIDC `sub` remains an opaque
+identifier and is never substituted for a Telegram chat ID. At the `identity`
+stage, `telegram_id_missing` means the profile ID was absent;
+`telegram_id_invalid` means it could not be safely normalized. These reasons
+never include claim values or token contents.
+
 ### Account and delivery guarantees
 
 The first registration reserves a LeetCode username case-insensitively. Existence
