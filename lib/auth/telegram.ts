@@ -4,11 +4,40 @@ import { and, eq, gt } from "drizzle-orm";
 import { ApiError } from "@/lib/http/api-error";
 import { db } from "@/lib/db/client";
 import { accounts, loginAttempts } from "@/lib/db/schema";
+import { loginFailure, TelegramLoginFailure, type LoginStage } from "@/lib/auth/login-errors";
 import { appUrl, requireRegistrationAvailable, trackingBot } from "@/lib/tracking/config";
 import { hashToken, randomToken, validToken } from "@/lib/tracking/security";
 
 export const LOGIN_COOKIE = "tracking_login";
 export const LOGIN_SECONDS = 10 * 60;
+
+const telegramFetch: oidc.CustomFetch = async (input, init) => {
+  const body = init.body instanceof Uint8Array ? new Uint8Array(init.body) : init.body;
+  const response = await fetch(input, { ...init, body });
+  if (new URL(input).pathname === "/token") {
+    // Telegram may return OAuth errors with HTTP 200. The OIDC client expects an error status.
+    let payload: unknown;
+    try {
+      payload = await response.clone().json();
+    } catch {
+      return response;
+    }
+    if (
+      response.status === 200 &&
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      typeof payload.error === "string" &&
+      payload.error
+    ) {
+      const headers = new Headers(response.headers);
+      headers.delete("content-length");
+      headers.delete("content-encoding");
+      return new Response(JSON.stringify(payload), { status: 400, headers });
+    }
+  }
+  return response;
+};
 
 async function configuration() {
   const clientId = process.env.TELEGRAM_LOGIN_CLIENT_ID;
@@ -20,7 +49,11 @@ async function configuration() {
     clientId,
     { id_token_signed_response_alg: "RS256" },
     oidc.ClientSecretBasic(secret),
-    { timeout: 10, execute: [oidc.enableNonRepudiationChecks] },
+    {
+      timeout: 10,
+      execute: [oidc.enableNonRepudiationChecks],
+      [oidc.customFetch]: telegramFetch,
+    },
   );
 }
 
@@ -32,7 +65,7 @@ export function telegramUserId(claims: Record<string, unknown>): number {
     !Number.isSafeInteger(claims.id) ||
     claims.id <= 0
   )
-    throw new ApiError(401, "Telegram sign-in could not be verified.");
+    throw new TelegramLoginFailure("identity", "invalid_telegram_identity");
   // OIDC sub is opaque; the profile's id is the Bot API user identifier.
   return claims.id;
 }
@@ -66,30 +99,45 @@ export async function beginTelegramLogin() {
 }
 
 export async function finishTelegramLogin(url: URL, token?: string) {
-  if (!token || !validToken(token)) throw new ApiError(401, "Telegram sign-in expired. Try again.");
-  const [attempt] = await db()
-    .delete(loginAttempts)
-    .where(
-      and(eq(loginAttempts.tokenHash, hashToken(token)), gt(loginAttempts.expiresAt, new Date())),
-    )
-    .returning();
-  if (!attempt) throw new ApiError(401, "Telegram sign-in expired. Try again.");
-  const config = await configuration();
-  const callback = new URL("/api/auth/telegram/callback", appUrl());
-  callback.search = url.search;
-  const tokens = await oidc.authorizationCodeGrant(config, callback, {
-    pkceCodeVerifier: attempt.verifier,
-    expectedState: attempt.state,
-    expectedNonce: attempt.nonce,
-    idTokenExpected: true,
-  });
-  const claims = tokens.claims();
-  if (!claims) throw new ApiError(401, "Telegram sign-in could not be verified.");
-  const telegramId = telegramUserId(claims);
-  const [account] = await db()
-    .insert(accounts)
-    .values({ telegramId })
-    .onConflictDoUpdate({ target: accounts.telegramId, set: { telegramId } })
-    .returning();
-  return account;
+  let stage: LoginStage = "login_cookie";
+  try {
+    if (!token || !validToken(token))
+      throw new TelegramLoginFailure(
+        stage,
+        token ? "invalid_login_cookie" : "missing_login_cookie",
+      );
+    stage = "login_attempt";
+    const [attempt] = await db()
+      .delete(loginAttempts)
+      .where(
+        and(eq(loginAttempts.tokenHash, hashToken(token)), gt(loginAttempts.expiresAt, new Date())),
+      )
+      .returning();
+    if (!attempt) throw new TelegramLoginFailure(stage, "expired_or_consumed_login_attempt");
+    stage = "discovery";
+    const config = await configuration();
+    const callback = new URL("/api/auth/telegram/callback", appUrl());
+    callback.search = url.search;
+    stage = "token_exchange";
+    const tokens = await oidc.authorizationCodeGrant(config, callback, {
+      pkceCodeVerifier: attempt.verifier,
+      expectedState: attempt.state,
+      expectedNonce: attempt.nonce,
+      idTokenExpected: true,
+    });
+    stage = "identity";
+    const claims = tokens.claims();
+    if (!claims) throw new TelegramLoginFailure(stage, "missing_id_token_claims");
+    const telegramId = telegramUserId(claims);
+    stage = "account_save";
+    const [account] = await db()
+      .insert(accounts)
+      .values({ telegramId })
+      .onConflictDoUpdate({ target: accounts.telegramId, set: { telegramId } })
+      .returning();
+    if (!account) throw new TelegramLoginFailure(stage, "missing_account", 502);
+    return account;
+  } catch (error) {
+    throw loginFailure(error, stage);
+  }
 }

@@ -8,21 +8,27 @@ import {
   SESSION_SECONDS,
 } from "@/lib/auth/session";
 import { appUrl } from "@/lib/tracking/config";
+import { logLoginFailure, type LoginStage } from "@/lib/auth/login-errors";
 
 export async function GET(request: NextRequest) {
   let response: NextResponse;
+  let stage: LoginStage = "login_cookie";
   try {
     const account = await finishTelegramLogin(
       request.nextUrl,
       request.cookies.get(LOGIN_COOKIE)?.value,
     );
+    stage = "session_revoke";
     await revokeSession(request.cookies.get(SESSION_COOKIE)?.value);
+    stage = "session_create";
     const token = await createSession(account.id);
     response = NextResponse.redirect(new URL("/tracking", appUrl()));
     response.cookies.set(SESSION_COOKIE, token, { ...cookieOptions, maxAge: SESSION_SECONDS });
-  } catch {
+  } catch (error) {
+    logLoginFailure(error, stage);
     response = NextResponse.redirect(new URL("/tracking?error=login", appUrl()));
   }
   response.cookies.set(LOGIN_COOKIE, "", { ...cookieOptions, maxAge: 0 });
+  response.headers.set("Cache-Control", "no-store");
   return response;
 }

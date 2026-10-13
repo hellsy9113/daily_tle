@@ -30,6 +30,7 @@ const jwk = {
 };
 let overrides: Record<string, unknown>;
 let wrongSignature: boolean;
+let tokenError: string | undefined;
 let attempt: { state: string; nonce: string; verifier: string };
 
 beforeEach(() => {
@@ -43,6 +44,7 @@ beforeEach(() => {
   vi.stubEnv("TELEGRAM_LOGIN_CLIENT_SECRET", "client-secret");
   overrides = {};
   wrongSignature = false;
+  tokenError = undefined;
   database.values.mockClear();
   database.returning.mockImplementation(async () => [attempt]);
   vi.stubGlobal(
@@ -62,6 +64,7 @@ beforeEach(() => {
         });
       if (url.endsWith("/.well-known/jwks.json")) return Response.json({ keys: [jwk] });
       if (url.endsWith("/token")) {
+        if (tokenError) return Response.json({ error: tokenError });
         const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test-key" })).toString(
           "base64url",
         );
@@ -150,7 +153,33 @@ describe("Telegram OpenID Connect", () => {
   it("rejects missing browser login cookies", async () => {
     await expect(
       finishTelegramLogin(new URL("http://localhost:3000/api/auth/telegram/callback")),
-    ).rejects.toMatchObject({ status: 401 });
+    ).rejects.toMatchObject({
+      status: 401,
+      stage: "login_cookie",
+      reason: "missing_login_cookie",
+    });
+  });
+  it.each(["invalid_grant", "invalid_client"])(
+    "recognizes Telegram's HTTP 200 %s response without accepting the login",
+    async (reason) => {
+      const { login, callback } = await begin();
+      tokenError = reason;
+      await expect(finishTelegramLogin(callback, login.token)).rejects.toMatchObject({
+        stage: "token_exchange",
+        reason,
+      });
+      expect(database.values).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("identifies a consumed or expired attempt before exchanging its code", async () => {
+    const { login, callback } = await begin();
+    database.returning.mockResolvedValue([]);
+    vi.mocked(fetch).mockClear();
+    await expect(finishTelegramLogin(callback, login.token)).rejects.toMatchObject({
+      stage: "login_attempt",
+      reason: "expired_or_consumed_login_attempt",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("rejects an opaque OIDC subject without a usable Telegram id", () => {
     expect(() => telegramUserId({ sub: "opaque", id: Number.MAX_SAFE_INTEGER + 1 })).toThrow();

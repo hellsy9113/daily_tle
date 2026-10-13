@@ -63,6 +63,40 @@ Use a separate test bot and database branch when testing previews so the
 production webhook and registrations remain stable. Enable production registration
 after verification.
 
+### Registration stays closed after deployment
+
+Registration requires the complete tracking configuration, not only the enabled
+flag. In Vercel, make sure the variables above apply to **Production**, then
+redeploy. `APP_URL` must be `https://daily-tle-ruby.vercel.app`, without the callback
+path; `http://localhost:3000` is only accepted during local development. Enter
+`true` without quotes or surrounding spaces for `TRACKING_REGISTRATION_ENABLED`.
+The login client ID must belong to the second bot.
+
+If the setup message persists, visit `/tracking` and inspect that request in
+Vercel's runtime logs. Search for `[tracking:setup] Registration unavailable`:
+each issue names the missing or invalid variable and the reason. Logs never
+include configuration values, and public error responses remain generic.
+Variables in `.env.local` are not automatically uploaded to Vercel.
+
+### Telegram approves sign-in but the website reports failure
+
+Start a new sign-in from `https://daily-tle-ruby.vercel.app/tracking` and finish it
+in the same browser within ten minutes. Login first redirects deployment aliases
+to the configured website origin so the callback receives its login cookie.
+Authentication redirects are never cached.
+
+Inspect the callback request in Vercel's runtime logs and search for
+`[telegram:auth] Sign-in failed`. Only the failing stage and a safe reason are
+logged, never authorization codes, cookies, tokens, profile data, or raw errors.
+`missing_login_cookie` indicates a browser or website-origin mismatch;
+`expired_or_consumed_login_attempt` requires starting a fresh login.
+`token_exchange` with `invalid_client` means the production login client ID or
+secret needs correction. `invalid_grant` can indicate an expired or reused code,
+a callback URL mismatch, or failed PKCE validation. `account_save` or
+`session_create` with a database code identifies a database configuration issue.
+Fix the reported setting and retry; keep RS256, state, nonce, PKCE, and signature
+verification enabled.
+
 ### Account and delivery guarantees
 
 The first registration reserves a LeetCode username case-insensitively. Existence
