@@ -61,7 +61,7 @@ beforeEach(() => {
           response_types_supported: ["code"],
           subject_types_supported: ["public"],
           id_token_signing_alg_values_supported: ["RS256"],
-          token_endpoint_auth_methods_supported: ["client_secret_basic"],
+          token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
         });
       if (url.endsWith("/.well-known/jwks.json")) return Response.json({ keys: [jwk] });
       if (url.endsWith("/token")) {
@@ -69,7 +69,8 @@ beforeEach(() => {
         const authorization = new Headers(init?.headers).get("authorization");
         if (
           body.get("client_id") !== "42" ||
-          authorization !== `Basic ${Buffer.from(`42:${loginSecret}`).toString("base64")}`
+          body.get("client_secret") !== loginSecret ||
+          authorization !== null
         )
           return Response.json({ error: "invalid_client" });
         if (tokenError) return Response.json({ error: tokenError });
@@ -130,7 +131,7 @@ describe("Telegram OpenID Connect", () => {
     expect((await finishTelegramLogin(callback, login.token)).telegramId).toBe(123);
     expect(database.values).toHaveBeenLastCalledWith({ telegramId: 123 });
   });
-  it("sends Telegram's client ID in the form and raw punctuation in Basic credentials", async () => {
+  it("uses Telegram's advertised form authentication and preserves punctuation in the secret", async () => {
     const { login, callback } = await begin();
     await finishTelegramLogin(callback, login.token);
     const request = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/token"));
@@ -138,15 +139,16 @@ describe("Telegram OpenID Connect", () => {
     const body = new URLSearchParams(String(request?.[1]?.body));
     expect(Object.fromEntries(body)).toEqual({
       client_id: "42",
+      client_secret: loginSecret,
       grant_type: "authorization_code",
       code: "test-code",
       redirect_uri: "http://localhost:3000/api/auth/telegram/callback",
       code_verifier: attempt.verifier,
     });
-    expect(new Headers(request?.[1]?.headers).get("authorization")).toBe(
-      `Basic ${Buffer.from(`42:${loginSecret}`).toString("base64")}`,
+    expect(new Headers(request?.[1]?.headers).get("authorization")).toBeNull();
+    expect(new Headers(request?.[1]?.headers).get("content-type")).toContain(
+      "application/x-www-form-urlencoded",
     );
-    expect(body.has("client_secret")).toBe(false);
   });
   it.each([
     { nonce: "wrong" },

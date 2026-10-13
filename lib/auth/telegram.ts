@@ -44,20 +44,12 @@ async function configuration() {
   const secret = process.env.TELEGRAM_LOGIN_CLIENT_SECRET;
   if (!clientId || !secret || clientId !== trackingBot().token.split(":")[0])
     throw new ApiError(503, "Tracking setup is unavailable. Try again later.");
-  const clientAuth: oidc.ClientAuth = (_issuer, client, body, headers) => {
-    // Telegram documents raw Basic credentials and a client_id in the form body.
-    // The library's ClientSecretBasic percent-encodes punctuation in the secret.
-    headers.set(
-      "authorization",
-      `Basic ${Buffer.from(`${client.client_id}:${secret}`).toString("base64")}`,
-    );
-    body.set("client_id", client.client_id);
-  };
   return oidc.discovery(
     new URL("https://oauth.telegram.org"),
     clientId,
     { id_token_signed_response_alg: "RS256" },
-    clientAuth,
+    // Advertised by Telegram's discovery document; URLSearchParams safely encodes the secret.
+    oidc.ClientSecretPost(secret),
     {
       timeout: 10,
       execute: [oidc.enableNonRepudiationChecks],

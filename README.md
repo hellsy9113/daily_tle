@@ -90,9 +90,10 @@ Inspect the callback request in Vercel's runtime logs and search for
 logged, never authorization codes, cookies, tokens, profile data, or raw errors.
 `missing_login_cookie` indicates a browser or website-origin mismatch;
 `expired_or_consumed_login_attempt` requires starting a fresh login.
-Token requests include `client_id` in the form alongside Basic authentication
-using Base64 of the raw `client_id:client_secret`, matching
-[Telegram's token exchange format](https://core.telegram.org/bots/telegram-login#exchange-code-for-tokens).
+Token requests use `client_secret_post`, advertised in
+[Telegram's discovery document](https://oauth.telegram.org/.well-known/openid-configuration).
+The library submits the client ID and secret in the HTTPS form body with proper
+URL encoding. Request bodies and credentials are never logged.
 If `token_exchange` still reports `invalid_client`,
 check the production login client ID and current Client Secret from the second
 bot's Login Widget settings. `invalid_grant` can indicate an expired or reused code,
