@@ -1,16 +1,8 @@
-import {
-  activityDate,
-  activityDayStart,
-  activityWindow,
-  ACTIVITY_DAY_MS,
-} from "@/lib/activity/calendar";
+import { activityDate, activityWindow, weekStart } from "@/lib/activity/calendar";
+import { compareWeeks } from "@/lib/activity/weekly";
 import type { GfgProfileSummary, GfgProgress, GfgQuery, StoredGfgProblem } from "./types";
 
-export function monday(date: string): string {
-  const start = activityDayStart(date);
-  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
-  return activityDate(new Date(start.getTime() - ((weekday + 6) % 7) * ACTIVITY_DAY_MS));
-}
+export const monday = weekStart;
 
 export function buildGfgProgress(
   profile: GfgProfileSummary,
@@ -23,7 +15,9 @@ export function buildGfgProgress(
   const dated = problems.filter(
     (problem) => problem.acceptedAt && problem.acceptedAt <= now.toISOString(),
   );
-  const observed = problems.filter((problem) => !problem.baseline);
+  const observed = problems.filter(
+    (problem) => !problem.baseline && problem.firstObservedAt <= now.toISOString(),
+  );
   const daily = new Map<string, number>();
   const weekly = new Map<string, number>();
   const observations = new Map<string, number>();
@@ -72,6 +66,14 @@ export function buildGfgProgress(
       .filter(([date]) => monday(date) === monday(range.today))
       .reduce((total, [, count]) => total + count, 0),
     days,
+    weekly: compareWeeks(
+      (dated.length ? dated : observed).map((problem) => ({
+        id: problem.id,
+        date: activityDate(new Date(dated.length ? problem.acceptedAt! : problem.firstObservedAt)),
+      })),
+      days,
+      now,
+    ),
     snapshots: snapshots.filter((snapshot) => within(snapshot.date)),
     refreshing: false,
     refreshFailed: false,

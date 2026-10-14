@@ -12,6 +12,13 @@ export function activityDayStart(date: string): Date {
   return new Date(`${date}T00:00:00+05:30`);
 }
 
+export function weekStart(date: string): string {
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return activityDate(
+    new Date(activityDayStart(date).getTime() - ((weekday + 6) % 7) * ACTIVITY_DAY_MS),
+  );
+}
+
 export function activityWindow(now: Date) {
   const today = activityDate(now);
   const end = new Date(activityDayStart(today).getTime() + ACTIVITY_DAY_MS);

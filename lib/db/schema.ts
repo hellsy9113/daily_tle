@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { AccountStatus, DeliveryStatus } from "@/lib/tracking/types";
 import type { GfgDifficulty, GfgProfileSummary } from "@/lib/gfg/types";
+import type { ActivityPlatform } from "@/lib/activity/types";
 import {
   bigint,
   boolean,
@@ -200,6 +201,22 @@ export const gfgSnapshots = tracking.table(
     checkedAt: time("checked_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+);
+
+export const activityGoals = tracking.table(
+  "activity_goals",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    platform: text("platform").$type<ActivityPlatform>().notNull(),
+    weeklyTarget: integer("weekly_target").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.platform] }),
+    check("activity_goals_platform_check", sql`${table.platform} IN ('leetcode', 'gfg')`),
+    check("activity_goals_target_check", sql`${table.weeklyTarget} BETWEEN 1 AND 1000`),
+  ],
 );
 
 export type Account = typeof accounts.$inferSelect;

@@ -4,11 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { GfgActivityPanel } from "@/components/gfg-activity-panel";
-import { ActivityDashboard } from "@/components/activity-dashboard";
 import { ActivityChart } from "@/components/activity-chart";
 import { normalizeGfgProfile } from "@/lib/gfg/transform";
 import { buildGfgProgress } from "@/lib/gfg/progress";
 import FeaturePage from "@/app/feature/page";
+import DashboardPage from "@/app/dashboard/page";
 import { serverAccount } from "@/lib/auth/session";
 import { trackingStatus } from "@/lib/tracking/registration";
 import type { Account } from "@/lib/db/schema";
@@ -16,7 +16,10 @@ import type { TrackingStatus } from "@/lib/tracking/types";
 
 vi.mock("@/lib/auth/session", () => ({ serverAccount: vi.fn() }));
 vi.mock("@/lib/tracking/registration", () => ({ trackingStatus: vi.fn() }));
-vi.mock("@/lib/tracking/config", () => ({ registrationAvailable: () => true }));
+vi.mock("@/lib/tracking/config", () => ({
+  registrationAvailable: () => true,
+  trackingBot: () => ({ username: "test_bot" }),
+}));
 vi.mock("next/navigation", async () => ({
   ...(await vi.importActual<typeof import("next/navigation")>("next/navigation")),
   redirect: (path: string) => {
@@ -86,15 +89,33 @@ describe("GFG feature onboarding and dashboard", () => {
     expect(html).toContain("cannot be changed");
     expect(trackingStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "own" }), "gfg");
   });
-  it("takes an enabled connected GFG account to the shared dashboard", async () => {
-    vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: "gfg_user" } as Account);
-    await expect(FeaturePage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-      "redirect:/dashboard",
-    );
-  });
-  it("does not request GFG data before opt-in", async () => {
-    await act(() => root.render(<GfgActivityPanel username={null} />));
-    expect(container.textContent).toContain("Enable GFG tracking");
+  it.each(["active", "paused", "blocked"] as const)(
+    "keeps Feature accessible for a registered %s account and shows login status",
+    async (accountStatus) => {
+      vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: "gfg_user" } as Account);
+      vi.mocked(trackingStatus).mockResolvedValue({ ...status, status: accountStatus });
+      const html = renderToStaticMarkup(await FeaturePage({ searchParams: Promise.resolve({}) }));
+      expect(html).toContain("Logged in");
+      expect(html).toContain("gfg_user");
+      expect(html).not.toContain("View dashboard");
+      expect(html.match(/href="\/dashboard"/g)).toHaveLength(1);
+      expect(html).not.toContain("Locked");
+      expect(html).not.toContain('name="username"');
+    },
+  );
+  it("hides the GFG section on the dashboard before registration", async () => {
+    vi.mocked(serverAccount).mockResolvedValue({
+      id: "own",
+      leetcodeUsername: "leetcode_user",
+      gfgUsername: null,
+      chatId: 101,
+      status: "active",
+    } as Account);
+    vi.mocked(trackingStatus).mockResolvedValue({ ...status, username: "leetcode_user" });
+    const html = renderToStaticMarkup(await DashboardPage());
+    expect(html).not.toContain("gfg-activity-title");
+    expect(html).not.toContain("Enable GFG tracking");
+    expect(html).toContain('href="/feature"');
     expect(fetch).not.toHaveBeenCalled();
   });
   it("labels observations and unavailable solve counts without inventing historical totals", async () => {
@@ -122,20 +143,18 @@ describe("GFG feature onboarding and dashboard", () => {
     expect(container.querySelector('[aria-label="GeeksforGeeks progress by day"]')).not.toBeNull();
   });
   it("supports a GFG-only dashboard without invoking LeetCode activity", async () => {
+    vi.mocked(serverAccount).mockResolvedValue({
+      id: "own",
+      leetcodeUsername: null,
+      gfgUsername: "gfg_user",
+      chatId: 101,
+      status: "active",
+    } as Account);
     vi.mocked(fetch).mockImplementation(async (path) =>
       Response.json(String(path).startsWith("/api/gfg/") ? progress : status),
     );
-    await act(() =>
-      root.render(
-        <ActivityDashboard
-          initialStatus={status}
-          botUrl="https://t.me/test_bot"
-          leetcodeEnabled={false}
-        >
-          <GfgActivityPanel username="gfg_user" />
-        </ActivityDashboard>,
-      ),
-    );
+    const page = await DashboardPage();
+    await act(() => root.render(page));
     expect(vi.mocked(fetch).mock.calls.map((call) => call[0])).not.toContain(
       "/api/tracking/activity",
     );

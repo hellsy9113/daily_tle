@@ -24,7 +24,7 @@ export default async function DashboardPage() {
         initialStatus={status}
         leetcodeEnabled={Boolean(account.leetcodeUsername)}
       >
-        <GfgActivityPanel username={account.gfgUsername ?? null} />
+        {account.gfgUsername && <GfgActivityPanel username={account.gfgUsername} />}
       </ActivityDashboard>
     </SiteShell>
   );

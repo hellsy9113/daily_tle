@@ -7,6 +7,7 @@ import {
   accounts,
   acceptedActivity,
   activityDays,
+  activityGoals,
   connectionTokens,
   deliveries,
   sessions,
@@ -19,6 +20,8 @@ import { claimGfgSync, readGfgProblems, saveGfgSync } from "@/lib/gfg/store";
 import type { GfgProfile } from "@/lib/gfg/types";
 import { getAcceptedHistory } from "@/lib/leetcode/accepted-history";
 import { getAccountActivity } from "@/lib/activity/service";
+import { getActivityDay } from "@/lib/activity/details";
+import { getWeeklyGoal, saveWeeklyGoal } from "@/lib/activity/goals";
 import { observeAcceptedHistory } from "@/lib/activity/observations";
 import {
   claimActivitySync,
@@ -165,6 +168,118 @@ const record = (accountId: string, history: ReturnType<typeof accepted>[], at = 
   );
 const onDay = (result: Awaited<ReturnType<typeof readActivity>>, date: string) =>
   result.days.find((day) => day.date === date)!;
+
+describe("saved problem details and persistent weekly goals", () => {
+  it("returns only the selected account's saved day and deduplicates weekly re-solves", async () => {
+    const first = await activeAccount(101);
+    const second = await activeAccount(102);
+    await record(first.id, [
+      accepted("same", "2026-10-12T01:00:00Z"),
+      accepted("same", "2026-10-13T01:00:00Z"),
+      accepted("another", "2026-10-12T02:00:00Z"),
+      accepted("last-week", "2026-10-11T02:00:00Z"),
+    ]);
+    await record(second.id, [accepted("private-other", "2026-10-12T01:00:00Z")]);
+    const details = await getActivityDay(first, "leetcode", "2026-10-12", now);
+    expect(details).toEqual({
+      date: "2026-10-12",
+      basis: "accepted",
+      problems: [
+        { id: "another", title: "another", url: "https://leetcode.com/problems/another/" },
+        { id: "same", title: "same", url: "https://leetcode.com/problems/same/" },
+      ],
+    });
+    expect(
+      (await getActivityDay(second, "leetcode", "2026-10-12", now)).problems.map(
+        (problem) => problem.id,
+      ),
+    ).toEqual(["private-other"]);
+    const result = await readActivity(first, now);
+    expect(result.weekly.current.count).toBe(2);
+    expect(result.weekly.previous.count).toBe(1);
+    expect(result.weekly.previousToDate.count).toBe(0);
+    expect(getAcceptedHistory).not.toHaveBeenCalled();
+  });
+  it("persists separate account and platform goals, updates atomically, and removes only the chosen target", async () => {
+    const first = await activeAccount(101);
+    const second = await activeAccount(102);
+    await registerGfg(first, "gfg_101");
+    const [registered] = await db().select().from(accounts).where(eq(accounts.id, first.id));
+    expect(await getWeeklyGoal(registered, "leetcode")).toEqual({ weeklyTarget: null });
+    await saveWeeklyGoal(registered, "leetcode", 5);
+    await saveWeeklyGoal(registered, "gfg", 7);
+    await saveWeeklyGoal(second, "leetcode", 12);
+    await Promise.all([
+      saveWeeklyGoal(registered, "leetcode", 10),
+      saveWeeklyGoal(registered, "leetcode", 20),
+    ]);
+    expect([10, 20]).toContain((await getWeeklyGoal(registered, "leetcode")).weeklyTarget);
+    expect(await db().select().from(activityGoals)).toHaveLength(3);
+    expect(await getWeeklyGoal(registered, "gfg")).toEqual({ weeklyTarget: 7 });
+    expect(await getWeeklyGoal(second, "leetcode")).toEqual({ weeklyTarget: 12 });
+    await saveWeeklyGoal(registered, "leetcode", null);
+    expect(await getWeeklyGoal(registered, "leetcode")).toEqual({ weeklyTarget: null });
+    expect(await getWeeklyGoal(registered, "gfg")).toEqual({ weeklyTarget: 7 });
+    expect(await getWeeklyGoal(second, "leetcode")).toEqual({ weeklyTarget: 12 });
+  });
+  it("requires platform registration and enforces target bounds in PostgreSQL", async () => {
+    const user = await activeAccount();
+    await expect(saveWeeklyGoal(user, "gfg", 5)).rejects.toMatchObject({ status: 409 });
+    await expect(getActivityDay(user, "gfg", "2026-10-12", now)).rejects.toMatchObject({
+      status: 409,
+    });
+    for (const target of [0, -1, 1001]) {
+      await expect(
+        db()
+          .insert(activityGoals)
+          .values({ accountId: user.id, platform: "leetcode", weeklyTarget: target }),
+      ).rejects.toThrow();
+    }
+    expect(await db().select().from(activityGoals)).toHaveLength(0);
+  });
+  it("uses GFG observation dates, excludes the initial import, and does not fetch upstream on day selection", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    const [registered] = await db().select().from(accounts).where(eq(accounts.id, user.id));
+    const later = new Date(now.getTime() + 6 * 60_000);
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgProfile("gfg_101", ["old", "new"], later));
+    const progress = await getGfgProgress(registered, undefined, later);
+    expect(progress.weekly.current.count).toBe(1);
+    const calls = vi.mocked(getGfgProfile).mock.calls.length;
+    expect(await getActivityDay(registered, "gfg", "2026-10-13", later)).toEqual({
+      date: "2026-10-13",
+      basis: "observed",
+      problems: [
+        {
+          id: "new",
+          title: "new",
+          difficulty: "Easy",
+          url: "https://www.geeksforgeeks.org/problems/new/1",
+        },
+      ],
+    });
+    expect((await getActivityDay(registered, "gfg", "2026-10-12", later)).problems).toEqual([]);
+    expect(getGfgProfile).toHaveBeenCalledTimes(calls);
+  });
+  it("uses the same GFG timestamp basis and IST boundaries for the calendar and day details", async () => {
+    const user = await activeAccount();
+    const data = gfgProfile("gfg_101", ["before", "after"]);
+    data.problems[0].acceptedAt = "2026-10-11T18:29:59.000Z";
+    data.problems[1].acceptedAt = "2026-10-11T18:30:00.000Z";
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(data);
+    await registerGfg(user, "gfg_101");
+    const [registered] = await db().select().from(accounts).where(eq(accounts.id, user.id));
+    const progress = await getGfgProgress(registered, undefined, now);
+    expect(progress.dateBasis).toBe("earliest_available_timestamp");
+    expect(progress.weekly.current.count).toBe(1);
+    const details = await getActivityDay(registered, "gfg", "2026-10-12", now);
+    expect(details.basis).toBe("accepted");
+    expect(details.problems.map((problem) => problem.id)).toEqual(["after"]);
+    expect(progress.days.find((day) => day.date === details.date)?.count).toBe(
+      details.problems.length,
+    );
+  });
+});
 
 describe("separate GFG registration, observations, and delivery", () => {
   it("keeps LeetCode delivery available when the GFG upstream is rate limited", async () => {

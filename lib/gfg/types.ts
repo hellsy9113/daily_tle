@@ -1,4 +1,4 @@
-import type { ActivityDay } from "@/lib/activity/types";
+import type { ActivityDay, WeeklyComparison } from "@/lib/activity/types";
 
 export type GfgDifficulty = "School" | "Basic" | "Easy" | "Medium" | "Hard";
 export type GfgDifficultyBreakdown = Record<GfgDifficulty, number>;
@@ -39,6 +39,7 @@ export interface GfgProgress extends GfgProfileSummary {
   observedToday: number;
   observedThisWeek: number;
   days: ActivityDay[];
+  weekly: WeeklyComparison;
   snapshots: { date: string; totalSolved: number }[];
   refreshing: boolean;
   refreshFailed: boolean;

@@ -47,6 +47,20 @@ Saved activity remains visible when a refresh fails. Keyboard users can navigate
 the calendar with arrow keys, Home, and End; each day exposes its date, count, and
 coverage to screen readers.
 
+Select a calendar day to load its saved problems and open the original problem
+links. Day selection reads only account-owned observations and makes no new
+LeetCode or GFG request. The weekly summary counts each problem once per week,
+showing this week so far, the full previous week, and the same weekdays last week.
+Weeks start Monday in Asia/Kolkata. Incomplete Accepted history remains a lower
+bound; GFG observation comparisons do not claim verified solve dates.
+
+Each platform has an optional weekly problem target (1–1,000), saved to the signed-in
+account and reused each week. Progress resets with the weekly count; the target
+can be changed or removed. GFG uses newly observed problems when verified
+timestamps are unavailable, excluding the initial import. Apply
+`migrations/0004_weekly_goals.sql` with `npm run db:migrate` before deploying this
+update. No new environment variables or dependencies are required.
+
 Migration `0002_accepted_activity.sql` adds three account-scoped tables:
 `accepted_activity` (one problem per day), `activity_days` (coverage), and
 `activity_sync` (refresh state and leases). No new credentials or dependencies are
@@ -186,17 +200,20 @@ that volume or adding a queue.
 
 ### Tracking API
 
-| Method | Endpoint                         | Behavior                                                           |
-| ------ | -------------------------------- | ------------------------------------------------------------------ |
-| GET    | `/api/tracking`                  | Signed-in account's username, connection, and latest report status |
-| POST   | `/api/tracking`                  | Permanently register `{ "username": "name" }`                      |
-| POST   | `/api/tracking/telegram-link`    | Create a personal bot link with its expiry                         |
-| GET    | `/api/auth/telegram/login`       | Begin Telegram sign-in                                             |
-| GET    | `/api/auth/telegram/callback`    | Verify Telegram identity and issue a session                       |
-| POST   | `/api/auth/logout`               | Revoke the current session                                         |
-| POST   | `/api/telegram/tracking/webhook` | Second bot's private-chat activation and pause/resume              |
-| GET    | `/api/cron/tracking/daily`       | Prepare and dispatch yesterday's reports                           |
-| GET    | `/api/cron/tracking/retry`       | Reconcile and resume unfinished reports                            |
+| Method | Endpoint                                                       | Behavior                                                                              |
+| ------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| GET    | `/api/tracking`                                                | Signed-in account's username, connection, and latest report status                    |
+| POST   | `/api/tracking`                                                | Permanently register `{ "username": "name" }`                                         |
+| POST   | `/api/tracking/telegram-link`                                  | Create a personal bot link with its expiry                                            |
+| GET    | `/api/tracking/activity/day?platform=leetcode&date=2026-10-14` | Read the selected platform's saved problems for one IST date                          |
+| GET    | `/api/tracking/goal?platform=leetcode`                         | Read the account's platform-specific weekly target                                    |
+| PUT    | `/api/tracking/goal`                                           | Save `{ "platform": "leetcode", "weeklyTarget": 5 }`; use `null` to remove the target |
+| GET    | `/api/auth/telegram/login`                                     | Begin Telegram sign-in                                                                |
+| GET    | `/api/auth/telegram/callback`                                  | Verify Telegram identity and issue a session                                          |
+| POST   | `/api/auth/logout`                                             | Revoke the current session                                                            |
+| POST   | `/api/telegram/tracking/webhook`                               | Second bot's private-chat activation and pause/resume                                 |
+| GET    | `/api/cron/tracking/daily`                                     | Prepare and dispatch yesterday's reports                                              |
+| GET    | `/api/cron/tracking/retry`                                     | Reconcile and resume unfinished reports                                               |
 
 Unauthorized account requests return `401`, cross-origin mutations `403`, and
 registration conflicts `409`. Existing LeetCode validation and upstream error
@@ -207,8 +224,11 @@ statuses are preserved. Account responses do not expose chat IDs or tokens.
 Visit `/feature`, sign in with Telegram, and permanently register one public GFG
 username. GFG is a separate opt-in: it works with or without a LeetCode username.
 Connect the existing Daily Grind bot if you have not already connected Telegram.
-The shared dashboard shows an independent GFG calendar, profile total, difficulty
-breakdown, available dated counts, and newly observed progress. `/stop` and
+The Feature page stays accessible after registration and shows your logged-in
+status. Use Dashboard in the sticky navigation bar to view your progress.
+The GFG section appears on the shared dashboard only after GFG registration,
+with an independent calendar, profile total, difficulty breakdown, available dated
+counts, and newly observed progress. `/stop` and
 `/start` control delivery for both enabled services through the same bot.
 
 Apply `0003_gfg_tracking.sql` **before deploying this feature**:

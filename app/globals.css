@@ -2,6 +2,7 @@
 
 :root {
   color-scheme: light dark;
+  scroll-padding-top: 5rem;
   --background: #ffffff;
   --surface: #fafafa;
   --foreground: #171717;
@@ -94,6 +95,10 @@ button,
   gap: 1.5rem;
 }
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--background);
   justify-content: space-between;
   min-height: 80px;
   padding-block: 1rem;
@@ -719,6 +724,109 @@ button:disabled {
   padding: 6px;
   margin-inline: -6px;
 }
+.weekly-summary {
+  margin-bottom: 1.75rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.weekly-summary h3,
+.day-details h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.weekly-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0 0 1rem;
+}
+.weekly-stats dt,
+.weekly-stats span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.weekly-stats dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.weekly-goal {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+.weekly-goal h4 {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+.weekly-goal progress {
+  width: 100%;
+  height: 0.625rem;
+  accent-color: var(--success);
+  margin-bottom: 1rem;
+}
+.goal-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+.goal-form input {
+  width: 6rem;
+  min-height: 44px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+.weekly-goal > .field-help:last-child {
+  margin-bottom: 0;
+}
+.day-details {
+  border-top: 1px solid var(--border);
+  padding-top: 1.25rem;
+  margin-top: 1.25rem;
+}
+.day-problems {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.day-problems li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+.day-problems a {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .weekly-stats {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .weekly-stats > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+  }
+  .weekly-stats span,
+  .goal-form label {
+    flex-basis: 100%;
+  }
+}
 .calendar {
   --calendar-cell: 13px;
   display: grid;
@@ -955,6 +1063,9 @@ button:disabled {
   width: 100%;
 }
 @media (max-width: 700px) {
+  :root {
+    scroll-padding-top: 8rem;
+  }
   .tracking-layout {
     grid-template-columns: 1fr;
     gap: 2rem;

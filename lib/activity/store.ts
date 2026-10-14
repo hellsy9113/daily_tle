@@ -10,6 +10,7 @@ import {
   streaks,
 } from "./calendar";
 import type { ActivityObservation, ActivityResult } from "./types";
+import { compareWeeks } from "./weekly";
 
 type ActivityWriter = Pick<ReturnType<typeof db>, "insert">;
 
@@ -115,6 +116,11 @@ export async function readActivity(account: Account, now: Date): Promise<Activit
     start: range.start,
     end: range.end,
     days,
+    weekly: compareWeeks(
+      problems.map((problem) => ({ id: problem.titleSlug, date: problem.date })),
+      days,
+      now,
+    ),
     uniqueQuestions: new Set(problems.map((problem) => problem.titleSlug)).size,
     activeDays: days.filter((day) => day.count > 0).length,
     ...streaks(days),

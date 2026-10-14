@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityChart } from "./activity-chart";
+import { ActivityInsights } from "./activity-insights";
 import { requestJson } from "@/lib/http/client";
 import type { GfgProgress } from "@/lib/gfg/types";
 
@@ -123,10 +123,12 @@ export function GfgActivityPanel({ username }: { username: string | null }) {
                   ? "New problems observed since registration · Asia/Kolkata"
                   : "Available accepted timestamps · Asia/Kolkata"}
               </p>
-              <ActivityChart
+              <ActivityInsights
+                platform="gfg"
                 days={progress.days}
+                weekly={progress.weekly}
+                version={progress.checkedAt}
                 mode={progress.dateBasis === "observation" ? "observed" : "accepted"}
-                label="GeeksforGeeks progress by day"
               />
               {progress.refreshing && (
                 <p className="field-help" role="status">

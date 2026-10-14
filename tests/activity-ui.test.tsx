@@ -7,6 +7,7 @@ import { ActivityChart } from "@/components/activity-chart";
 import { ActivityDashboard } from "@/components/activity-dashboard";
 import type { ActivityResult } from "@/lib/activity/types";
 import type { TrackingStatus } from "@/lib/tracking/types";
+import { compareWeeks } from "@/lib/activity/weekly";
 
 const days: ActivityResult["days"] = [
   { date: "2026-10-11", count: 0, coverage: "unknown" },
@@ -20,6 +21,7 @@ const activity: ActivityResult = {
   start: "2025-10-15",
   end: "2026-10-15",
   days,
+  weekly: compareWeeks([], days, new Date("2026-10-14T03:00:00Z")),
   uniqueQuestions: 9,
   activeDays: 2,
   currentStreak: 2,
@@ -58,7 +60,13 @@ const renderDashboard = async () =>
   );
 function responses(result = activity, state = status) {
   vi.mocked(fetch).mockImplementation(async (path) =>
-    Response.json(String(path).endsWith("/activity") ? result : state),
+    Response.json(
+      String(path).includes("/goal")
+        ? { weeklyTarget: null }
+        : String(path).endsWith("/activity")
+          ? result
+          : state,
+    ),
   );
 }
 describe("Accepted calendar accessibility and interaction", () => {

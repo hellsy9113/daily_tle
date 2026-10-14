@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityChart } from "./activity-chart";
+import { ActivityInsights } from "./activity-insights";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { ApiError } from "@/lib/http/api-error";
@@ -196,7 +196,12 @@ export function ActivityDashboard({
                   </dd>
                 </div>
               </dl>
-              <ActivityChart days={activity.days} />
+              <ActivityInsights
+                platform="leetcode"
+                days={activity.days}
+                weekly={activity.weekly}
+                version={activity.lastSyncedAt}
+              />
               {activity.refreshing && (
                 <p className="field-help" role="status">
                   Syncing recent Accepted activity…

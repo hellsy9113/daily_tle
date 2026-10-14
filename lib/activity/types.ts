@@ -1,4 +1,36 @@
 export type ActivityCoverage = "complete" | "partial" | "unknown";
+export type ActivityPlatform = "leetcode" | "gfg";
+export type ActivityBasis = "accepted" | "observed";
+
+export interface SavedProblem {
+  id: string;
+  title: string;
+  url: string;
+  difficulty?: string;
+}
+
+export interface ActivityDayDetails {
+  date: string;
+  basis: ActivityBasis;
+  problems: SavedProblem[];
+}
+
+export interface ActivityWeek {
+  start: string;
+  end: string;
+  count: number;
+  complete: boolean;
+}
+
+export interface WeeklyComparison {
+  current: ActivityWeek;
+  previous: ActivityWeek;
+  previousToDate: ActivityWeek;
+}
+
+export interface WeeklyGoal {
+  weeklyTarget: number | null;
+}
 
 export interface ActivityDay {
   date: string;
@@ -12,6 +44,7 @@ export interface ActivityResult {
   start: string;
   end: string;
   days: ActivityDay[];
+  weekly: WeeklyComparison;
   uniqueQuestions: number;
   activeDays: number;
   currentStreak: number | null;

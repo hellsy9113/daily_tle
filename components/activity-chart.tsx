@@ -31,10 +31,14 @@ export function ActivityChart({
   days,
   mode = "accepted",
   label = "Accepted problems by day",
+  onSelectDay,
+  detailsId,
 }: {
   days: ActivityDay[];
   mode?: "accepted" | "observed";
   label?: string;
+  onSelectDay?: (day: ActivityDay) => void;
+  detailsId?: string;
 }) {
   const helpId = useId();
   const [selectedDate, setSelectedDate] = useState(days.at(-1)?.date ?? "");
@@ -73,7 +77,8 @@ export function ActivityChart({
     <>
       <p id={helpId} className="sr-only">
         Each square is one day in Asia/Kolkata. Use left and right arrow keys for weeks, up and down
-        for days, and Home or End for the first or last day. Select a day for its count.
+        for days, and Home or End for the first or last day. Select a day for its count
+        {onSelectDay ? " and saved problem links" : ""}.
       </p>
       <div className="calendar-scroll" ref={scroller}>
         <div
@@ -116,9 +121,16 @@ export function ActivityChart({
                     tabIndex={day.date === selected?.date ? 0 : -1}
                     aria-label={labels.get(day.date)}
                     aria-pressed={day.date === selected?.date}
+                    aria-controls={detailsId}
                     title={labels.get(day.date)}
-                    onFocus={() => setSelectedDate(day.date)}
-                    onClick={() => setSelectedDate(day.date)}
+                    onFocus={() => {
+                      setSelectedDate(day.date);
+                      onSelectDay?.(day);
+                    }}
+                    onClick={() => {
+                      setSelectedDate(day.date);
+                      onSelectDay?.(day);
+                    }}
                     onKeyDown={(event) => navigate(event, day)}
                   />
                 ) : (

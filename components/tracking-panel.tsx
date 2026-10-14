@@ -65,7 +65,7 @@ export function TrackingPanel({
       const next = await requestJson<TrackingStatus>(statusPath, { signal });
       if (signal?.aborted) return;
       setStatus(next);
-      if (next.username && next.connected) router.replace("/dashboard");
+      if (platform === "leetcode" && next.username && next.connected) router.replace("/dashboard");
     } catch (failure) {
       if (signal?.aborted) return;
       setError(
@@ -75,7 +75,7 @@ export function TrackingPanel({
       if (!signal?.aborted) setRefreshing(false);
       checking.current = false;
     }
-  }, [router, statusPath]);
+  }, [router, statusPath, platform]);
 
   useEffect(() => {
     if (!link || expired || status.connected) return;
@@ -109,10 +109,7 @@ export function TrackingPanel({
         body: JSON.stringify({ username }),
         signal,
       });
-      if (!signal?.aborted) {
-        setStatus(next);
-        if (platform === "gfg" && next.connected) router.replace("/dashboard");
-      }
+      if (!signal?.aborted) setStatus(next);
     } catch (failure) {
       if (signal?.aborted) return;
       setError(failure instanceof Error ? failure.message : "Registration failed. Try again.");
@@ -148,7 +145,15 @@ export function TrackingPanel({
   return (
     <section className="tracking-panel" aria-labelledby="setup-title">
       <div className="panel-heading">
-        <p className="eyebrow">{status.username ? "Your account" : "One-time setup"}</p>
+        <p className="eyebrow">
+          {platform === "gfg" ? (
+            <span className="badge badge-active">Logged in</span>
+          ) : status.username ? (
+            "Your account"
+          ) : (
+            "One-time setup"
+          )}
+        </p>
         <h2 id="setup-title" ref={heading} tabIndex={-1}>
           {status.username ? "Daily tracking" : `Add your ${platformLabel} username`}
         </h2>
@@ -213,7 +218,7 @@ export function TrackingPanel({
               <dt>{platformLabel} username</dt>
               <dd>
                 <span className="mono">{status.username}</span>
-                <span className="badge">Locked</span>
+                {platform === "leetcode" && <span className="badge">Locked</span>}
               </dd>
             </div>
             <div>
