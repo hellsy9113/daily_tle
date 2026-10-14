@@ -49,17 +49,8 @@ coverage to screen readers.
 
 Select a calendar day to load its saved problems and open the original problem
 links. Day selection reads only account-owned observations and makes no new
-LeetCode or GFG request. The weekly summary counts each problem once per week,
-showing this week so far, the full previous week, and the same weekdays last week.
-Weeks start Monday in Asia/Kolkata. Incomplete Accepted history remains a lower
-bound; GFG observation comparisons do not claim verified solve dates.
-
-Each platform has an optional weekly problem target (1–1,000), saved to the signed-in
-account and reused each week. Progress resets with the weekly count; the target
-can be changed or removed. GFG uses newly observed problems when verified
-timestamps are unavailable, excluding the initial import. Apply
-`migrations/0004_weekly_goals.sql` with `npm run db:migrate` before deploying this
-update. No new environment variables or dependencies are required.
+LeetCode or GFG request. GFG details use newly observed dates when verified solve
+timestamps are unavailable and exclude the initial import in that mode.
 
 Migration `0002_accepted_activity.sql` adds three account-scoped tables:
 `accepted_activity` (one problem per day), `activity_days` (coverage), and

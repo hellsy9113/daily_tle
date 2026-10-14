@@ -126,7 +126,6 @@ export function GfgActivityPanel({ username }: { username: string | null }) {
               <ActivityInsights
                 platform="gfg"
                 days={progress.days}
-                weekly={progress.weekly}
                 version={progress.checkedAt}
                 mode={progress.dateBasis === "observation" ? "observed" : "accepted"}
               />

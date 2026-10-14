@@ -199,7 +199,6 @@ export function ActivityDashboard({
               <ActivityInsights
                 platform="leetcode"
                 days={activity.days}
-                weekly={activity.weekly}
                 version={activity.lastSyncedAt}
               />
               {activity.refreshing && (
