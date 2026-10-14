@@ -107,13 +107,13 @@ function DayProblems({ platform, day }: { platform: ActivityPlatform; day: Activ
       )}
       {details && (
         <>
-          <p className="field-help" role="status">
+          {/* <p className="field-help" role="status">
             {details.basis === "observed"
               ? "Newly observed on this date; solve dates are unverified. The initial import is excluded."
               : platform === "gfg"
                 ? "Based on available accepted timestamps; first-ever solve dates are not guaranteed."
                 : "Saved Accepted problems. Missing public history may leave this list incomplete."}
-          </p>
+          </p> */}
           {details.problems.length ? (
             <ul className="day-problems">
               {details.problems.map((problem) => (
