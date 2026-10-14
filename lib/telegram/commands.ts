@@ -18,6 +18,10 @@ export function parseTextMessage(update: unknown): TelegramTextMessage | null {
 
 export function parseCommand(value: string): BotCommand {
   const text = value.trim();
+  const slashCommand = /^\/(start|command)(?:@[a-z0-9_]+)?(?:\s+[^;]+)?$/i.exec(text);
+  if (slashCommand) {
+    return { type: slashCommand[1].toLowerCase() === "start" ? "start" : "help" };
+  }
   if (text.includes(";") && /^(hello\s*;|(?:name|lastweek|lastday)\s*:)/i.test(text)) {
     return { type: "usage" };
   }

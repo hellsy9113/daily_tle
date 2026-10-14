@@ -4,6 +4,8 @@ export interface TelegramTextMessage {
 }
 
 export type BotCommand =
+  | { type: "start" }
+  | { type: "help" }
   | { type: "greeting" }
   | { type: "submissions"; username: string }
   | { type: "lastweek"; username: string }

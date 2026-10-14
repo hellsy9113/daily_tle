@@ -16,6 +16,11 @@ After connecting the bot, setup redirects to `/dashboard`: bot status at the top
 a 365-day calendar in the center. Returning from Telegram checks the connection
 automatically; the manual check remains available. Connected accounts visiting
 `/tracking` go straight to their dashboard, including paused or blocked accounts.
+Signed-in visitors to `/` are also redirected to `/dashboard`; accounts still
+finishing registration or connection are guided back to `/tracking`. The public
+homepage focuses on daily tracking, with an illustrative calendar and Telegram
+recap, features, and a setup guide. The original command bot is documented in
+its own chat through `/start` and `/command`.
 
 ### Accepted-activity calendar
 
@@ -232,7 +237,7 @@ app/
   api/                         HTTP entry points; validation and service calls
   globals.css                  Responsive styles and keyboard focus states
   layout.tsx                   Metadata, language, fonts, and skip link
-  page.tsx                     Daily tracking introduction and command guide
+  page.tsx                     Daily tracking homepage and signed-in redirect
   tracking/                    Registration and account status
   not-found.tsx                Accessible missing-page response
 lib/
@@ -361,15 +366,21 @@ to `localhost` alone. See the [Telegram Bot API](https://core.telegram.org/bots/
 
 Send these messages in a private chat with your bot:
 
-| Message                           | Reply                                                         |
-| --------------------------------- | ------------------------------------------------------------- |
-| `hello`                           | `welcome`                                                     |
-| `name:your_leetcode_username`     | Recent submissions, verdicts, languages, and problem links    |
-| `lastweek:your_leetcode_username` | Unique Accepted problems from the previous Monday–Sunday week |
-| `lastday:your_leetcode_username`  | Unique Accepted problems from yesterday                       |
-| `name:`                           | Usage instructions                                            |
+| Message                           | Reply                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `/start`                          | Static bot description, requirements, and getting-started instructions |
+| `/command`                        | All available commands with descriptions and usage                     |
+| `hello`                           | `welcome`                                                              |
+| `name:your_leetcode_username`     | Recent submissions, verdicts, languages, and problem links             |
+| `lastweek:your_leetcode_username` | Unique Accepted problems from the previous Monday–Sunday week          |
+| `lastday:your_leetcode_username`  | Unique Accepted problems from yesterday                                |
+| `name:`                           | Usage instructions                                                     |
 
 The command prefix is case-insensitive; username capitalization is preserved.
+`/start` and `/command` also accept Telegram's `@bot_username` suffix. `/start`
+accepts an optional start payload and always returns the same introduction.
+Both replies are static and do not request LeetCode data. On-demand lookups need
+only a public LeetCode username, with no website registration or LeetCode password.
 Send one command per message. Empty usernames and semicolon batches such as
 `lastweek:example; lastday:example` receive usage instructions. The period replies
 include calendar dates, timezone, a unique count, problem titles and links, and a
@@ -411,7 +422,7 @@ or commands change. The Next.js-specific instructions in `AGENTS.md` apply.
 
 For UI changes, preserve semantic headings and landmarks, keyboard access, visible
 focus states, contrast in both themes, and layouts that work on small screens.
-The homepage includes a skip link to the main content and wrapping command text.
+The homepage includes a skip link to the main content and a labeled static preview.
 
 ## Deploy on Vercel
 
@@ -423,7 +434,7 @@ The homepage includes a skip link to the main content and wrapping command text.
 3. Deploy or redeploy after saving variables; changes apply to new deployments.
    See [Vercel's environment variable documentation](https://vercel.com/docs/environment-variables).
 4. Register your production URL with Telegram using the command above, then test
-   `hello`, `name:your_leetcode_username`, `lastweek:your_leetcode_username`, and
+   `/start`, `/command`, `hello`, `name:your_leetcode_username`, `lastweek:your_leetcode_username`, and
    `lastday:your_leetcode_username` in Telegram. An existing webhook registration
    continues to use the same URL after redeployment.
 

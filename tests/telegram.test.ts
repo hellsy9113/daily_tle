@@ -38,6 +38,43 @@ function mockApis(options: { lookupFails?: boolean; sendFails?: boolean } = {}) 
 }
 
 describe("Telegram webhook", () => {
+  it.each(["/start", " /START ", "/start@first_bot", "/start sample-link"])(
+    "describes the bot and its requirements for %j without a LeetCode lookup",
+    async (text) => {
+      const { replies, fetchMock } = mockApis();
+      expect((await webhook(message(text))).status).toBe(200);
+      expect(replies).toHaveLength(1);
+      expect(replies[0].text).toContain("Check your LeetCode practice on demand");
+      expect(replies[0].text).toContain("What you need:");
+      expect(replies[0].text).toContain("public LeetCode username");
+      expect(replies[0].text).toContain("name:your_leetcode_username");
+      expect(replies[0].text).toContain("/command");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["/command", " /COMMAND ", "/command@first_bot"])(
+    "lists every available command for %j without a LeetCode lookup",
+    async (text) => {
+      const { replies, fetchMock } = mockApis();
+      expect((await webhook(message(text))).status).toBe(200);
+      expect(replies).toHaveLength(1);
+      for (const command of [
+        "/start",
+        "/command",
+        "hello",
+        "name:your_leetcode_username",
+        "lastday:your_leetcode_username",
+        "lastweek:your_leetcode_username",
+      ]) {
+        expect(replies[0].text).toContain(command);
+      }
+      expect(replies[0].text).toContain("Asia/Kolkata");
+      expect(replies[0].text).toContain("one command per message");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("preserves the welcome reply", async () => {
     const { replies, fetchMock } = mockApis();
     expect((await webhook(message(" HELLO "))).status).toBe(200);
@@ -74,6 +111,8 @@ describe("Telegram webhook", () => {
     { callback_query: {} },
     { message: { text: "hello", chat: { id: "123" } } },
     message("other"),
+    message("/starter"),
+    message("/commanding"),
   ])("acknowledges ignored or malformed updates %j without external requests", async (update) => {
     expect((await webhook(update)).status).toBe(200);
     expect(fetch).not.toHaveBeenCalled();

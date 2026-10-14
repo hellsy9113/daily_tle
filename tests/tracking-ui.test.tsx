@@ -64,5 +64,6 @@ describe("tracking UI states", () => {
     expect(html).toContain('aria-label="Main navigation"');
     expect(html).toContain('id="main-content"');
     expect(html).toContain('action="/api/auth/logout"');
+    expect(html).not.toContain("Commands");
   });
 });

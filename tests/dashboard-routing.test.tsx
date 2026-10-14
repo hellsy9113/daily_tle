@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { serverAccount } from "@/lib/auth/session";
 import { trackingStatus } from "@/lib/tracking/registration";
 import TrackingPage from "@/app/tracking/page";
 import DashboardPage from "@/app/dashboard/page";
+import Home from "@/app/page";
 import type { Account } from "@/lib/db/schema";
 
-vi.mock("next/navigation", () => ({
+vi.mock("next/navigation", async () => ({
+  ...(await vi.importActual<typeof import("next/navigation")>("next/navigation")),
   redirect: (path: string) => {
     throw new Error(`redirect:${path}`);
   },
@@ -29,6 +32,34 @@ beforeEach(() => {
   });
 });
 describe("connected dashboard navigation", () => {
+  it.each([account, { ...account, leetcodeUsername: null, chatId: null }])(
+    "redirects a signed-in homepage visitor to the dashboard",
+    async (user) => {
+      vi.mocked(serverAccount).mockResolvedValue(user);
+      await expect(Home()).rejects.toThrow("redirect:/dashboard");
+      expect(trackingStatus).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps the public homepage available without a session", async () => {
+    vi.mocked(serverAccount).mockResolvedValue(null);
+    const html = renderToStaticMarkup(await Home());
+    expect(html).toContain('href="/tracking"');
+    expect(html).toContain('id="how-it-works"');
+    expect(html).not.toMatch(
+      /Existing bot|View bot commands|#commands|name:your_leetcode_username/,
+    );
+  });
+  it("keeps the public homepage available when session storage is unavailable", async () => {
+    vi.mocked(serverAccount).mockRejectedValue(new Error("Session storage is unavailable"));
+    expect(await Home()).toBeDefined();
+  });
+  it("lets Next.js handle framework errors from the session lookup", async () => {
+    const frameworkError = Object.assign(new Error("Next.js redirect"), {
+      digest: "NEXT_REDIRECT;replace;/tracking;307;",
+    });
+    vi.mocked(serverAccount).mockRejectedValue(frameworkError);
+    await expect(Home()).rejects.toBe(frameworkError);
+  });
   it.each(["active", "paused", "blocked"])(
     "takes a connected %s account out of onboarding",
     async (status) => {

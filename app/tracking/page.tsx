@@ -81,7 +81,7 @@ export default async function TrackingPage({
                 ? "Please try again shortly."
                 : available
                   ? "Use the Telegram account where you want your daily reports delivered."
-                  : "Registration will open once the tracking bot is ready. You can keep using the existing bot commands."}
+                  : "Registration will open once daily tracking is ready. Explore how daily recaps and your activity calendar work."}
             </p>
             {params.error === "login" && (
               <p className="inline-error" role="alert">
@@ -93,8 +93,8 @@ export default async function TrackingPage({
                 Continue with Telegram <span aria-hidden="true">→</span>
               </a>
             ) : (
-              <Link className="button secondary full-width" href="/#commands">
-                View bot commands
+              <Link className="button secondary full-width" href="/#how-it-works">
+                See how tracking works
               </Link>
             )}
             <p className="field-help">One Telegram account. One permanent LeetCode username.</p>

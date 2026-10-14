@@ -145,7 +145,7 @@ export function ActivityDashboard({
         <div className="activity-heading">
           <div>
             <p className="eyebrow">Last 365 days · Asia/Kolkata</p>
-            <h1 id="activity-title">Your practice, day by day.</h1>
+            {/* <h1 id="activity-title">Your practice, day by day.</h1> */}
           </div>
           <p className="field-help">Distinct Accepted problems per day.</p>
         </div>

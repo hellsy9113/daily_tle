@@ -20,7 +20,6 @@ export function SiteShell({
           <Link href={signedIn ? "/dashboard" : "/tracking"}>
             {signedIn ? "Dashboard" : "Tracking"}
           </Link>
-          <Link href="/#commands">Commands</Link>
           {signedIn && (
             <form action="/api/auth/logout" method="post">
               <button className="text-button" type="submit">
