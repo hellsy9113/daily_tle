@@ -1,28 +1,51 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { activityLevel, activityWeeks } from "@/lib/activity/calendar";
 import type { ActivityDay } from "@/lib/activity/types";
 
-const dateLabel = (date: string) =>
-  new Intl.DateTimeFormat("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T12:00:00Z`));
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" });
+const dateLabel = (date: string) => dateFormatter.format(new Date(`${date}T12:00:00Z`));
 
-export function describeActivityDay(day: ActivityDay) {
-  const count = `${day.count} unique Accepted ${day.count === 1 ? "problem" : "problems"}`;
-  return `${dateLabel(day.date)}: ${day.coverage === "unknown" ? "history unavailable" : `${count}${day.coverage === "partial" ? " found; history incomplete" : ""}`}`;
+export function describeActivityDay(day: ActivityDay, mode: "accepted" | "observed" = "accepted") {
+  const date = dateLabel(day.date);
+  if (day.coverage === "unknown")
+    return `${date}: ${mode === "observed" ? "no observation available" : "history unavailable"}`;
+  const count = `${day.count} ${mode === "observed" ? "newly observed" : "unique Accepted"} ${day.count === 1 ? "problem" : "problems"}`;
+  const note =
+    day.coverage === "partial"
+      ? mode === "observed"
+        ? "; solve date unverified"
+        : " found; history incomplete"
+      : "";
+  return `${date}: ${count}${note}`;
 }
 
-export function ActivityChart({ days }: { days: ActivityDay[] }) {
+export function ActivityChart({
+  days,
+  mode = "accepted",
+  label = "Accepted problems by day",
+}: {
+  days: ActivityDay[];
+  mode?: "accepted" | "observed";
+  label?: string;
+}) {
+  const helpId = useId();
   const [selectedDate, setSelectedDate] = useState(days.at(-1)?.date ?? "");
   const selected = days.find((day) => day.date === selectedDate) ?? days.at(-1);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const scroller = useRef<HTMLDivElement>(null);
-  const weeks = activityWeeks(days);
+  const weeks = useMemo(() => activityWeeks(days), [days]);
+  const labels = useMemo(
+    () => new Map(days.map((day) => [day.date, describeActivityDay(day, mode)])),
+    [days, mode],
+  );
   const latestDate = days.at(-1)?.date;
   useEffect(() => {
     if (scroller.current) scroller.current.scrollLeft = scroller.current.scrollWidth;
@@ -31,21 +54,16 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
   function navigate(event: React.KeyboardEvent, day: ActivityDay) {
     const index = days.findIndex((item) => item.date === day.date);
     const weekday = new Date(`${day.date}T12:00:00Z`).getUTCDay();
-    const target =
-      event.key === "ArrowLeft"
-        ? index - 7
-        : event.key === "ArrowRight"
-          ? index + 7
-          : event.key === "ArrowUp"
-            ? index - (weekday > 0 ? 1 : 0)
-            : event.key === "ArrowDown"
-              ? index + (weekday < 6 ? 1 : 0)
-              : event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? days.length - 1
-                  : null;
-    if (target === null) return;
+    const targets: Partial<Record<string, number>> = {
+      ArrowLeft: index - 7,
+      ArrowRight: index + 7,
+      ArrowUp: index - (weekday > 0 ? 1 : 0),
+      ArrowDown: index + (weekday < 6 ? 1 : 0),
+      Home: 0,
+      End: days.length - 1,
+    };
+    const target = targets[event.key];
+    if (target === undefined) return;
     event.preventDefault();
     const next = days[Math.max(0, Math.min(days.length - 1, target))];
     if (next) buttons.current.get(next.date)?.focus();
@@ -53,7 +71,7 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
 
   return (
     <>
-      <p id="calendar-help" className="sr-only">
+      <p id={helpId} className="sr-only">
         Each square is one day in Asia/Kolkata. Use left and right arrow keys for weeks, up and down
         for days, and Home or End for the first or last day. Select a day for its count.
       </p>
@@ -61,8 +79,8 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
         <div
           className="calendar"
           role="group"
-          aria-label="Accepted problems by day"
-          aria-describedby="calendar-help"
+          aria-label={label}
+          aria-describedby={helpId}
           style={{ gridTemplateColumns: `28px repeat(${weeks.length}, var(--calendar-cell))` }}
         >
           <div className="calendar-months" aria-hidden="true">
@@ -73,11 +91,7 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
                 (index === 0 ? week.find(Boolean) : null);
               return (
                 <span key={index}>
-                  {first
-                    ? new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" }).format(
-                        new Date(`${first.date}T12:00:00Z`),
-                      )
-                    : ""}
+                  {first ? monthFormatter.format(new Date(`${first.date}T12:00:00Z`)) : ""}
                 </span>
               );
             })}
@@ -100,9 +114,9 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
                     }}
                     className={`calendar-day activity-level-${activityLevel(day.count)} ${day.coverage === "unknown" ? "activity-unknown" : ""} ${day.coverage === "partial" ? "activity-partial" : ""}`}
                     tabIndex={day.date === selected?.date ? 0 : -1}
-                    aria-label={describeActivityDay(day)}
+                    aria-label={labels.get(day.date)}
                     aria-pressed={day.date === selected?.date}
-                    title={describeActivityDay(day)}
+                    title={labels.get(day.date)}
                     onFocus={() => setSelectedDate(day.date)}
                     onClick={() => setSelectedDate(day.date)}
                     onKeyDown={(event) => navigate(event, day)}
@@ -117,7 +131,7 @@ export function ActivityChart({ days }: { days: ActivityDay[] }) {
       </div>
       <div className="calendar-caption">
         <p role="status" aria-live="polite">
-          {selected ? describeActivityDay(selected) : "No activity history yet."}
+          {selected ? labels.get(selected.date) : "No activity history yet."}
         </p>
         <div
           className="calendar-legend"

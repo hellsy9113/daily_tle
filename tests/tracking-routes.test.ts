@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/http/api-error";
+import type { Account } from "@/lib/db/schema";
 import { requireAccount } from "@/lib/auth/session";
 import {
   registerUsername,
@@ -16,10 +17,13 @@ vi.mock("@/lib/tracking/registration", () => ({
   trackingStatus: vi.fn(),
   createConnectionLink: vi.fn(),
 }));
-const ownAccount = {
+const ownAccount: Account = {
   id: "own-account",
   telegramId: 101,
   leetcodeUsername: null,
+  gfgUsername: null,
+  gfgUsernameKey: null,
+  gfgRegisteredAt: null,
   usernameKey: null,
   chatId: null,
   status: "pending",

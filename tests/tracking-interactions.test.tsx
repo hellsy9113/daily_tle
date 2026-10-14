@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TrackingPanel, type TrackingStatus } from "@/components/tracking-panel";
+import { TrackingPanel } from "@/components/tracking-panel";
+import type { TrackingStatus } from "@/lib/tracking/types";
 
 const replace = vi.hoisted(() => vi.fn());
 const router = { replace };
@@ -60,6 +61,47 @@ async function submit() {
 }
 
 describe("registration and connection interactions", () => {
+  it.each([Response.json(null, { status: 502 }), new Response("Bad Gateway", { status: 502 })])(
+    "shows safe retry feedback for an invalid error response",
+    async (response) => {
+      await render();
+      await enterUsername("my_username");
+      await acknowledge();
+      vi.mocked(fetch).mockResolvedValue(response);
+      await submit();
+      expect(container.querySelector('[role="alert"]')!.textContent).toBe(
+        "Something went wrong. Try again.",
+      );
+      expect(container.querySelector<HTMLInputElement>('input[name="username"]')!.value).toBe(
+        "my_username",
+      );
+    },
+  );
+  it("cancels connection checks and prevents navigation after leaving setup", async () => {
+    await render({ ...initial, username: "my_username" });
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await click("check connection");
+    const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
+    await act(() => root.render(null));
+    await act(() =>
+      finish(
+        Response.json({
+          ...initial,
+          username: "my_username",
+          connected: true,
+          status: "active",
+        }),
+      ),
+    );
+    expect(signal?.aborted).toBe(true);
+    expect(replace).not.toHaveBeenCalled();
+  });
   it("keeps the typed username and acknowledgement after a recoverable failure", async () => {
     await render();
     await enterUsername("my_username");
@@ -93,7 +135,9 @@ describe("registration and connection interactions", () => {
     );
   });
   it("expires a personal link, offers regeneration, and refreshes the connection", async () => {
-    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.useFakeTimers({
+      toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"],
+    });
     vi.setSystemTime(new Date("2026-10-13T03:00:00Z"));
     await render({ ...initial, username: "my_username" });
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -128,7 +172,10 @@ describe("registration and connection interactions", () => {
       Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
     );
     await act(() => window.dispatchEvent(new Event("focus")));
-    expect(fetch).toHaveBeenLastCalledWith("/api/tracking", { cache: "no-store" });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/tracking",
+      expect.objectContaining({ cache: "no-store" }),
+    );
     expect(replace).toHaveBeenCalledWith("/dashboard");
   });
   it("polls briefly while waiting for Start and stops after connecting", async () => {

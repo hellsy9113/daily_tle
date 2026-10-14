@@ -6,6 +6,7 @@ import { accounts, connectionTokens, deliveries, type Account } from "@/lib/db/s
 import { getLeetCodeIdentity } from "@/lib/leetcode/user-identity";
 import { trackingBot, requireRegistrationAvailable } from "./config";
 import { hashToken, randomToken } from "./security";
+import type { ConnectionLink, TrackingStatus } from "./types";
 
 function databaseCode(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null) return;
@@ -13,7 +14,7 @@ function databaseCode(error: unknown): string | undefined {
   if ("cause" in error) return databaseCode(error.cause);
 }
 
-export async function registerUsername(account: Account, value: unknown) {
+export async function registerUsername(account: Account, value: unknown): Promise<TrackingStatus> {
   requireRegistrationAvailable();
   if (account.leetcodeUsername)
     throw new ApiError(409, "Your LeetCode username is already registered and cannot be changed.");
@@ -39,14 +40,10 @@ export async function registerUsername(account: Account, value: unknown) {
   }
 }
 
-export interface TrackingAccountStatus {
-  username: string | null;
-  connected: boolean;
-  status: string;
-  lastDelivery: { reportDate: string; status: string; sentAt: Date | null } | null;
-}
-
-export async function trackingStatus(account: Account): Promise<TrackingAccountStatus> {
+export async function trackingStatus(
+  account: Account,
+  platform: "leetcode" | "gfg" = "leetcode",
+): Promise<TrackingStatus> {
   const [latest] = await db()
     .select({
       reportDate: deliveries.reportDate,
@@ -54,19 +51,20 @@ export async function trackingStatus(account: Account): Promise<TrackingAccountS
       sentAt: deliveries.sentAt,
     })
     .from(deliveries)
-    .where(eq(deliveries.accountId, account.id))
+    .where(and(eq(deliveries.accountId, account.id), eq(deliveries.platform, platform)))
     .orderBy(desc(deliveries.reportDate))
     .limit(1);
   return {
-    username: account.leetcodeUsername,
+    username: platform === "gfg" ? account.gfgUsername : account.leetcodeUsername,
     connected: account.chatId !== null,
     status: account.status,
-    lastDelivery: latest ?? null,
+    lastDelivery: latest ? { ...latest, sentAt: latest.sentAt?.toISOString() ?? null } : null,
   };
 }
 
-export async function createConnectionLink(account: Account) {
-  if (!account.leetcodeUsername) throw new ApiError(409, "Register your LeetCode username first.");
+export async function createConnectionLink(account: Account): Promise<ConnectionLink> {
+  if (!account.leetcodeUsername && !account.gfgUsername)
+    throw new ApiError(409, "Register your LeetCode or GFG username first.");
   const bot = trackingBot();
   const token = randomToken();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);

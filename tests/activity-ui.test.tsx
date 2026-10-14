@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityChart } from "@/components/activity-chart";
 import { ActivityDashboard } from "@/components/activity-dashboard";
 import type { ActivityResult } from "@/lib/activity/types";
+import type { TrackingStatus } from "@/lib/tracking/types";
 
 const days: ActivityResult["days"] = [
   { date: "2026-10-11", count: 0, coverage: "unknown" },
@@ -30,7 +31,12 @@ const activity: ActivityResult = {
   refreshing: false,
   refreshFailed: false,
 };
-const status = { username: "fixed-user", connected: true, status: "active", lastDelivery: null };
+const status: TrackingStatus = {
+  username: "fixed-user",
+  connected: true,
+  status: "active",
+  lastDelivery: null,
+};
 let container: HTMLDivElement;
 let root: Root;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
@@ -110,6 +116,22 @@ describe("activity dashboard", () => {
     expect(container.querySelector("section")?.getAttribute("aria-label")).toBe(
       "Telegram bot status",
     );
+    expect(container.querySelector('[aria-labelledby="activity-title"]')).not.toBeNull();
+    expect(container.querySelector("#activity-title")?.textContent).toBe(
+      "Your practice, day by day.",
+    );
+  });
+  it("shows session-expiry feedback even for a non-JSON authentication error", async () => {
+    responses();
+    await renderDashboard();
+    vi.mocked(fetch).mockImplementation(async () => new Response("Sign in", { status: 401 }));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>(".dashboard-actions button")!.click(),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Your session expired",
+    );
+    expect(container.textContent).toContain("≥ 9");
   });
   it("preserves saved counts when refresh fails, shows retry feedback, and recovers", async () => {
     responses();
@@ -126,13 +148,16 @@ describe("activity dashboard", () => {
     );
     expect(container.textContent).toContain("Showing your saved activity");
   });
-  it.each(["paused", "blocked"])("keeps the chart usable when the bot is %s", async (state) => {
-    responses(activity, { ...status, status: state });
-    await renderDashboard();
-    expect(container.textContent).toContain(state === "paused" ? "Paused" : "Blocked");
-    expect(container.textContent).toContain("/start");
-    expect(container.querySelector('[aria-label="Accepted problems by day"]')).not.toBeNull();
-  });
+  it.each(["paused", "blocked"] as const)(
+    "keeps the chart usable when the bot is %s",
+    async (state) => {
+      responses(activity, { ...status, status: state });
+      await renderDashboard();
+      expect(container.textContent).toContain(state === "paused" ? "Paused" : "Blocked");
+      expect(container.textContent).toContain("/start");
+      expect(container.querySelector('[aria-label="Accepted problems by day"]')).not.toBeNull();
+    },
+  );
   it("waits for a concurrent first sync and then shows its result", async () => {
     vi.useFakeTimers();
     responses({ ...activity, days: [], refreshing: true, lastSyncedAt: null });

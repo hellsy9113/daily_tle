@@ -8,7 +8,6 @@
   --muted: #666666;
   --border: #e5e5e5;
   --control-border: #8f8f8f;
-  --accent: #171717;
   --error: #b91c1c;
   --success: #166534;
   --activity-0: #ebedf0;
@@ -31,7 +30,6 @@
     --muted: #a3a3a3;
     --border: #333333;
     --control-border: #737373;
-    --accent: #ededed;
     --error: #fca5a5;
     --success: #86efac;
     --activity-0: #20252b;
@@ -153,16 +151,11 @@ code,
   font-size: 0.875em;
   overflow-wrap: anywhere;
 }
-.note,
 .site-footer,
 .field-help,
 .hero-caption {
   color: var(--muted);
   font-size: 0.8125rem;
-}
-.note {
-  margin-top: 1rem;
-  max-width: 80ch;
 }
 .hero-caption {
   margin-top: 1rem;

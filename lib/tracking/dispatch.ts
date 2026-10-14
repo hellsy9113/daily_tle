@@ -18,6 +18,9 @@ import { formatDailyReport } from "./format-report";
 import { requireCron } from "./security";
 import { trackingBot } from "./config";
 import { sendTrackingMessage, TrackingTelegramError } from "./telegram-client";
+import { getGfgProfile } from "@/lib/gfg/client";
+import { GFG_REFRESH_MS, gfgState, readGfgProblems } from "@/lib/gfg/store";
+import { formatGfgDailyReport } from "@/lib/gfg/format-report";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -44,9 +47,10 @@ export async function dispatchTracking({
   const deadline = performance.now() + budgetMs;
   const stats = { skipped: false, sent: 0, failed: 0 };
   let rateLimitedUntil = 0;
+  let gfgRateLimitedUntil = 0;
   const pace = createMessagePacer(pause);
-  const ensureTime = () => {
-    if (performance.now() + 12_000 >= deadline) throw new Error("Dispatch budget exhausted.");
+  const ensureTime = (reserveMs = 12_000) => {
+    if (performance.now() + reserveMs >= deadline) throw new Error("Dispatch budget exhausted.");
   };
   try {
     const reportDate = await prepareDeliveries(now);
@@ -56,9 +60,28 @@ export async function dispatchTracking({
         let messages = delivery.messages;
         if (!messages) {
           // Retry against the stored calendar period, even if the wall clock changes.
-          const result = await getLastDaySolvedQuestions(delivery.username, new Date(delivery.end));
-          messages = formatDailyReport(result);
-          await prepareDeliveryReport(delivery, messages, result);
+          if (delivery.platform === "gfg") {
+            ensureTime(24_000);
+            const [saved, state] = await Promise.all([
+              readGfgProblems(delivery.accountId),
+              gfgState(delivery.accountId),
+            ]);
+            const result = await getGfgProfile(delivery.username);
+            messages = formatGfgDailyReport(
+              result,
+              saved,
+              new Date(delivery.end),
+              Boolean(state?.refreshedAt),
+            );
+            await prepareDeliveryReport(delivery, messages, result);
+          } else {
+            const result = await getLastDaySolvedQuestions(
+              delivery.username,
+              new Date(delivery.end),
+            );
+            messages = formatDailyReport(result);
+            await prepareDeliveryReport(delivery, messages, result);
+          }
         }
         for (let index = delivery.sentParts; index < messages.length; index++) {
           ensureTime();
@@ -84,6 +107,8 @@ export async function dispatchTracking({
         stats.sent++;
       } catch (error) {
         stats.failed++;
+        if (delivery.platform === "gfg" && error instanceof ApiError && error.status === 429)
+          gfgRateLimitedUntil = Math.max(gfgRateLimitedUntil, Date.now() + GFG_REFRESH_MS);
         if (error instanceof TrackingTelegramError && error.kind === "rate_limit")
           rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + error.retryAfter * 1000);
         if (error instanceof TrackingTelegramError && error.kind === "blocked")
@@ -96,14 +121,22 @@ export async function dispatchTracking({
               : error instanceof ApiError
                 ? `lookup_${error.status}`
                 : "delivery_interrupted",
-            error instanceof TrackingTelegramError ? error.retryAfter : 60,
+            error instanceof TrackingTelegramError
+              ? error.retryAfter
+              : error instanceof ApiError && error.status === 429
+                ? GFG_REFRESH_MS / 1000
+                : 60,
           );
       }
     };
     const workers = await Promise.allSettled(
       Array.from({ length: 10 }, async () => {
         while (performance.now() + 12_000 < deadline && Date.now() >= rateLimitedUntil) {
-          const delivery = await claimDelivery(reportDate, new Date());
+          const delivery = await claimDelivery(
+            reportDate,
+            new Date(),
+            Date.now() >= gfgRateLimitedUntil,
+          );
           if (!delivery) return;
           await processDelivery(delivery);
         }

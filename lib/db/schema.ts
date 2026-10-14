@@ -1,4 +1,6 @@
 import { sql } from "drizzle-orm";
+import type { AccountStatus, DeliveryStatus } from "@/lib/tracking/types";
+import type { GfgDifficulty, GfgProfileSummary } from "@/lib/gfg/types";
 import {
   bigint,
   boolean,
@@ -25,15 +27,19 @@ export const accounts = tracking.table(
     id: uuid("id").primaryKey().defaultRandom(),
     telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
     leetcodeUsername: text("leetcode_username"),
+    gfgUsername: text("gfg_username"),
+    gfgUsernameKey: text("gfg_username_key").generatedAlwaysAs(sql`lower(gfg_username)`),
+    gfgRegisteredAt: time("gfg_registered_at"),
     usernameKey: text("username_key").generatedAlwaysAs(sql`lower(leetcode_username)`),
     chatId: bigint("chat_id", { mode: "number" }).unique(),
-    status: text("status").notNull().default("pending"),
+    status: text("status").$type<AccountStatus>().notNull().default("pending"),
     registeredAt: time("registered_at"),
     connectedAt: time("connected_at"),
     createdAt: time("created_at").notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("accounts_username_key_unique").on(table.usernameKey),
+    uniqueIndex("accounts_gfg_username_key_unique").on(table.gfgUsernameKey),
     check(
       "accounts_status_check",
       sql`${table.status} IN ('pending', 'active', 'paused', 'blocked')`,
@@ -79,9 +85,10 @@ export const deliveries = tracking.table(
       .notNull()
       .references(() => accounts.id),
     reportDate: date("report_date").notNull(),
+    platform: text("platform").$type<"leetcode" | "gfg">().notNull().default("leetcode"),
     start: time("period_start").notNull(),
     end: time("period_end").notNull(),
-    status: text("status").notNull().default("pending"),
+    status: text("status").$type<DeliveryStatus>().notNull().default("pending"),
     messages: jsonb("messages").$type<string[]>(),
     sentParts: integer("sent_parts").notNull().default(0),
     attempts: integer("attempts").notNull().default(0),
@@ -93,7 +100,11 @@ export const deliveries = tracking.table(
     createdAt: time("created_at").notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("deliveries_account_date_unique").on(table.accountId, table.reportDate),
+    uniqueIndex("deliveries_account_platform_date_unique").on(
+      table.accountId,
+      table.platform,
+      table.reportDate,
+    ),
     check(
       "deliveries_status_check",
       sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'cancelled')`,
@@ -146,6 +157,50 @@ export const activitySync = tracking.table("activity_sync", {
   leaseUntil: time("lease_until"),
   lastError: integer("last_error"),
 });
+
+export const gfgProblems = tracking.table(
+  "gfg_problems",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    id: text("problem_id").notNull(),
+    title: text("title").notNull(),
+    difficulty: text("difficulty").$type<GfgDifficulty>().notNull(),
+    acceptedAt: time("accepted_at"),
+    reportedSubmissionTime: text("reported_submission_time"),
+    firstObservedAt: time("first_observed_at").notNull(),
+    baseline: boolean("baseline").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.id] })],
+);
+
+export const gfgSync = tracking.table("gfg_sync", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id),
+  profile: jsonb("profile").$type<GfgProfileSummary>(),
+  refreshedAt: time("refreshed_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: time("lease_until"),
+  lastError: integer("last_error"),
+});
+
+export const gfgSnapshots = tracking.table(
+  "gfg_snapshots",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    date: date("snapshot_date").notNull(),
+    totalSolved: integer("total_solved").notNull(),
+    difficultyBreakdown: jsonb("difficulty_breakdown")
+      .$type<GfgProfileSummary["difficultyBreakdown"]>()
+      .notNull(),
+    checkedAt: time("checked_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+);
 
 export type Account = typeof accounts.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;

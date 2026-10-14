@@ -16,6 +16,9 @@ import { randomToken } from "./security";
 import { writeActivityObservation } from "@/lib/activity/store";
 import { observeSolvedPeriod } from "@/lib/activity/observations";
 import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
+import type { GfgProfile } from "@/lib/gfg/types";
+import { gfgSummary, writeGfgProfile } from "@/lib/gfg/store";
+import { gfgSync } from "@/lib/db/schema";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
@@ -51,11 +54,19 @@ export async function releaseDispatchLock(token: string) {
 export async function prepareDeliveries(now: Date) {
   const range = reportPeriod(now);
   await db()
-    .execute(sql`INSERT INTO ${deliveries} (account_id, report_date, period_start, period_end)
-    SELECT id, ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    SELECT id, 'leetcode', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
     FROM ${accounts} WHERE status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
-    ON CONFLICT (account_id, report_date) DO NOTHING`);
+    AND registered_at <= ${range.cutoff.toISOString()}::timestamptz
+    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
+  await db()
+    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    SELECT id, 'gfg', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL
+      AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
+      AND gfg_registered_at <= ${range.cutoff.toISOString()}::timestamptz
+    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
   await db()
     .execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
     WHERE report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
@@ -65,6 +76,7 @@ export async function prepareDeliveries(now: Date) {
 export async function claimDelivery(
   reportDate: string,
   now: Date,
+  allowGfg = true,
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
@@ -75,9 +87,10 @@ export async function claimDelivery(
     .where(
       and(
         eq(deliveries.reportDate, reportDate),
+        allowGfg ? undefined : eq(deliveries.platform, "leetcode"),
         eq(accounts.status, "active"),
         isNotNull(accounts.chatId),
-        isNotNull(accounts.leetcodeUsername),
+        sql`CASE WHEN ${deliveries.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
         sql`${deliveries.attempts} < 3`,
         lte(deliveries.nextAttemptAt, now),
         or(
@@ -101,7 +114,7 @@ export async function claimDelivery(
     .where(eq(deliveries.id, candidate))
     .returning({
       ...getTableColumns(deliveries),
-      username: sql<string>`(SELECT leetcode_username FROM ${accounts} WHERE id = ${deliveries.accountId})`,
+      username: sql<string>`(SELECT CASE WHEN ${deliveries.platform} = 'gfg' THEN gfg_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${deliveries.accountId})`,
       chatId:
         sql<number>`(SELECT chat_id FROM ${accounts} WHERE id = ${deliveries.accountId})`.mapWith(
           Number,
@@ -149,14 +162,37 @@ export async function updateDelivery(
 export async function prepareDeliveryReport(
   delivery: ClaimedDelivery,
   messages: string[],
-  result: SolvedQuestionsResult,
+  result: SolvedQuestionsResult | GfgProfile,
 ) {
   await db().transaction(async (transaction) => {
-    await writeActivityObservation(
-      transaction,
-      delivery.accountId,
-      observeSolvedPeriod(result, new Date()),
-    );
+    if ("platform" in result) {
+      await writeGfgProfile(transaction, delivery.accountId, result);
+      await transaction
+        .insert(gfgSync)
+        .values({
+          accountId: delivery.accountId,
+          profile: gfgSummary(result),
+          refreshedAt: new Date(result.checkedAt),
+        })
+        .onConflictDoUpdate({
+          target: gfgSync.accountId,
+          set: {
+            profile: gfgSummary(result),
+            refreshedAt: new Date(result.checkedAt),
+            lastError: null,
+          },
+          setWhere: or(
+            sql`${gfgSync.refreshedAt} IS NULL`,
+            lte(gfgSync.refreshedAt, new Date(result.checkedAt)),
+          ),
+        });
+    } else {
+      await writeActivityObservation(
+        transaction,
+        delivery.accountId,
+        observeSolvedPeriod(result, new Date()),
+      );
+    }
     const rows = await transaction
       .update(deliveries)
       .set({ messages })
@@ -193,6 +229,26 @@ export async function failDelivery(delivery: ClaimedDelivery, reason: string, re
 
 export async function blockAccount(delivery: ClaimedDelivery) {
   await db().transaction(async (transaction) => {
+    // Match the webhook's account-first lock order, then fence stale delivery failures.
+    const [account] = await transaction
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.id, delivery.accountId), eq(accounts.status, "active")))
+      .for("update");
+    if (!account) return;
+    const [leased] = await transaction
+      .select({ id: deliveries.id })
+      .from(deliveries)
+      .where(
+        and(
+          eq(deliveries.id, delivery.id),
+          eq(deliveries.leaseToken, delivery.leaseToken!),
+          eq(deliveries.status, "sending"),
+          gt(deliveries.leaseUntil, new Date()),
+        ),
+      )
+      .for("update");
+    if (!leased) return;
     await transaction
       .update(accounts)
       .set({ status: "blocked" })

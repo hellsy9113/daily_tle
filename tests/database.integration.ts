@@ -10,7 +10,13 @@ import {
   connectionTokens,
   deliveries,
   sessions,
+  gfgProblems,
+  gfgSnapshots,
 } from "@/lib/db/schema";
+import { getGfgProfile } from "@/lib/gfg/client";
+import { getGfgProgress, registerGfg } from "@/lib/gfg/service";
+import { claimGfgSync, readGfgProblems, saveGfgSync } from "@/lib/gfg/store";
+import type { GfgProfile } from "@/lib/gfg/types";
 import { getAcceptedHistory } from "@/lib/leetcode/accepted-history";
 import { getAccountActivity } from "@/lib/activity/service";
 import { observeAcceptedHistory } from "@/lib/activity/observations";
@@ -24,11 +30,16 @@ import { accountForToken, createSession, revokeSession } from "@/lib/auth/sessio
 import { getLeetCodeIdentity } from "@/lib/leetcode/user-identity";
 import { getLastDaySolvedQuestions } from "@/lib/leetcode/last-day-solved";
 import { ApiError } from "@/lib/http/api-error";
-import { registerUsername, createConnectionLink } from "@/lib/tracking/registration";
+import {
+  registerUsername,
+  createConnectionLink,
+  trackingStatus,
+} from "@/lib/tracking/registration";
 import { hashToken } from "@/lib/tracking/security";
 import { processTrackingUpdate } from "@/lib/tracking/webhook";
 import {
   acquireDispatchLock,
+  blockAccount,
   claimDelivery,
   prepareDeliveries,
   prepareDeliveryReport,
@@ -42,6 +53,7 @@ vi.mock("@/lib/leetcode/user-identity", () => ({
 }));
 vi.mock("@/lib/leetcode/last-day-solved", () => ({ getLastDaySolvedQuestions: vi.fn() }));
 vi.mock("@/lib/leetcode/accepted-history", () => ({ getAcceptedHistory: vi.fn() }));
+vi.mock("@/lib/gfg/client", () => ({ getGfgProfile: vi.fn() }));
 vi.mock("@/lib/tracking/telegram-client", async (original) => ({
   ...(await original<typeof import("@/lib/tracking/telegram-client")>()),
   sendTrackingMessage: vi.fn(async () => {}),
@@ -57,6 +69,25 @@ const admin = postgres(process.env.DATABASE_URL!, {
   onnotice: () => {},
 });
 const now = new Date("2026-10-13T03:00:00Z");
+function gfgProfile(username = "gfg_101", ids = ["old"], checkedAt = now): GfgProfile {
+  return {
+    platform: "gfg",
+    username,
+    totalSolved: ids.length,
+    checkedAt: checkedAt.toISOString(),
+    historyComplete: true,
+    difficultyBreakdown: { School: 0, Basic: 0, Easy: ids.length, Medium: 0, Hard: 0 },
+    problems: ids.map((id) => ({
+      id,
+      title: id,
+      difficulty: "Easy",
+      status: "Accepted",
+      acceptedAt: null,
+      reportedSubmissionTime: "2026-10-12 22:40:00",
+      url: `https://www.geeksforgeeks.org/problems/${id}/1`,
+    })),
+  };
+}
 
 beforeAll(async () => {
   for (const filename of (await readdir("migrations"))
@@ -90,6 +121,9 @@ beforeEach(async () => {
   vi.mocked(sendTrackingMessage).mockResolvedValue();
   vi.mocked(getLastDaySolvedQuestions).mockRejectedValue(new ApiError(502, "Upstream unavailable"));
   vi.mocked(getAcceptedHistory).mockResolvedValue({ username: "user_101", submissions: [] });
+  vi.mocked(getGfgProfile).mockImplementation(async (username, at = now) =>
+    gfgProfile(String(username), ["old"], at),
+  );
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -132,7 +166,211 @@ const record = (accountId: string, history: ReturnType<typeof accepted>[], at = 
 const onDay = (result: Awaited<ReturnType<typeof readActivity>>, date: string) =>
   result.days.find((day) => day.date === date)!;
 
+describe("separate GFG registration, observations, and delivery", () => {
+  it("keeps LeetCode delivery available when the GFG upstream is rate limited", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    vi.mocked(getGfgProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
+      username: "user_101",
+      period: "lastday",
+      timezone: "Asia/Kolkata",
+      start: "2026-10-11T18:30:00Z",
+      end: "2026-10-12T18:30:00Z",
+      count: 0,
+      questions: [],
+      mayBeIncomplete: false,
+    });
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 1,
+      failed: 1,
+    });
+    const [failed] = await db().select().from(deliveries).where(eq(deliveries.platform, "gfg"));
+    expect(failed).toMatchObject({ status: "failed", lastError: "lookup_429", messages: null });
+    expect(failed.nextAttemptAt.getTime()).toBe(now.getTime() + 5 * 60_000);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(
+      101,
+      "hmm..no question found.do it today, I will be waiting",
+    );
+  });
+  it("supports a GFG-only account with the existing bot connection and no LeetCode registration", async () => {
+    const user = await account();
+    await registerGfg(user, "gfg_101");
+    const registered = (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+    const link = await createConnectionLink(registered);
+    expect(
+      await processTrackingUpdate({
+        updateId: 99,
+        userId: 101,
+        chatId: 101,
+        text: "/start invalid-token",
+      }),
+    ).toContain("/feature");
+    expect(
+      await processTrackingUpdate({
+        updateId: 1,
+        userId: 101,
+        chatId: 101,
+        text: `/start ${startToken(link.url)}`,
+      }),
+    ).toContain("GFG gfg_101");
+    const connected = (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+    expect(connected).toMatchObject({
+      leetcodeUsername: null,
+      gfgUsername: "gfg_101",
+      chatId: 101,
+      status: "active",
+    });
+    await prepareDeliveries(now);
+    expect((await db().select().from(deliveries)).map((row) => row.platform)).toEqual(["gfg"]);
+  });
+  it("reserves GFG usernames case-insensitively and prevents account reassignment in the database", async () => {
+    const first = await account(101);
+    const second = await account(102);
+    await registerGfg(first, "Gfg_101");
+    await expect(registerGfg(second, "gfg_101")).rejects.toMatchObject({ status: 409 });
+    const registered = (await db().select().from(accounts).where(eq(accounts.id, first.id)))[0];
+    await expect(registerGfg(registered, "replacement")).rejects.toMatchObject({ status: 409 });
+    await expect(
+      db().update(accounts).set({ gfgUsername: "replacement" }).where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    expect(registered.leetcodeUsername).toBeNull();
+  });
+  it("imports a baseline, caches refreshes, saves newly observed IDs, and keeps one snapshot per day", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    const registered = (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+    expect(await getGfgProgress(registered, undefined, now)).toMatchObject({
+      totalSolved: 1,
+      observedToday: 0,
+      solvedToday: null,
+    });
+    expect(getGfgProfile).toHaveBeenCalledTimes(1);
+    const later = new Date(now.getTime() + 6 * 60_000);
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgProfile("gfg_101", ["old", "new"], later));
+    expect(await getGfgProgress(registered, undefined, later)).toMatchObject({
+      totalSolved: 2,
+      observedToday: 1,
+    });
+    expect((await readGfgProblems(user.id)).find((item) => item.id === "old")?.baseline).toBe(true);
+    expect((await readGfgProblems(user.id)).find((item) => item.id === "new")?.baseline).toBe(
+      false,
+    );
+    expect(await db().select().from(gfgSnapshots)).toHaveLength(1);
+    expect(await db().select().from(gfgProblems)).toHaveLength(2);
+    expect(await claimGfgSync(user.id, "early", new Date(later.getTime() + 60_000))).toBe(false);
+  });
+  it("leases simultaneous refreshes and rolls back a snapshot belonging to a lost lease", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    const later = new Date(now.getTime() + 6 * 60_000);
+    const claims = await Promise.all([
+      claimGfgSync(user.id, "first", later),
+      claimGfgSync(user.id, "second", later),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await expect(
+      saveGfgSync(user.id, "forged", gfgProfile("gfg_101", ["old", "uncommitted"], later)),
+    ).rejects.toThrow("lease expired");
+    expect((await readGfgProblems(user.id)).map((item) => item.id)).toEqual(["old"]);
+    expect((await db().select().from(gfgSnapshots))[0].totalSolved).toBe(1);
+  });
+  it("serves saved GFG data and backs off after an upstream rate limit", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    const registered = (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+    const later = new Date(now.getTime() + 6 * 60_000);
+    vi.mocked(getGfgProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    expect(await getGfgProgress(registered, undefined, later)).toMatchObject({
+      totalSolved: 1,
+      refreshFailed: true,
+      refreshing: false,
+    });
+    expect(await claimGfgSync(user.id, "too-soon", new Date(later.getTime() + 60_000))).toBe(false);
+    expect(await db().select().from(gfgProblems)).toHaveLength(1);
+  });
+  it("creates one report per platform, pauses both, and preserves prepared-part recovery", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await prepareDeliveries(now);
+    await prepareDeliveries(now);
+    const rows = await db().select().from(deliveries);
+    expect(rows.map((row) => row.platform).sort()).toEqual(["gfg", "leetcode"]);
+    await db()
+      .update(deliveries)
+      .set({
+        messages: ["sent before interruption", "remaining GFG report"],
+        sentParts: 1,
+        status: "sending",
+        leaseToken: "expired",
+        leaseUntil: new Date(now.getTime() - 1),
+      })
+      .where(eq(deliveries.platform, "gfg"));
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, "remaining GFG report");
+    await processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/stop" });
+    expect(
+      (await db().select().from(deliveries).where(eq(deliveries.platform, "leetcode")))[0].status,
+    ).toBe("cancelled");
+    expect(
+      (await db().select().from(deliveries).where(eq(deliveries.platform, "gfg")))[0].status,
+    ).toBe("sent");
+  });
+  it("delivers separate real-format messages and does not resend either platform on recovery", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgProfile("gfg_101", ["old", "new"]));
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
+      username: "user_101",
+      period: "lastday",
+      timezone: "Asia/Kolkata",
+      start: "2026-10-11T18:30:00Z",
+      end: "2026-10-12T18:30:00Z",
+      count: 0,
+      questions: [],
+      mayBeIncomplete: false,
+    });
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 2,
+      failed: 0,
+    });
+    const messages = vi.mocked(sendTrackingMessage).mock.calls.map((call) => call[1]);
+    expect(messages).toContain("hmm..no question found.do it today, I will be waiting");
+    expect(
+      messages.some(
+        (text) =>
+          text.includes("GFG daily recap") &&
+          text.includes("Newly observed") &&
+          text.includes("/new/1"),
+      ),
+    ).toBe(true);
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(0);
+  });
+});
+
 describe("account-scoped Accepted activity", () => {
+  it.each([
+    ["2026-10-12T02:59:59Z", "complete", false],
+    ["2026-10-12T02:59:59Z", "complete", true],
+    ["2026-10-12T03:00:00Z", "partial", false],
+    ["2026-10-12T03:00:00Z", "partial", true],
+    ["2026-10-12T04:00:00Z", "partial", false],
+    ["2026-10-12T04:00:00Z", "partial", true],
+  ] as const)(
+    "merges coverage from %s as %s regardless of reverse write order (%s)",
+    async (boundary, coverage, reverse) => {
+      const user = await activeAccount();
+      const earlier = () =>
+        record(
+          user.id,
+          [accepted("old", "2026-10-11T02:00:00Z")],
+          new Date("2026-10-12T03:00:00Z"),
+        );
+      const later = () => record(user.id, [accepted("new", boundary)]);
+      for (const write of reverse ? [later, earlier] : [earlier, later]) await write();
+      expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe(coverage);
+    },
+  );
   it("deduplicates per account and day, retains newest titles, and counts unique problems across days", async () => {
     const first = await activeAccount(101);
     const second = await activeAccount(102);
@@ -179,6 +417,31 @@ describe("account-scoped Accepted activity", () => {
     expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("partial");
     await record(user.id, [accepted("bridge", "2026-10-12T02:59:59Z")]);
     expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("complete");
+  });
+  it("joins both sides when an overlapping bridge arrives after a later observation", async () => {
+    const user = await activeAccount();
+    await record(
+      user.id,
+      [accepted("old", "2026-10-11T02:00:00Z")],
+      new Date("2026-10-12T03:00:00Z"),
+    );
+    await record(user.id, [accepted("late", "2026-10-12T10:00:00Z")]);
+    await record(
+      user.id,
+      [accepted("bridge", "2026-10-12T02:59:59Z")],
+      new Date("2026-10-12T11:00:00Z"),
+    );
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("complete");
+  });
+  it("does not extend coverage through a later empty observation", async () => {
+    const user = await activeAccount();
+    await record(user.id, []);
+    await record(
+      user.id,
+      [accepted("old", "2026-10-11T02:00:00Z")],
+      new Date("2026-10-12T03:00:00Z"),
+    );
+    expect(onDay(await readActivity(user, now), "2026-10-12").coverage).toBe("partial");
   });
   it("never promotes empty history to proven zero or discards coverage after an older refresh", async () => {
     const user = await activeAccount();
@@ -452,6 +715,57 @@ describe("Telegram account binding", () => {
 });
 
 describe("durable delivery processing", () => {
+  it("returns the latest report as the same serializable status used by the API and pages", async () => {
+    const user = await activeAccount();
+    await prepareDeliveries(now);
+    await db().update(deliveries).set({ status: "sent", sentAt: now });
+    const status = await trackingStatus(user);
+    expect(status).toEqual({
+      username: user.leetcodeUsername,
+      connected: true,
+      status: "active",
+      lastDelivery: { reportDate: "2026-10-12", status: "sent", sentAt: now.toISOString() },
+    });
+  });
+  it("ignores a stale blocked response after the user pauses and resumes", async () => {
+    const user = await activeAccount();
+    await prepareDeliveries(now);
+    const delivery = (await claimDelivery("2026-10-12", now))!;
+    await processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/stop" });
+    await processTrackingUpdate({ updateId: 2, userId: 101, chatId: 101, text: "/start" });
+    await blockAccount(delivery);
+    expect((await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].status).toBe(
+      "active",
+    );
+  });
+  it("ignores a blocked response from a replaced delivery lease", async () => {
+    const user = await activeAccount();
+    await prepareDeliveries(now);
+    const stale = (await claimDelivery("2026-10-12", now))!;
+    vi.setSystemTime(new Date(now.getTime() + 8 * 60_000));
+    const current = (await claimDelivery("2026-10-12", new Date()))!;
+    await blockAccount(stale);
+    expect((await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].status).toBe(
+      "active",
+    );
+    expect((await db().select().from(deliveries))[0]).toMatchObject({
+      status: "sending",
+      leaseToken: current.leaseToken,
+    });
+  });
+  it("preserves a user pause during a concurrent blocked-delivery update", async () => {
+    const user = await activeAccount();
+    await prepareDeliveries(now);
+    const delivery = (await claimDelivery("2026-10-12", now))!;
+    await Promise.all([
+      processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/stop" }),
+      blockAccount(delivery),
+    ]);
+    expect((await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].status).toBe(
+      "paused",
+    );
+    expect((await db().select().from(deliveries))[0].status).toBe("cancelled");
+  });
   it("persists pending work when the execution budget is exhausted", async () => {
     await activeAccount();
     expect((await dispatchTracking({ now, budgetMs: 0, pause: async () => {} })).sent).toBe(0);
@@ -574,7 +888,7 @@ describe("durable delivery processing", () => {
           telegramId: 1000 + i,
           chatId: 1000 + i,
           leetcodeUsername: `batch_${i}`,
-          status: "active",
+          status: "active" as const,
           registeredAt: now,
           connectedAt: new Date(now.getTime() - 60_000),
         })),

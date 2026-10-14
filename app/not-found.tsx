@@ -7,12 +7,12 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <main className="page-shell intro" id="main-content" tabIndex={-1}>
+    <main className="page-shell dashboard-layout" id="main-content" tabIndex={-1}>
       <p className="eyebrow">Page not found</p>
       <h1>We couldn’t find that page.</h1>
-      <p className="lead">Check the address or return to the command guide.</p>
+      <p className="lead">Check the address or return to the homepage.</p>
       <p>
-        <Link href="/">Return to the command guide</Link>
+        <Link href="/">Return to the homepage</Link>
       </p>
     </main>
   );

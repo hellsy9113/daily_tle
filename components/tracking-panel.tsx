@@ -2,35 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { ConnectionLink, TrackingStatus } from "@/lib/tracking/types";
+import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
+import { requestJson } from "@/lib/http/client";
 
-export interface TrackingStatus {
-  username: string | null;
-  connected: boolean;
-  status: string;
-  lastDelivery: { reportDate: string; status: string; sentAt: string | null } | null;
-}
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "Asia/Kolkata",
+});
+const friendlyDate = (value: string) => dateFormatter.format(new Date(`${value}T12:00:00+05:30`));
 
-async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { cache: "no-store", ...options });
-  const body = await response.json();
-  if (!response.ok)
-    throw new Error(
-      typeof body.error === "string" ? body.error : "Something went wrong. Try again.",
-    );
-  return body;
-}
-
-const friendlyDate = (value: string) =>
-  new Intl.DateTimeFormat("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kolkata",
-  }).format(new Date(`${value}T12:00:00+05:30`));
-
-export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus }) {
+export function TrackingPanel({
+  initialStatus,
+  platform = "leetcode",
+}: {
+  initialStatus: TrackingStatus;
+  platform?: "leetcode" | "gfg";
+}) {
+  const platformLabel = platform === "gfg" ? "GFG" : "LeetCode";
+  const statusPath = platform === "gfg" ? "/api/tracking/gfg" : "/api/tracking";
   const router = useRouter();
   const checking = useRef(false);
+  const request = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [status, setStatus] = useState(initialStatus);
   const [username, setUsername] = useState("");
@@ -38,8 +33,14 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [link, setLink] = useState<ConnectionLink | null>(null);
   const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    request.current = controller;
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (status.username && !initialStatus.username) heading.current?.focus();
@@ -47,30 +48,34 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
 
   useEffect(() => {
     if (!link) return;
-    const update = () => setExpired(Date.now() >= Date.parse(link.expiresAt));
-    update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
+    const timer = setTimeout(
+      () => setExpired(true),
+      Math.max(0, Date.parse(link.expiresAt) - Date.now()),
+    );
+    return () => clearTimeout(timer);
   }, [link]);
 
   const refresh = useCallback(async () => {
     if (checking.current) return;
     checking.current = true;
+    const signal = request.current?.signal;
     setRefreshing(true);
     setError("");
     try {
-      const next = await api<TrackingStatus>("/api/tracking");
+      const next = await requestJson<TrackingStatus>(statusPath, { signal });
+      if (signal?.aborted) return;
       setStatus(next);
       if (next.username && next.connected) router.replace("/dashboard");
     } catch (failure) {
+      if (signal?.aborted) return;
       setError(
         failure instanceof Error ? failure.message : "Could not refresh tracking. Try again.",
       );
     } finally {
-      setRefreshing(false);
+      if (!signal?.aborted) setRefreshing(false);
       checking.current = false;
     }
-  }, [router]);
+  }, [router, statusPath]);
 
   useEffect(() => {
     if (!link || expired || status.connected) return;
@@ -81,6 +86,7 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
     };
     const timer = setInterval(() => {
       if (Date.now() - started < 120_000) check();
+      else clearInterval(timer);
     }, 5000);
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", check);
@@ -95,39 +101,47 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
     event.preventDefault();
     setBusy(true);
     setError("");
+    const signal = request.current?.signal;
     try {
-      setStatus(
-        await api<TrackingStatus>("/api/tracking", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username }),
-        }),
-      );
+      const next = await requestJson<TrackingStatus>(statusPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+        signal,
+      });
+      if (!signal?.aborted) {
+        setStatus(next);
+        if (platform === "gfg" && next.connected) router.replace("/dashboard");
+      }
     } catch (failure) {
+      if (signal?.aborted) return;
       setError(failure instanceof Error ? failure.message : "Registration failed. Try again.");
     } finally {
-      setBusy(false);
+      if (!signal?.aborted) setBusy(false);
     }
   }
 
   async function connect() {
     setBusy(true);
     setError("");
+    const signal = request.current?.signal;
     try {
-      setLink(
-        await api<{ url: string; expiresAt: string }>("/api/tracking/telegram-link", {
-          method: "POST",
-        }),
-      );
+      const next = await requestJson<ConnectionLink>("/api/tracking/telegram-link", {
+        method: "POST",
+        signal,
+      });
+      if (signal?.aborted) return;
+      setLink(next);
       setExpired(false);
     } catch (failure) {
+      if (signal?.aborted) return;
       setError(
         failure instanceof Error
           ? failure.message
           : "Could not create a connection link. Try again.",
       );
     } finally {
-      setBusy(false);
+      if (!signal?.aborted) setBusy(false);
     }
   }
 
@@ -136,7 +150,7 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
       <div className="panel-heading">
         <p className="eyebrow">{status.username ? "Your account" : "One-time setup"}</p>
         <h2 id="setup-title" ref={heading} tabIndex={-1}>
-          {status.username ? "Daily tracking" : "Add your LeetCode username"}
+          {status.username ? "Daily tracking" : `Add your ${platformLabel} username`}
         </h2>
       </div>
       <p className="sr-only" role="status" aria-live="polite">
@@ -153,9 +167,9 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
       )}
       {!status.username ? (
         <form onSubmit={register} className="registration-form" aria-busy={busy}>
-          <label htmlFor="leetcode-username">LeetCode username</label>
+          <label htmlFor={`${platform}-username`}>{platformLabel} username</label>
           <input
-            id="leetcode-username"
+            id={`${platform}-username`}
             name="username"
             autoComplete="off"
             spellCheck={false}
@@ -171,6 +185,8 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
           />
           <p id="username-help" className="field-help">
             Your username is permanent once registered. Check the spelling before continuing.
+            {platform === "gfg" &&
+              " Only public profile data is accessed; GFG ownership is not verified."}
           </p>
           <label className="checkbox-label">
             <input
@@ -194,7 +210,7 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
         <>
           <dl className="account-details">
             <div>
-              <dt>LeetCode username</dt>
+              <dt>{platformLabel} username</dt>
               <dd>
                 <span className="mono">{status.username}</span>
                 <span className="badge">Locked</span>
@@ -204,13 +220,7 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
               <dt>Telegram</dt>
               <dd>
                 <span className={`badge ${status.status === "active" ? "badge-active" : ""}`}>
-                  {status.status === "active"
-                    ? "Connected"
-                    : status.status === "paused"
-                      ? "Paused"
-                      : status.status === "blocked"
-                        ? "Blocked"
-                        : "Awaiting connection"}
+                  {accountStatusLabels[status.status]}
                 </span>
               </dd>
             </div>
@@ -222,7 +232,7 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
               <dt>Latest report</dt>
               <dd>
                 {status.lastDelivery
-                  ? `${friendlyDate(status.lastDelivery.reportDate)} · ${status.lastDelivery.status === "sent" ? "Delivered" : status.lastDelivery.status === "cancelled" ? "Paused" : status.lastDelivery.status === "failed" ? "Could not deliver" : "Pending"}`
+                  ? `${friendlyDate(status.lastDelivery.reportDate)} · ${deliveryStatusLabels[status.lastDelivery.status]}`
                   : "Your first report is scheduled after connection."}
               </dd>
             </div>
@@ -276,7 +286,9 @@ export function TrackingPanel({ initialStatus }: { initialStatus: TrackingStatus
             <div className="tracking-note">
               <p>
                 {status.status === "active"
-                  ? "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
+                  ? platform === "gfg"
+                    ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
+                    : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
                   : status.status === "blocked"
                     ? "Unblock the bot in Telegram, then send /start to resume your reports."
                     : "Send /start to the bot when you're ready to resume."}

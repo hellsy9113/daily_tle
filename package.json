@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "db:migrate": "node scripts/migrate.mjs",
+    "db:migrate": "node --network-family-autoselection-attempt-timeout=3000 scripts/migrate.mjs",
     "test:db": "vitest run --config vitest.database.config.mts",
     "bot:setup": "node scripts/setup-tracking-bot.mjs"
   },

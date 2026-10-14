@@ -66,6 +66,11 @@ describe("Accepted activity calendar", () => {
       streaks([day("2026-10-11", 0, "unknown"), day("2026-10-12", 1), day("2026-10-13", 1)]),
     ).toMatchObject({ currentStreak: 2, currentStreakMayBeLonger: true });
   });
+  it("marks a streak at the start of the displayed window as a lower bound", () => {
+    expect(
+      streaks([day("2026-10-11", 1), day("2026-10-12", 1), day("2026-10-13", 0)]),
+    ).toMatchObject({ longestStreak: 2, longestStreakMayBeLonger: true });
+  });
 });
 
 describe("Accepted observations", () => {

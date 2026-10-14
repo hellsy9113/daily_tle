@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gt, ne, isNotNull } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, connectionTokens, deliveries, telegramUpdates } from "@/lib/db/schema";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
@@ -76,8 +76,13 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
       .where(eq(accounts.telegramId, update.userId))
       .limit(1)
       .for("update");
-    const setup = `Set up daily tracking at ${new URL("/tracking", appUrl()).href}`;
-    if (!account || !account.leetcodeUsername) return "text" in update ? setup : null;
+    const setupUrl = new URL(
+      account?.gfgUsername && !account.leetcodeUsername ? "/feature" : "/tracking",
+      appUrl(),
+    ).href;
+    const setup = `Set up daily tracking at ${setupUrl}`;
+    if (!account || (!account.leetcodeUsername && !account.gfgUsername))
+      return "text" in update ? setup : null;
     if ("blocked" in update) {
       if (account.chatId !== update.chatId) return null;
       // Telegram may deliver the membership event after /start. Joining must
@@ -114,7 +119,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
     const token = command[3];
     if (token) {
       if (!validToken(token))
-        return `This connection link is invalid or expired. Get a new link at ${new URL("/tracking", appUrl()).href}`;
+        return `This connection link is invalid or expired. Get a new link at ${setupUrl}`;
       const consumed = await transaction
         .delete(connectionTokens)
         .where(
@@ -126,7 +131,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         )
         .returning();
       if (!consumed.length)
-        return `This connection link is invalid or expired. Sign in with the same Telegram account and get a new link at ${new URL("/tracking", appUrl()).href}`;
+        return `This connection link is invalid or expired. Sign in with the same Telegram account and get a new link at ${setupUrl}`;
     } else if (account.chatId !== update.chatId) {
       return setup;
     }
@@ -137,8 +142,14 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         status: "active",
         connectedAt: account.connectedAt ?? new Date(),
       })
-      .where(and(eq(accounts.id, account.id), isNotNull(accounts.leetcodeUsername)));
-    return `Daily tracking is active for ${account.leetcodeUsername}. Yesterday's report arrives between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause.`;
+      .where(eq(accounts.id, account.id));
+    const names = [
+      account.leetcodeUsername,
+      account.gfgUsername ? `GFG ${account.gfgUsername}` : null,
+    ]
+      .filter(Boolean)
+      .join(" and ");
+    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause.`;
   });
 }
 

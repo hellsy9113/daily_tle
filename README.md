@@ -93,6 +93,11 @@ npm run db:migrate
 APP_URL=https://daily-tle-ruby.vercel.app npm run bot:setup
 ```
 
+Run migrations from the project root. The command loads `.env.local` and uses
+`DATABASE_URL_UNPOOLED`, falling back to `DATABASE_URL`. It allows 3 seconds per
+network address attempt for slower connections. Failures report the error code
+and migration filename when available without printing credentials or SQL.
+
 The setup script checks the second bot's identity before changing its webhook.
 To verify onboarding before general release, temporarily enable registration
 on a test deployment, sign in, register a test username, and connect the bot.
@@ -196,6 +201,116 @@ that volume or adding a queue.
 Unauthorized account requests return `401`, cross-origin mutations `403`, and
 registration conflicts `409`. Existing LeetCode validation and upstream error
 statuses are preserved. Account responses do not expose chat IDs or tokens.
+
+## Optional GeeksforGeeks feature
+
+Visit `/feature`, sign in with Telegram, and permanently register one public GFG
+username. GFG is a separate opt-in: it works with or without a LeetCode username.
+Connect the existing Daily Grind bot if you have not already connected Telegram.
+The shared dashboard shows an independent GFG calendar, profile total, difficulty
+breakdown, available dated counts, and newly observed progress. `/stop` and
+`/start` control delivery for both enabled services through the same bot.
+
+Apply `0003_gfg_tracking.sql` **before deploying this feature**:
+
+```bash
+npm run db:migrate
+```
+
+The migration adds immutable GFG registration fields, normalized solved problems,
+daily profile snapshots, and a five-minute synchronization cache with leases.
+Delivery records gain a platform key so each service is prepared, sent, retried,
+and deduplicated independently. Existing records default to LeetCode. The existing
+tracking configuration, registration flag, bot, and cron jobs are reused.
+
+### Verified upstream data and limitations
+
+Live checks verified these public requests without GFG credentials:
+
+- `GET https://authapi.geeksforgeeks.org/api-get/user-profile-info/?handle=USERNAME&article_count=false&redirect=true`
+- `POST https://practiceapi.geeksforgeeks.org/api/v1/user/problems/submissions/`
+  with `{ "handle": "USERNAME", "requestType": "", "year": "", "month": "" }`.
+
+The profile supplies `data.total_problems_solved`. The solved inventory supplies
+`status`, `count`, and `result`, whose School/Basic/Easy/Medium/Hard buckets contain
+`slug`, `pname`, and `user_subtime`. Slugs identify unique problems; numeric bucket
+keys are not treated as stable problem identifiers. Difficulty counts come from
+deduplicated inventory records, and discrepancies against the profile total are
+reported as incomplete coverage. These undocumented public endpoints may change.
+Timeouts, rate limits, malformed responses, and missing profiles produce safe
+errors; saved progress survives upstream failures.
+
+The checked live sample returned 242 distinct solved problems, but all timestamps
+were unqualified strings such as `2026-04-30 22:40:24`. Their timezone and first-ever
+acceptance semantics could not be verified. These strings are preserved as
+`reportedSubmissionTime`; **no timezone or first-accept date is invented**.
+`acceptedAt` remains null unless the upstream value explicitly contains a valid
+timezone offset. Available qualified dates use the earliest recorded timestamp,
+Asia/Kolkata day boundaries, and Monday-start weeks, with a coverage caveat.
+
+For the current upstream shape, exact daily/weekly solve counts and series are
+null. The calendar instead records newly observed solved-problem IDs after the
+initial registration baseline. This is observation activity, not a reconstructed
+historical solve calendar. Snapshot totals are never differenced to fabricate
+daily solves. Daily GFG recaps distinguish an unavailable yesterday count from
+zero and list both saved observations from yesterday and additional problems
+observed since the preceding check. Retry preparation retains the stored period.
+
+### GFG API
+
+| Method | Endpoint              | Purpose                                                |
+| ------ | --------------------- | ------------------------------------------------------ |
+| GET    | `/api/tracking/gfg`   | Signed-in account's GFG registration and report status |
+| POST   | `/api/tracking/gfg`   | Register `{ "username": "your_gfg_username" }` once    |
+| GET    | `/api/gfg/[username]` | Registered account's cached GFG progress               |
+
+The progress endpoint requires sign-in and GFG opt-in for the same username;
+other accounts cannot access stored observations. Registration and connection
+mutations require a matching Origin. Public-profile ownership is unverified,
+and a GFG username is reserved case-insensitively, independently of LeetCode.
+
+Example after registration:
+
+```text
+GET /api/gfg/your_gfg_username?period=all&includeProblems=true&timezone=Asia/Kolkata
+```
+
+Supported `period` values are `daily`, `weekly`, and `all`. `includeProblems`
+is `true` or `false`. Optional ISO `startDate` is inclusive and `endDate` is
+exclusive; series are filtered before weekly grouping. The timezone is fixed
+to Asia/Kolkata. Responses include `totalSolved`, `difficultyBreakdown`,
+`solvedToday`, `solvedThisWeek`, `dailySolved`, `weeklySolved`, `observedToday`,
+`observedThisWeek`, `days`, `snapshots`, `dateBasis`, `limitations`, and optional
+`solvedProblems`. Unavailable dated metrics are null rather than zero.
+
+Representative fields for a registered profile with one newly observed problem
+(the default calendar contains 365 days):
+
+```json
+{
+  "platform": "gfg",
+  "username": "your_gfg_username",
+  "totalSolved": 2,
+  "difficultyBreakdown": { "School": 0, "Basic": 0, "Easy": 1, "Medium": 1, "Hard": 0 },
+  "timezone": "Asia/Kolkata",
+  "dateBasis": "observation",
+  "solvedToday": null,
+  "solvedThisWeek": null,
+  "dailySolved": null,
+  "weeklySolved": null,
+  "observedToday": 1,
+  "observedThisWeek": 1,
+  "days": [{ "date": "2026-10-14", "count": 1, "coverage": "partial" }],
+  "snapshots": [{ "date": "2026-10-14", "totalSolved": 2 }],
+  "checkedAt": "2026-10-14T03:00:00.000Z"
+}
+```
+
+Implementation lives in `lib/gfg`, with registration and delivery infrastructure
+reused from `lib/tracking`. Tests cover response parsing, deduplication, timestamps,
+week boundaries, opt-in authorization, feature sign-in, independent calendars,
+immutable registration, snapshot baselines, leases, cache backoff, and both-platform
+report preparation and recovery.
 
 ## Database verification
 

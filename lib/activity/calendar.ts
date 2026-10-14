@@ -57,8 +57,8 @@ export function streaks(days: ActivityDay[]) {
       currentStreak === 0 && (endsAtUnknownDay || todayUncertain) ? null : currentStreak,
     currentStreakMayBeLonger: endsAtUnknownDay || todayUncertain || index < 0,
     longestStreak,
-    longestStreakMayBeLonger: days
-      .slice(0, -1)
-      .some((day) => !day.count && day.coverage !== "complete"),
+    longestStreakMayBeLonger:
+      Boolean(days[0]?.count) ||
+      days.slice(0, -1).some((day) => !day.count && day.coverage !== "complete"),
   };
 }

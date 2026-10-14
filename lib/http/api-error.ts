@@ -12,5 +12,5 @@ export class ApiError extends Error {
 export function errorResponse(error: unknown): Response {
   const status = error instanceof ApiError ? error.status : 500;
   const message = error instanceof ApiError ? error.message : "An unexpected error occurred.";
-  return Response.json({ error: message }, { status });
+  return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }

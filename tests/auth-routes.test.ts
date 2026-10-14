@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/http/api-error";
+import type { Account } from "@/lib/db/schema";
 import { TelegramLoginFailure, logLoginFailure } from "@/lib/auth/login-errors";
 import { beginTelegramLogin, finishTelegramLogin } from "@/lib/auth/telegram";
 import { createSession, revokeSession } from "@/lib/auth/session";
@@ -24,10 +25,13 @@ vi.mock("@/lib/auth/session", () => ({
 const origin = "https://tracker.example";
 const loginToken = "l".repeat(43);
 const sessionToken = "s".repeat(43);
-const account = {
+const account: Account = {
   id: "account-id",
   telegramId: 123,
   leetcodeUsername: null,
+  gfgUsername: null,
+  gfgUsernameKey: null,
+  gfgRegisteredAt: null,
   usernameKey: null,
   chatId: null,
   status: "pending",
@@ -58,6 +62,32 @@ beforeEach(() => {
 });
 
 describe("Telegram authentication routes", () => {
+  it("retains the Feature destination when moving an alias to the canonical origin", async () => {
+    const response = await login(
+      new NextRequest("https://preview.example/api/auth/telegram/login?next=feature"),
+    );
+    expect(response.headers.get("location")).toBe(`${origin}/api/auth/telegram/login?next=feature`);
+    expect(beginTelegramLogin).not.toHaveBeenCalled();
+  });
+  it("returns a verified feature sign-in to the Feature page", async () => {
+    const response = await callback(
+      new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
+        headers: { cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature` },
+      }),
+    );
+    expect(response.headers.get("location")).toBe(`${origin}/feature`);
+    expect(response.headers.get("set-cookie")).toContain("tracking_login_destination=;");
+  });
+  it("does not accept an arbitrary login destination", async () => {
+    const response = await callback(
+      new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
+        headers: {
+          cookie: `tracking_login=${loginToken}; tracking_login_destination=https://attacker.example`,
+        },
+      }),
+    );
+    expect(response.headers.get("location")).toBe(`${origin}/tracking`);
+  });
   it("moves aliases to the canonical origin before creating a login or cookie", async () => {
     const response = await login(
       new NextRequest("https://preview.example/api/auth/telegram/login"),

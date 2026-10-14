@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
 import { TrackingPanel } from "@/components/tracking-panel";
 import { serverAccount } from "@/lib/auth/session";
@@ -21,7 +21,8 @@ export default async function TrackingPage({
   try {
     account = await serverAccount();
     if (account) status = await trackingStatus(account);
-  } catch {
+  } catch (error) {
+    unstable_rethrow(error);
     unavailable = true;
   }
   if (status?.username && status.connected) redirect("/dashboard");
@@ -55,17 +56,7 @@ export default async function TrackingPage({
           </p>
         </div>
         {status && (available || status.username) ? (
-          <TrackingPanel
-            initialStatus={{
-              ...status,
-              lastDelivery: status.lastDelivery
-                ? {
-                    ...status.lastDelivery,
-                    sentAt: status.lastDelivery.sentAt?.toISOString() ?? null,
-                  }
-                : null,
-            }}
-          />
+          <TrackingPanel initialStatus={status} />
         ) : (
           <section className="tracking-panel" aria-labelledby="signin-title">
             <p className="eyebrow">Get started</p>

@@ -60,7 +60,14 @@ describe("connected dashboard navigation", () => {
     vi.mocked(serverAccount).mockRejectedValue(frameworkError);
     await expect(Home()).rejects.toBe(frameworkError);
   });
-  it.each(["active", "paused", "blocked"])(
+  it("does not swallow framework redirects while loading setup", async () => {
+    const frameworkError = Object.assign(new Error("Next.js redirect"), {
+      digest: "NEXT_REDIRECT;replace;/dashboard;307;",
+    });
+    vi.mocked(serverAccount).mockRejectedValue(frameworkError);
+    await expect(TrackingPage({ searchParams: Promise.resolve({}) })).rejects.toBe(frameworkError);
+  });
+  it.each(["active", "paused", "blocked"] as const)(
     "takes a connected %s account out of onboarding",
     async (status) => {
       vi.mocked(trackingStatus).mockResolvedValue({

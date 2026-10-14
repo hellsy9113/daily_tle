@@ -1,6 +1,5 @@
 import "server-only";
-import { and, eq, gte, lt } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { acceptedActivity, activityDays, activitySync, type Account } from "@/lib/db/schema";
 import {
@@ -50,11 +49,13 @@ export async function writeActivityObservation(
         set: {
           observedFrom: sql`CASE WHEN excluded.observed_until >= ${activityDays.observedUntil} THEN excluded.observed_from ELSE ${activityDays.observedFrom} END`,
           observedUntil: sql`greatest(${activityDays.observedUntil}, excluded.observed_until)`,
-          // Overlapping observations extend proven coverage from midnight. A gap never becomes zero activity.
+          // Join overlapping intervals in either write order, while preserving gaps.
           coveredUntil: sql`CASE
-          WHEN excluded.observed_from < (excluded.activity_date::timestamp AT TIME ZONE 'Asia/Kolkata')
+          WHEN excluded.covered_until IS NOT NULL
             OR ${activityDays.coveredUntil} > excluded.observed_from
-          THEN greatest(${activityDays.coveredUntil}, excluded.observed_until)
+          THEN greatest(${activityDays.coveredUntil}, excluded.observed_until,
+            CASE WHEN ${activityDays.observedFrom} < greatest(${activityDays.coveredUntil}, excluded.observed_until)
+              THEN ${activityDays.observedUntil} END)
           ELSE ${activityDays.coveredUntil} END`,
           checkedAt: sql`greatest(${activityDays.checkedAt}, excluded.checked_at)`,
         },

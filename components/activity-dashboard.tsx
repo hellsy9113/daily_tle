@@ -2,33 +2,40 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityChart } from "./activity-chart";
-import type { TrackingStatus } from "./tracking-panel";
+import type { TrackingStatus } from "@/lib/tracking/types";
+import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
+import { ApiError } from "@/lib/http/api-error";
+import { requestJson } from "@/lib/http/client";
 import type { ActivityResult } from "@/lib/activity/types";
 
-async function read<T>(path: string, signal: AbortSignal): Promise<T> {
-  let response: Response;
-  let data: T;
+async function readDashboardData<T>(path: string, signal: AbortSignal): Promise<T> {
   try {
-    response = await fetch(path, { cache: "no-store", signal });
-    data = await response.json();
-  } catch {
-    throw new Error("Could not refresh your activity. Please try again shortly.");
-  }
-  if (!response.ok)
+    return await requestJson<T>(path, { signal });
+  } catch (error) {
     throw new Error(
-      response.status === 401
+      error instanceof ApiError && error.status === 401
         ? "Your session expired. Sign in again to continue."
         : "Could not refresh your activity. Please try again shortly.",
     );
-  return data;
+  }
 }
+
+const syncDateFormatter = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
+});
 
 export function ActivityDashboard({
   initialStatus,
   botUrl,
+  leetcodeEnabled = true,
+  children,
 }: {
   initialStatus: TrackingStatus;
   botUrl: string;
+  leetcodeEnabled?: boolean;
+  children?: React.ReactNode;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [activity, setActivity] = useState<ActivityResult | null>(null);
@@ -40,8 +47,13 @@ export function ActivityDashboard({
     const controller = new AbortController();
     request.current = controller;
     return Promise.allSettled([
-      read<TrackingStatus>("/api/tracking", controller.signal),
-      read<ActivityResult>("/api/tracking/activity", controller.signal),
+      readDashboardData<TrackingStatus>(
+        leetcodeEnabled ? "/api/tracking" : "/api/tracking/gfg",
+        controller.signal,
+      ),
+      leetcodeEnabled
+        ? readDashboardData<ActivityResult>("/api/tracking/activity", controller.signal)
+        : Promise.resolve(null),
     ]).then((results) => {
       if (controller.signal.aborted) return;
       setError("");
@@ -56,7 +68,7 @@ export function ActivityDashboard({
         );
       setBusy(false);
     });
-  }, []);
+  }, [leetcodeEnabled]);
   useEffect(() => {
     void refresh();
     return () => request.current?.abort();
@@ -67,23 +79,7 @@ export function ActivityDashboard({
     return () => clearTimeout(timer);
   }, [activity, refresh]);
 
-  const botStatus =
-    status.status === "active"
-      ? "Connected"
-      : status.status === "paused"
-        ? "Paused"
-        : status.status === "blocked"
-          ? "Blocked"
-          : "Awaiting connection";
   const latest = status.lastDelivery;
-  const reportStatus =
-    latest?.status === "sent"
-      ? "Delivered"
-      : latest?.status === "failed"
-        ? "Could not deliver"
-        : latest?.status === "cancelled"
-          ? "Paused"
-          : "Pending";
   return (
     <div className="dashboard-layout">
       <section className="bot-status-panel" aria-label="Telegram bot status">
@@ -91,7 +87,7 @@ export function ActivityDashboard({
           <div>
             <p className="eyebrow">Daily tracking</p>
             <span className={`badge ${status.status === "active" ? "badge-active" : ""}`}>
-              {botStatus}
+              {accountStatusLabels[status.status]}
             </span>
           </div>
           <div className="dashboard-actions">
@@ -113,7 +109,7 @@ export function ActivityDashboard({
         </div>
         <dl className="bot-status-details">
           <div>
-            <dt>LeetCode username</dt>
+            <dt>{leetcodeEnabled ? "LeetCode" : "GFG"} username</dt>
             <dd className="mono">{status.username}</dd>
           </div>
           <div>
@@ -123,7 +119,9 @@ export function ActivityDashboard({
           <div>
             <dt>Latest report</dt>
             <dd>
-              {latest ? `${latest.reportDate} · ${reportStatus}` : "Scheduled for the next morning"}
+              {latest
+                ? `${latest.reportDate} · ${deliveryStatusLabels[latest.status]}`
+                : "Scheduled for the next morning"}
             </dd>
           </div>
         </dl>
@@ -137,101 +135,100 @@ export function ActivityDashboard({
         </p>
       </section>
 
-      <section
-        className="activity-panel"
-        aria-labelledby="activity-title"
-        aria-busy={busy || activity?.refreshing}
-      >
-        <div className="activity-heading">
-          <div>
-            <p className="eyebrow">Last 365 days · Asia/Kolkata</p>
-            {/* <h1 id="activity-title">Your practice, day by day.</h1> */}
+      {leetcodeEnabled && (
+        <section
+          className="activity-panel"
+          aria-labelledby="activity-title"
+          aria-busy={busy || activity?.refreshing}
+        >
+          <div className="activity-heading">
+            <div>
+              <p className="eyebrow">LeetCode · Last 365 days · Asia/Kolkata</p>
+              <h1 id="activity-title" className="sr-only">
+                Your practice, day by day.
+              </h1>
+            </div>
+            <p className="field-help">Distinct Accepted problems per day.</p>
           </div>
-          <p className="field-help">Distinct Accepted problems per day.</p>
-        </div>
-        {error && (
-          <p className="inline-error" role="alert">
-            {error} <a href="/tracking">Sign-in &amp; setup</a>
-          </p>
-        )}
-        {!activity ? (
-          <div className="activity-empty" role="status">
-            {busy
-              ? "Loading your Accepted activity…"
-              : "Activity is unavailable right now. Use Refresh to try again."}
-          </div>
-        ) : (
-          <>
-            <dl className="activity-stats">
-              <div>
-                <dt>Unique problems</dt>
-                <dd>
-                  {activity.mayBeIncomplete ? "≥ " : ""}
-                  {activity.uniqueQuestions}
-                </dd>
-              </div>
-              <div>
-                <dt>Active days</dt>
-                <dd>
-                  {activity.mayBeIncomplete ? "≥ " : ""}
-                  {activity.activeDays}
-                </dd>
-              </div>
-              <div>
-                <dt>Current streak</dt>
-                <dd>
-                  {activity.currentStreak === null
-                    ? "—"
-                    : `${activity.currentStreakMayBeLonger ? "≥ " : ""}${activity.currentStreak}`}
-                  <span> days</span>
-                </dd>
-              </div>
-              <div>
-                <dt>Longest streak</dt>
-                <dd>
-                  {activity.longestStreakMayBeLonger ? "≥ " : ""}
-                  {activity.longestStreak}
-                  <span> days</span>
-                </dd>
-              </div>
-            </dl>
-            <ActivityChart days={activity.days} />
-            {activity.refreshing && (
-              <p className="field-help" role="status">
-                Syncing recent Accepted activity…
-              </p>
-            )}
-            {activity.refreshFailed && (
-              <p className="inline-error" role="status">
-                LeetCode could not be refreshed. Showing your saved activity.
-              </p>
-            )}
-            {!activity.refreshing && activity.activeDays === 0 && (
-              <p className="activity-empty-note">
-                No Accepted problems found in the history available so far. Your next solve is a
-                fresh start.
-              </p>
-            )}
-            <p className="activity-coverage">
-              {activity.mayBeIncomplete
-                ? "Public history is limited. Hatched squares have no available history; dotted squares are partial. Counts and streaks are the minimum we can confirm."
-                : "Available history covers every displayed day."}{" "}
-              The same problem counts once per day, and once in the unique-problems total.
+          {error && (
+            <p className="inline-error" role="alert">
+              {error} <a href="/tracking">Sign-in &amp; setup</a>
             </p>
-            {activity.lastSyncedAt && (
-              <p className="field-help">
-                Last checked{" "}
-                {new Intl.DateTimeFormat("en-IN", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                  timeZone: "Asia/Kolkata",
-                }).format(new Date(activity.lastSyncedAt))}{" "}
-                IST.
+          )}
+          {!activity ? (
+            <div className="activity-empty" role="status">
+              {busy
+                ? "Loading your Accepted activity…"
+                : "Activity is unavailable right now. Use Refresh to try again."}
+            </div>
+          ) : (
+            <>
+              <dl className="activity-stats">
+                <div>
+                  <dt>Unique problems</dt>
+                  <dd>
+                    {activity.mayBeIncomplete ? "≥ " : ""}
+                    {activity.uniqueQuestions}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Active days</dt>
+                  <dd>
+                    {activity.mayBeIncomplete ? "≥ " : ""}
+                    {activity.activeDays}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Current streak</dt>
+                  <dd>
+                    {activity.currentStreak === null
+                      ? "—"
+                      : `${activity.currentStreakMayBeLonger ? "≥ " : ""}${activity.currentStreak}`}
+                    <span> days</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Longest streak</dt>
+                  <dd>
+                    {activity.longestStreakMayBeLonger ? "≥ " : ""}
+                    {activity.longestStreak}
+                    <span> days</span>
+                  </dd>
+                </div>
+              </dl>
+              <ActivityChart days={activity.days} />
+              {activity.refreshing && (
+                <p className="field-help" role="status">
+                  Syncing recent Accepted activity…
+                </p>
+              )}
+              {activity.refreshFailed && (
+                <p className="inline-error" role="status">
+                  LeetCode could not be refreshed. Showing your saved activity.
+                </p>
+              )}
+              {!activity.refreshing && activity.activeDays === 0 && (
+                <p className="activity-empty-note">
+                  No Accepted problems found in the history available so far. Your next solve is a
+                  fresh start.
+                </p>
+              )}
+              <p className="activity-coverage">
+                {activity.mayBeIncomplete
+                  ? "Public history is limited. Hatched squares have no available history; dotted squares are partial. Counts and streaks are the minimum we can confirm."
+                  : "Available history covers every displayed day."}{" "}
+                The same problem counts once per day, and once in the unique-problems total.
               </p>
-            )}
-          </>
-        )}
-      </section>
+              {activity.lastSyncedAt && (
+                <p className="field-help">
+                  Last checked {syncDateFormatter.format(new Date(activity.lastSyncedAt))} IST.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+      {children}
     </div>
   );
 }

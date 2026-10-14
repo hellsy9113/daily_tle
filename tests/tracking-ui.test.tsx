@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { TrackingPanel, type TrackingStatus } from "@/components/tracking-panel";
+import { TrackingPanel } from "@/components/tracking-panel";
+import type { TrackingStatus } from "@/lib/tracking/types";
 import { SiteShell } from "@/components/site-shell";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 
@@ -30,7 +31,7 @@ describe("tracking UI states", () => {
     expect(html).not.toContain('name="username"');
     expect(html).toContain("Connect Telegram");
   });
-  it.each(["active", "paused", "blocked"])("renders the %s connection state", (status) => {
+  it.each(["active", "paused", "blocked"] as const)("renders the %s connection state", (status) => {
     const html = renderToStaticMarkup(
       <TrackingPanel initialStatus={{ ...initial, username: "user", connected: true, status }} />,
     );
