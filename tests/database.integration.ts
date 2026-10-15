@@ -56,9 +56,11 @@ import {
   blockAccount,
   claimDelivery,
   prepareDeliveries,
+  prepareEmptyDayReports,
   prepareDeliveryReport,
   releaseDispatchLock,
 } from "@/lib/tracking/delivery-store";
+import { EMPTY_REPORT } from "@/lib/tracking/format-report";
 import { dispatchTracking } from "@/lib/tracking/dispatch";
 import { sendTrackingMessage, TrackingTelegramError } from "@/lib/tracking/telegram-client";
 
@@ -108,6 +110,31 @@ function gfgProfile(username = "gfg_101", ids = ["old"], checkedAt = now): GfgPr
       acceptedAt: null,
       reportedSubmissionTime: "2026-10-12 22:40:00",
       url: `https://www.geeksforgeeks.org/problems/${id}/1`,
+    })),
+  };
+}
+
+function gfgDatedProfile(username = "gfg_101", ids = ["old"]) {
+  const profile = gfgProfile(username, ids);
+  profile.problems = profile.problems.map((problem) => ({
+    ...problem,
+    acceptedAt: "2026-10-12T02:00:00.000Z",
+  }));
+  return profile;
+}
+function leetcodeReport(username = "user_101", ids: string[] = []) {
+  return {
+    username,
+    period: "lastday" as const,
+    timezone: "Asia/Kolkata" as const,
+    start: "2026-10-11T18:30:00.000Z",
+    end: "2026-10-12T18:30:00.000Z",
+    count: ids.length,
+    mayBeIncomplete: false,
+    questions: ids.map((id) => ({
+      title: id,
+      titleSlug: id,
+      timestamp: String(Date.parse("2026-10-12T02:00:00Z") / 1000),
     })),
   };
 }
@@ -304,6 +331,211 @@ describe("saved problem details and persistent weekly goals", () => {
   });
 });
 
+describe("one shared empty-day reminder", () => {
+  beforeEach(() => {
+    vi.mocked(getLastDaySolvedQuestions).mockImplementation(async (username) =>
+      leetcodeReport(username),
+    );
+    vi.mocked(getGfgProfile).mockImplementation(async (username) =>
+      gfgProfile(String(username), []),
+    );
+    vi.mocked(getHackerRankProfile).mockImplementation(async (username) =>
+      hrProfile(String(username), []),
+    );
+  });
+  async function allPlatforms() {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await registerHackerRank(user, "hr_101");
+    return (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+  }
+  it("sends exactly one custom message when all three platforms have no yesterday problems", async () => {
+    await allPlatforms();
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 1,
+      failed: 0,
+    });
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, EMPTY_REPORT);
+    const rows = await db().select().from(deliveries);
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((row) => row.messages?.length)).toHaveLength(1);
+    expect(rows.every((row) => row.status === "sent")).toBe(true);
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 0,
+      failed: 0,
+    });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(1);
+  });
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "uses the same single reminder for a %s-only account",
+    async (platform) => {
+      const user = platform === "leetcode" ? await activeAccount() : await account();
+      if (platform !== "leetcode") {
+        if (platform === "gfg") await registerGfg(user, "gfg_101");
+        else await registerHackerRank(user, "hr_101");
+        await db()
+          .update(accounts)
+          .set({ chatId: 101, status: "active", connectedAt: now })
+          .where(eq(accounts.id, user.id));
+      }
+      expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(1);
+      expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, EMPTY_REPORT);
+    },
+  );
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "sends only %s data when the other two platforms are empty",
+    async (platform) => {
+      const user = await allPlatforms();
+      if (platform === "leetcode")
+        vi.mocked(getLastDaySolvedQuestions).mockResolvedValueOnce(
+          leetcodeReport("user_101", ["two-sum"]),
+        );
+      if (platform === "gfg")
+        vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgDatedProfile("gfg_101", ["two-sum"]));
+      if (platform === "hackerrank")
+        vi.mocked(getHackerRankProfile).mockResolvedValueOnce(hrProfile("hr_101", ["two-sum"]));
+      expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+        sent: 1,
+        failed: 0,
+      });
+      expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(
+        101,
+        expect.stringContaining("two-sum"),
+      );
+      expect(vi.mocked(sendTrackingMessage).mock.calls[0][1]).not.toContain(EMPTY_REPORT);
+      const silent = platform === "leetcode" ? "gfg" : "leetcode";
+      expect((await trackingStatus(user, silent)).lastDelivery).toMatchObject({
+        status: "empty",
+        sentAt: null,
+      });
+      expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(0);
+    },
+  );
+  it("sends both nonempty platform reports and no reminder for the empty platform", async () => {
+    await allPlatforms();
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValueOnce(
+      leetcodeReport("user_101", ["two-sum"]),
+    );
+    vi.mocked(getHackerRankProfile).mockResolvedValueOnce(hrProfile("hr_101", ["challenge"]));
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(2);
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(2);
+    expect(
+      vi
+        .mocked(sendTrackingMessage)
+        .mock.calls.every(([, message]) => !message.includes(EMPTY_REPORT)),
+    ).toBe(true);
+  });
+  it("waits for a failed platform, then sends one reminder after an empty recovery", async () => {
+    await allPlatforms();
+    vi.mocked(getHackerRankProfile).mockRejectedValueOnce(new ApiError(502, "Unavailable"));
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 0,
+      failed: 1,
+    });
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date(now.getTime() + 61_000));
+    expect((await dispatchTracking({ now: new Date(), pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, EMPTY_REPORT);
+    expect(getLastDaySolvedQuestions).toHaveBeenCalledTimes(1);
+    expect(getHackerRankProfile).toHaveBeenCalledTimes(3); // Registration, failure, recovery.
+  });
+  it("sends recovered data instead of a reminder after another platform was empty", async () => {
+    await allPlatforms();
+    vi.mocked(getGfgProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgDatedProfile("gfg_101", ["recovered"]));
+    vi.setSystemTime(new Date(now.getTime() + 5 * 60_000));
+    expect((await dispatchTracking({ now: new Date(), pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(
+      101,
+      expect.stringContaining("/recovered/1"),
+    );
+  });
+  it("retries the same shared message after a Telegram rate limit without fetching platforms again", async () => {
+    await allPlatforms();
+    vi.mocked(sendTrackingMessage).mockRejectedValueOnce(
+      new TrackingTelegramError("rate_limit", 120),
+    );
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 0,
+      failed: 1,
+    });
+    const calls = [
+      vi.mocked(getLastDaySolvedQuestions).mock.calls.length,
+      vi.mocked(getGfgProfile).mock.calls.length,
+      vi.mocked(getHackerRankProfile).mock.calls.length,
+    ];
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(0);
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date(now.getTime() + 120_000));
+    expect((await dispatchTracking({ now: new Date(), pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenNthCalledWith(2, 101, EMPTY_REPORT);
+    expect([
+      vi.mocked(getLastDaySolvedQuestions).mock.calls.length,
+      vi.mocked(getGfgProfile).mock.calls.length,
+      vi.mocked(getHackerRankProfile).mock.calls.length,
+    ]).toEqual(calls);
+    expect((await dispatchTracking({ now: new Date(), pause: async () => {} })).sent).toBe(0);
+  });
+  it("recovers a crash after empty results were saved and prepares only one reminder concurrently", async () => {
+    await allPlatforms();
+    await prepareDeliveries(now);
+    await db().update(deliveries).set({ messages: [], status: "sent", attempts: 3 });
+    const prepared = await Promise.all([
+      prepareEmptyDayReports("2026-10-12", now),
+      prepareEmptyDayReports("2026-10-12", now),
+    ]);
+    expect(prepared.reduce((total, count) => total + count, 0)).toBe(1);
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, EMPTY_REPORT);
+    expect(getLastDaySolvedQuestions).not.toHaveBeenCalled();
+  });
+  it("keeps reminders separate for each account", async () => {
+    await activeAccount(101);
+    await activeAccount(102);
+    vi.mocked(getLastDaySolvedQuestions).mockImplementation(async (username) =>
+      leetcodeReport(username, username === "user_101" ? ["two-sum"] : []),
+    );
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(2);
+    expect(sendTrackingMessage).toHaveBeenCalledWith(101, expect.stringContaining("/two-sum/"));
+    expect(sendTrackingMessage).toHaveBeenCalledWith(102, EMPTY_REPORT);
+    expect(sendTrackingMessage).not.toHaveBeenCalledWith(101, EMPTY_REPORT);
+  });
+  it("does not schedule a reminder after the user pauses", async () => {
+    await allPlatforms();
+    await prepareDeliveries(now);
+    await db().update(deliveries).set({ messages: [], status: "sent" });
+    await processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/stop" });
+    expect(await prepareEmptyDayReports("2026-10-12", now)).toBe(0);
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+  });
+  it("sends yesterday's saved GFG observations without reporting new inventory first seen today", async () => {
+    const user = await allPlatforms();
+    await db()
+      .insert(gfgProblems)
+      .values({
+        accountId: user.id,
+        id: "yesterday",
+        title: "Yesterday's observation",
+        difficulty: "Easy",
+        acceptedAt: null,
+        firstObservedAt: new Date("2026-10-12T02:00:00Z"),
+        baseline: false,
+      });
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgProfile("gfg_101", ["yesterday", "today"]));
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(1);
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(
+      101,
+      expect.stringContaining("/yesterday/1"),
+    );
+    const message = vi.mocked(sendTrackingMessage).mock.calls[0][1];
+    expect(message).toContain("solve dates unverified");
+    expect(message).not.toContain("/today/1");
+    expect(message).not.toContain(EMPTY_REPORT);
+  });
+});
+
 describe("separate HackerRank registration, calendar, and reports", () => {
   async function registeredAccount(telegramId = 101) {
     const user = await account(telegramId);
@@ -457,16 +689,8 @@ describe("separate HackerRank registration, calendar, and reports", () => {
     const user = await activeAccount();
     await registerGfg(user, "gfg_101");
     await registerHackerRank(user, "hr_101");
-    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
-      username: "user_101",
-      period: "lastday",
-      timezone: "Asia/Kolkata",
-      start: "2026-10-11T18:30:00Z",
-      end: "2026-10-12T18:30:00Z",
-      count: 0,
-      questions: [],
-      mayBeIncomplete: false,
-    });
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(leetcodeReport("user_101", ["two-sum"]));
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgDatedProfile());
     vi.mocked(getHackerRankProfile).mockResolvedValueOnce(hrProfile("hr_101", ["old", "new"]));
     expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
       sent: 3,
@@ -492,16 +716,8 @@ describe("separate HackerRank registration, calendar, and reports", () => {
     const user = await activeAccount();
     await registerGfg(user, "gfg_101");
     await registerHackerRank(user, "hr_101");
-    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
-      username: "user_101",
-      period: "lastday",
-      timezone: "Asia/Kolkata",
-      start: "2026-10-11T18:30:00Z",
-      end: "2026-10-12T18:30:00Z",
-      count: 0,
-      questions: [],
-      mayBeIncomplete: false,
-    });
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(leetcodeReport("user_101", ["two-sum"]));
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgDatedProfile());
     vi.mocked(getHackerRankProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
     expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
       sent: 2,
@@ -528,7 +744,7 @@ describe("separate HackerRank registration, calendar, and reports", () => {
         leaseUntil: new Date(now.getTime() - 1),
       })
       .where(eq(deliveries.platform, "hackerrank"));
-    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(2);
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(1);
     const messages = vi.mocked(sendTrackingMessage).mock.calls.map(([, message]) => message);
     expect(messages).toContain("remaining HackerRank report");
     expect(messages).not.toContain("already sent");
@@ -557,16 +773,7 @@ describe("separate GFG registration, observations, and delivery", () => {
     const user = await activeAccount();
     await registerGfg(user, "gfg_101");
     vi.mocked(getGfgProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
-    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
-      username: "user_101",
-      period: "lastday",
-      timezone: "Asia/Kolkata",
-      start: "2026-10-11T18:30:00Z",
-      end: "2026-10-12T18:30:00Z",
-      count: 0,
-      questions: [],
-      mayBeIncomplete: false,
-    });
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(leetcodeReport("user_101", ["two-sum"]));
     expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
       sent: 1,
       failed: 1,
@@ -576,7 +783,7 @@ describe("separate GFG registration, observations, and delivery", () => {
     expect(failed.nextAttemptAt.getTime()).toBe(now.getTime() + 5 * 60_000);
     expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(
       101,
-      "hmm..no question found.do it today, I will be waiting",
+      expect.stringContaining("https://leetcode.com/problems/two-sum/"),
     );
   });
   it("supports a GFG-only account with the existing bot connection and no LeetCode registration", async () => {
@@ -702,10 +909,10 @@ describe("separate GFG registration, observations, and delivery", () => {
       (await db().select().from(deliveries).where(eq(deliveries.platform, "gfg")))[0].status,
     ).toBe("sent");
   });
-  it("delivers separate real-format messages and does not resend either platform on recovery", async () => {
+  it("delivers GFG problems without an empty LeetCode message or duplicate recovery", async () => {
     const user = await activeAccount();
     await registerGfg(user, "gfg_101");
-    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgProfile("gfg_101", ["old", "new"]));
+    vi.mocked(getGfgProfile).mockResolvedValueOnce(gfgDatedProfile("gfg_101", ["old", "new"]));
     vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
       username: "user_101",
       period: "lastday",
@@ -717,16 +924,16 @@ describe("separate GFG registration, observations, and delivery", () => {
       mayBeIncomplete: false,
     });
     expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
-      sent: 2,
+      sent: 1,
       failed: 0,
     });
     const messages = vi.mocked(sendTrackingMessage).mock.calls.map((call) => call[1]);
-    expect(messages).toContain("hmm..no question found.do it today, I will be waiting");
+    expect(messages).not.toContain(EMPTY_REPORT);
     expect(
       messages.some(
         (text) =>
           text.includes("GFG daily recap") &&
-          text.includes("Newly observed") &&
+          text.includes("available accepted timestamp") &&
           text.includes("/new/1"),
       ),
     ).toBe(true);

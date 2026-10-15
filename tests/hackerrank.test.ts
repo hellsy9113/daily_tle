@@ -161,14 +161,14 @@ describe("HackerRank calendar and recaps", () => {
     expect(text).toContain("13 Oct 2026");
     expect(text).toContain("first-ever solve dates are not guaranteed");
   });
-  it("does not equate missing public history with zero solves", () => {
-    const text = formatHackerRankDailyReport(
-      { ...hackerRankProfile("hr_user", []), historyComplete: false },
-      [],
-      now,
-    ).join("\n");
-    expect(text).toContain("does not prove a zero-solve day");
-    expect(text).toContain("bounded portion");
+  it("suppresses a HackerRank report without yesterday's challenges even when history is incomplete", () => {
+    expect(
+      formatHackerRankDailyReport(
+        { ...hackerRankProfile("hr_user", []), historyComplete: false },
+        [],
+        now,
+      ),
+    ).toEqual([]);
   });
   it("splits large recaps at Telegram's message limit", () => {
     const profile = hackerRankProfile(

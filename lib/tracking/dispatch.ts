@@ -12,6 +12,7 @@ import {
   deliveryIsActive,
   failDelivery,
   prepareDeliveries,
+  prepareEmptyDayReports,
   prepareDeliveryReport,
   releaseDispatchLock,
   updateDelivery,
@@ -22,7 +23,7 @@ import { requireCron } from "./security";
 import { trackingBot } from "./config";
 import { sendTrackingMessage, TrackingTelegramError } from "./telegram-client";
 import { getGfgProfile } from "@/lib/gfg/client";
-import { GFG_REFRESH_MS, gfgState, readGfgProblems } from "@/lib/gfg/store";
+import { GFG_REFRESH_MS, readGfgProblems } from "@/lib/gfg/store";
 import { formatGfgDailyReport } from "@/lib/gfg/format-report";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -72,17 +73,9 @@ export async function dispatchTracking({
             await prepareDeliveryReport(delivery, messages, result);
           } else if (delivery.platform === "gfg") {
             ensureTime(24_000);
-            const [saved, state] = await Promise.all([
-              readGfgProblems(delivery.accountId),
-              gfgState(delivery.accountId),
-            ]);
+            const saved = await readGfgProblems(delivery.accountId);
             const result = await getGfgProfile(delivery.username);
-            messages = formatGfgDailyReport(
-              result,
-              saved,
-              new Date(delivery.end),
-              Boolean(state?.refreshedAt),
-            );
+            messages = formatGfgDailyReport(result, saved, new Date(delivery.end));
             await prepareDeliveryReport(delivery, messages, result);
           } else {
             const result = await getLastDaySolvedQuestions(
@@ -109,12 +102,12 @@ export async function dispatchTracking({
         }
         await updateDelivery(delivery, {
           status: "sent",
-          sentAt: new Date(),
+          sentAt: messages.length ? new Date() : null,
           lastError: null,
           leaseToken: null,
           leaseUntil: null,
         });
-        stats.sent++;
+        if (messages.length) stats.sent++;
       } catch (error) {
         stats.failed++;
         if (delivery.platform === "hackerrank" && error instanceof ApiError && error.status === 429)
@@ -144,22 +137,31 @@ export async function dispatchTracking({
           );
       }
     };
-    const workers = await Promise.allSettled(
-      Array.from({ length: 10 }, async () => {
-        while (performance.now() + 12_000 < deadline && Date.now() >= rateLimitedUntil) {
-          const delivery = await claimDelivery(
-            reportDate,
-            new Date(),
-            Date.now() >= gfgRateLimitedUntil,
-            Date.now() >= hackerRankRateLimitedUntil,
-          );
-          if (!delivery) return;
-          await processDelivery(delivery);
-        }
-      }),
-    );
-    if (workers.some((worker) => worker.status === "rejected"))
-      throw new ApiError(503, "Daily tracking will retry during recovery.");
+    const runWorkers = async () => {
+      const workers = await Promise.allSettled(
+        Array.from({ length: 10 }, async () => {
+          while (performance.now() + 12_000 < deadline && Date.now() >= rateLimitedUntil) {
+            const delivery = await claimDelivery(
+              reportDate,
+              new Date(),
+              Date.now() >= gfgRateLimitedUntil,
+              Date.now() >= hackerRankRateLimitedUntil,
+            );
+            if (!delivery) return;
+            await processDelivery(delivery);
+          }
+        }),
+      );
+      if (workers.some((worker) => worker.status === "rejected"))
+        throw new ApiError(503, "Daily tracking will retry during recovery.");
+    };
+    await runWorkers();
+    if (
+      performance.now() + 12_000 < deadline &&
+      Date.now() >= rateLimitedUntil &&
+      (await prepareEmptyDayReports(reportDate, new Date()))
+    )
+      await runWorkers();
     if (performance.now() + 30_000 < deadline) await cleanExpiredData(new Date());
     console.info("tracking_dispatch_complete", stats);
     return stats;

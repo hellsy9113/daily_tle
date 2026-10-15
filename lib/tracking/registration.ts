@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { ApiError } from "@/lib/http/api-error";
 import { db } from "@/lib/db/client";
 import { accounts, connectionTokens, deliveries, type Account } from "@/lib/db/schema";
@@ -51,6 +51,7 @@ export async function trackingStatus(
       reportDate: deliveries.reportDate,
       status: deliveries.status,
       sentAt: deliveries.sentAt,
+      empty: sql<boolean>`coalesce(jsonb_array_length(${deliveries.messages}) = 0, false)`,
     })
     .from(deliveries)
     .where(and(eq(deliveries.accountId, account.id), eq(deliveries.platform, platform)))
@@ -60,7 +61,13 @@ export async function trackingStatus(
     username: platformUsername(account, platform),
     connected: account.chatId !== null,
     status: account.status,
-    lastDelivery: latest ? { ...latest, sentAt: latest.sentAt?.toISOString() ?? null } : null,
+    lastDelivery: latest
+      ? {
+          reportDate: latest.reportDate,
+          status: latest.status === "sent" && latest.empty ? "empty" : latest.status,
+          sentAt: latest.sentAt?.toISOString() ?? null,
+        }
+      : null,
   };
 }
 

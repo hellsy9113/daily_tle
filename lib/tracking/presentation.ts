@@ -1,4 +1,4 @@
-import type { AccountStatus, DeliveryStatus } from "./types";
+import type { AccountStatus, ReportStatus } from "./types";
 
 export const accountStatusLabels: Record<AccountStatus, string> = {
   pending: "Awaiting connection",
@@ -7,10 +7,11 @@ export const accountStatusLabels: Record<AccountStatus, string> = {
   blocked: "Blocked",
 };
 
-export const deliveryStatusLabels: Record<DeliveryStatus, string> = {
+export const deliveryStatusLabels: Record<ReportStatus, string> = {
   pending: "Pending",
   sending: "Pending",
   sent: "Delivered",
   failed: "Could not deliver",
   cancelled: "Paused",
+  empty: "No problems found",
 };

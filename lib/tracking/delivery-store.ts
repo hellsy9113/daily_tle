@@ -21,6 +21,7 @@ import { gfgSummary, writeGfgProfile } from "@/lib/gfg/store";
 import { gfgSync } from "@/lib/db/schema";
 import type { HackerRankProfile } from "@/lib/hackerrank/types";
 import { cacheHackerRankProfile, writeHackerRankProfile } from "@/lib/hackerrank/store";
+import { EMPTY_REPORT } from "./format-report";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
@@ -80,6 +81,31 @@ export async function prepareDeliveries(now: Date) {
     .execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
     WHERE report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
   return range.reportDate;
+}
+
+/** Reuse one completed empty delivery so the shared reminder has durable retry state. */
+export async function prepareEmptyDayReports(reportDate: string, now: Date) {
+  const rows = await db().execute(sql`
+    UPDATE ${deliveries} AS target
+    SET messages = ${JSON.stringify([EMPTY_REPORT])}::jsonb,
+      status = 'pending', attempts = 0, sent_parts = 0, sent_at = NULL,
+      next_attempt_at = ${now.toISOString()}::timestamptz,
+      last_error = NULL, lease_token = NULL, lease_until = NULL
+    FROM ${accounts} AS account
+    WHERE target.account_id = account.id AND account.status = 'active' AND account.chat_id IS NOT NULL
+      AND target.report_date = ${reportDate}::date AND target.status = 'sent' AND target.messages = '[]'::jsonb
+      AND target.platform = (
+        SELECT min(sibling.platform) FROM ${deliveries} AS sibling
+        WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM ${deliveries} AS sibling
+        WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+          AND (sibling.messages IS NULL OR sibling.messages <> '[]'::jsonb OR sibling.status <> 'sent')
+      )
+    RETURNING target.id
+  `);
+  return rows.length;
 }
 
 export async function claimDelivery(

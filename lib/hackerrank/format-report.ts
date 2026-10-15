@@ -19,6 +19,7 @@ export function formatHackerRankDailyReport(
       Date.parse(problem.solvedAt) >= range.start.getTime() &&
       Date.parse(problem.solvedAt) < range.end.getTime(),
   );
+  if (!problems.length) return [];
   const date = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeZone: "Asia/Kolkata",
@@ -28,11 +29,6 @@ export function formatHackerRankDailyReport(
       `HackerRank daily recap for ${profile.username}\n${date} (Asia/Kolkata)`,
       `${problems.length} unique solved challenges found in saved public activity for yesterday.`,
       ...problems.map((problem, index) => `${index + 1}. ${problem.title}\n${problem.url}`),
-      ...(problems.length
-        ? []
-        : [
-            "No matching challenges were found in the available history. This does not prove a zero-solve day. Keep practicing!",
-          ]),
       "Public activity may be incomplete. Timestamps are reported by HackerRank; first-ever solve dates are not guaranteed.",
       ...(!profile.historyComplete
         ? ["Only a bounded portion of the public history could be fetched in this check."]

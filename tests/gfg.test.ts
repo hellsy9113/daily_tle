@@ -185,7 +185,7 @@ describe("GFG activity and daily reports", () => {
       problems: first.problems.map((item) => ({ ...item, acceptedAt: "2026-10-13T02:00:00.000Z" })),
     };
     const text = formatGfgDailyReport(latest, stored(first), now).join("\n");
-    expect(text).toContain("0 unique problems have an available accepted timestamp");
+    expect(text).toBe("");
     expect(text).not.toContain("https://www.geeksforgeeks.org/problems/same/");
   });
   it("applies ISO bounds before grouping a partial Monday week", () => {
@@ -255,13 +255,20 @@ describe("GFG activity and daily reports", () => {
       { weekStart: "2026-10-12", count: 1 },
     ]);
   });
-  it("never calls an unknown yesterday count zero and only lists newly observed IDs", () => {
+  it("does not include today's observations or the initial inventory in yesterday's recap", () => {
     const data = normalized();
-    const text = formatGfgDailyReport(data, stored(data).slice(0, 1), now).join("\n");
-    expect(text).toContain("exact solved count is unavailable");
-    expect(text).toContain("Newly observed");
-    expect(text).toContain("valid-parentheses");
-    expect(text).not.toContain("https://www.geeksforgeeks.org/problems/two-sum/");
-    expect(formatGfgDailyReport(data, [], now, false).join("\n")).not.toContain("1.");
+    expect(formatGfgDailyReport(data, stored(data).slice(0, 1), now)).toEqual([]);
+    expect(formatGfgDailyReport(data, [], now)).toEqual([]);
+    expect(formatGfgDailyReport(data, stored(data, false), now)).toEqual([]);
+  });
+  it("keeps yesterday's saved dated problems even if the current inventory omits them", () => {
+    const data = normalized();
+    const saved = stored(data).map((problem) => ({
+      ...problem,
+      acceptedAt: "2026-10-13T02:00:00.000Z",
+    }));
+    const text = formatGfgDailyReport({ ...data, problems: [] }, saved, now).join("\n");
+    expect(text).toContain("two-sum");
+    expect(text).toContain("2 unique problems have an available accepted timestamp");
   });
 });

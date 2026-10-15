@@ -1,5 +1,6 @@
 export type AccountStatus = "pending" | "active" | "paused" | "blocked";
 export type DeliveryStatus = "pending" | "sending" | "sent" | "failed" | "cancelled";
+export type ReportStatus = DeliveryStatus | "empty";
 
 export interface TrackingStatus {
   username: string | null;
@@ -7,7 +8,7 @@ export interface TrackingStatus {
   status: AccountStatus;
   lastDelivery: {
     reportDate: string;
-    status: DeliveryStatus;
+    status: ReportStatus;
     sentAt: string | null;
   } | null;
 }

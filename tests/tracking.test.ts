@@ -136,13 +136,12 @@ describe("tracking webhook input", () => {
 });
 
 describe("tracking messages", () => {
-  it("uses the exact requested empty-day text", () => {
-    expect(formatDailyReport(result)).toEqual([EMPTY_REPORT]);
+  it("keeps the custom reminder text separate from platform reports", () => {
+    expect(EMPTY_REPORT).toBe("hmm..no question found.do it today, I will be waiting");
+    expect(formatDailyReport(result)).toEqual([]);
   });
-  it("adds a coverage warning to an incomplete empty report", () => {
-    expect(formatDailyReport({ ...result, mayBeIncomplete: true })[0]).toContain(
-      "Coverage warning",
-    );
+  it("suppresses empty LeetCode reports even when coverage is incomplete", () => {
+    expect(formatDailyReport({ ...result, mayBeIncomplete: true })).toEqual([]);
   });
   it("splits long reports and retains problem links", () => {
     const questions = Array.from({ length: 20 }, (_, i) => ({

@@ -181,9 +181,15 @@ parts, attempts, and retry delays. A database lease prevents overlapping dispatc
 Unfinished reports can be retried up to three times on their delivery day; older
 unfinished records are marked failed. A missed primary run is reconciled by recovery.
 
-Empty results send `hmm..no question found.do it today, I will be waiting`.
-Incomplete public history adds a coverage warning. LeetCode failures are recorded
-as failed attempts and never reported as empty results. Telegram rate limits stop
+Only platforms with yesterday's saved problems send a recap. Empty LeetCode, GFG,
+and HackerRank reports stay silent. When every scheduled platform check succeeds
+and none has yesterday's problems, one shared message is sent per user and day:
+`hmm..no question found.do it today, I will be waiting`.
+The reminder reuses one delivery's durable retry state; recovery does not send one
+reminder per platform. Empty platform status is shown as **No problems found**.
+Incomplete public history adds a coverage warning to reports containing data.
+Platform lookup failures are recorded as failed attempts and prevent the shared
+reminder until recovery, rather than being treated as empty results. Telegram rate limits stop
 new work until recovery; blocked chats are disabled. A crash after Telegram accepts
 a message but before progress is saved can still produce a duplicate on retry.
 The first release targets 100 users; monitor runtime and failures before increasing
@@ -263,9 +269,11 @@ For the current upstream shape, exact daily/weekly solve counts and series are
 null. The calendar instead records newly observed solved-problem IDs after the
 initial registration baseline. This is observation activity, not a reconstructed
 historical solve calendar. Snapshot totals are never differenced to fabricate
-daily solves. Daily GFG recaps distinguish an unavailable yesterday count from
-zero and list both saved observations from yesterday and additional problems
-observed since the preceding check. Retry preparation retains the stored period.
+daily solves. Daily GFG recaps include problems with qualified timestamps in
+yesterday's period and saved observations first seen yesterday, labeled with
+unverified solve dates. The initial inventory and problems first observed today
+are excluded from yesterday's recap. A GFG recap without qualifying problems is
+silent. Retry preparation retains the stored period.
 
 ### GFG API
 
