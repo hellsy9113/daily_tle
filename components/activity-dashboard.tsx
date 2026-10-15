@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
+import { ActivityPanelHeader } from "./activity-panel-header";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { ApiError } from "@/lib/http/api-error";
 import { requestJson } from "@/lib/http/client";
-import { platformLabels, statusPaths } from "@/lib/tracking/platforms";
+import { statusPaths } from "@/lib/tracking/platforms";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import type { ActivityResult } from "@/lib/activity/types";
 
@@ -83,6 +84,7 @@ export function ActivityDashboard({
   const latest = status.lastDelivery;
   return (
     <div className="dashboard-layout">
+      <h1 className="sr-only">Your practice, day by day.</h1>
       <section className="bot-status-panel" aria-label="Telegram bot status">
         <div className="bot-status-heading">
           <div>
@@ -109,10 +111,6 @@ export function ActivityDashboard({
           </div>
         </div>
         <dl className="bot-status-details">
-          <div>
-            {/* <dt>{platformLabels[statusPlatform]} username</dt>
-            <dd className="mono">{status.username}</dd> */}
-          </div>
           <div>
             <dt>Daily report</dt>
             <dd>8:30–9:30 a.m. IST</dd>
@@ -142,15 +140,27 @@ export function ActivityDashboard({
           aria-labelledby="activity-title"
           aria-busy={busy || activity?.refreshing}
         >
-          <div className="activity-heading">
-            <div>
-              <p className="eyebrow">LeetCode · Last 365 days · Asia/Kolkata</p>
-              <h1 id="activity-title" className="sr-only">
-                Your practice, day by day.
-              </h1>
-            </div>
-            <p className="field-help">Distinct Accepted problems per day.</p>
-          </div>
+          <ActivityPanelHeader
+            titleId="activity-title"
+            platform="LeetCode"
+            username={activity?.username ?? initialStatus.username}
+            busy={busy}
+            onRefresh={() => {
+              setBusy(true);
+              setError("");
+              void refresh();
+            }}
+          >
+            <p>
+              Each square counts distinct Accepted problems for that day. The same problem counts
+              once per day, and once in the unique-problems total.
+            </p>
+            <p>
+              {activity?.mayBeIncomplete !== false
+                ? "Public history is limited. Counts and streaks are the minimum we can confirm."
+                : "Available history covers every displayed day."}
+            </p>
+          </ActivityPanelHeader>
           {error && (
             <p className="inline-error" role="alert">
               {error} <a href="/tracking">Sign-in &amp; setup</a>
@@ -218,14 +228,8 @@ export function ActivityDashboard({
                   fresh start.
                 </p>
               )}
-              <p className="activity-coverage">
-                {activity.mayBeIncomplete
-                  ? "Public history is limited. Hatched squares have no available history; dotted squares are partial. Counts and streaks are the minimum we can confirm."
-                  : "Available history covers every displayed day."}{" "}
-                The same problem counts once per day, and once in the unique-problems total.
-              </p>
               {activity.lastSyncedAt && (
-                <p className="field-help">
+                <p className="activity-footer">
                   Last checked {syncDateFormatter.format(new Date(activity.lastSyncedAt))} IST.
                 </p>
               )}

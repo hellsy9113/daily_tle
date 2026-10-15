@@ -62,7 +62,7 @@ describe("calendar day details", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("Weekly practice");
     expect(container.querySelector("form")).toBeNull();
-    expect(container.textContent).toContain("Select a calendar day");
+    expect(container.textContent).not.toContain("Select a calendar day");
     await select("13 October 2026");
     expect(fetch).toHaveBeenLastCalledWith(
       "/api/tracking/activity/day?platform=leetcode&date=2026-10-13",
@@ -144,6 +144,6 @@ describe("calendar day details", () => {
     expect(fetch).not.toHaveBeenCalled();
     await select("14 October 2026");
     expect(container.textContent).toContain("This does not establish a zero-solve day");
-    expect(container.textContent).toContain("The initial import is excluded");
+    expect(container.textContent).not.toContain("The initial import is excluded");
   });
 });

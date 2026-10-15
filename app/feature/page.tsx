@@ -53,17 +53,7 @@ export default async function FeaturePage({
             Track your {label} public profile alongside LeetCode, with its own calendar and daily
             Telegram recap.
           </p>
-          <ol className="setup-steps">
-            <li>
-              <span>01</span>Sign in with your Telegram account
-            </li>
-            <li>
-              <span>02</span>Register your {label} username once
-            </li>
-            <li>
-              <span>03</span>Use the same Daily Grind bot connection
-            </li>
-          </ol>
+
           <p className="field-help">
             {platform === "hackerrank"
               ? "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed."

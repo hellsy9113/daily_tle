@@ -123,7 +123,16 @@ describe("GFG feature onboarding and dashboard", () => {
     await act(() => root.render(<GfgActivityPanel username="gfg_user" />));
     expect(container.textContent).toContain("GFG · gfg_user");
     expect(container.textContent).toContain("newly observed");
-    expect(container.textContent).toContain("does not assign guessed historical solve dates");
+    const popup = container.querySelector<HTMLDivElement>('[role="tooltip"]')!;
+    expect(popup.hidden).toBe(true);
+    expect(container.querySelector(".activity-coverage")).toBeNull();
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="GFG chart information"]')!
+        .focus(),
+    );
+    expect(popup.hidden).toBe(false);
+    expect(popup.textContent).toContain("does not assign guessed historical solve dates");
     expect(
       [...container.querySelectorAll(".activity-stats dd")].map((element) => element.textContent),
     ).toEqual(["1", "—", "—", "1"]);

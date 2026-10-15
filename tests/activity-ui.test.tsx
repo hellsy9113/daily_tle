@@ -119,15 +119,22 @@ describe("activity dashboard", () => {
     expect(container.textContent).toContain("fixed-user");
     expect(container.textContent).toContain("Last 365 days · Asia/Kolkata");
     expect(container.textContent).toContain("≥ 9");
-    expect(container.textContent).toContain("minimum we can confirm");
+    const popup = container.querySelector<HTMLDivElement>('[role="tooltip"]')!;
+    expect(popup.hidden).toBe(true);
+    expect(container.querySelector(".activity-coverage")).toBeNull();
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="LeetCode chart information"]')!
+        .focus(),
+    );
+    expect(popup.hidden).toBe(false);
+    expect(popup.textContent).toContain("minimum we can confirm");
     expect(container.textContent).not.toMatch(/postgres|lease|database/i);
     expect(container.querySelector("section")?.getAttribute("aria-label")).toBe(
       "Telegram bot status",
     );
     expect(container.querySelector('[aria-labelledby="activity-title"]')).not.toBeNull();
-    expect(container.querySelector("#activity-title")?.textContent).toBe(
-      "Your practice, day by day.",
-    );
+    expect(container.querySelector("#activity-title")?.textContent).toBe("LeetCode · fixed-user");
   });
   it("shows session-expiry feedback even for a non-JSON authentication error", async () => {
     responses();

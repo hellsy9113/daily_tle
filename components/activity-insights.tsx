@@ -46,15 +46,13 @@ export function ActivityInsights({
         onSelectDay={(day) => setSelectedDate(day.date)}
         detailsId={detailsId}
       />
-      <div id={detailsId} className="day-details">
-        {selected ? (
+      <div id={detailsId} className={selected ? "day-details" : undefined}>
+        {selected && (
           <DayProblems
             key={`${platform}:${selected.date}:${version}`}
             platform={platform}
             day={selected}
           />
-        ) : (
-          <p className="field-help">Select a calendar day to see its saved problems and links.</p>
         )}
       </div>
     </>
@@ -113,13 +111,6 @@ function DayProblems({ platform, day }: { platform: ActivityPlatform; day: Activ
       )}
       {details && (
         <>
-          {(details.basis === "observed" || platform === "hackerrank") && (
-            <p className="field-help" role="status">
-              {details.basis === "observed"
-                ? "Newly observed on this date; solve dates are unverified. The initial import is excluded."
-                : "Saved HackerRank solved activity. Public history may be incomplete; first-ever solve dates are not guaranteed."}
-            </p>
-          )}
           {details.problems.length ? (
             <ul className="day-problems">
               {details.problems.map((problem) => (

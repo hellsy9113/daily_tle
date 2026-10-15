@@ -119,7 +119,16 @@ describe("HackerRank optional tracking", () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(progress));
     await act(() => root.render(<HackerRankActivityPanel username="hr_user" />));
     expect(container.textContent).toContain("Saved unique problems");
-    expect(container.textContent).toContain("first-ever solve dates are not guaranteed");
+    const popup = container.querySelector<HTMLDivElement>('[role="tooltip"]')!;
+    expect(popup.hidden).toBe(true);
+    expect(container.querySelector(".activity-coverage")).toBeNull();
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="HackerRank chart information"]')!
+        .focus(),
+    );
+    expect(popup.hidden).toBe(false);
+    expect(popup.textContent).toContain("first-ever solve dates are not guaranteed");
     expect(
       [...container.querySelectorAll(".activity-stats dd")].map((el) => el.textContent),
     ).toEqual(["1", "≥ 0", "≥ 1"]);
@@ -138,7 +147,7 @@ describe("HackerRank optional tracking", () => {
     )!;
     expect(link.textContent).toContain("two-sum");
     expect(link.rel).toBe("noopener noreferrer");
-    expect(container.textContent).toContain("Saved HackerRank solved activity");
+    expect(container.querySelector(".day-problems")?.textContent).toContain("two-sum");
   });
   it("retains saved progress and safe feedback after a refresh fails", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(progress));

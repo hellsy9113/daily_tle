@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
+import { ActivityPanelHeader } from "./activity-panel-header";
 import { requestJson } from "@/lib/http/client";
 import type { HackerRankProgress } from "@/lib/hackerrank/types";
 
@@ -50,25 +51,28 @@ export function HackerRankActivityPanel({ username }: { username: string }) {
     <section
       className="activity-panel"
       aria-labelledby="hackerrank-activity-title"
-      aria-busy={busy}
+      aria-busy={busy || progress?.refreshing}
     >
-      <div className="activity-heading">
-        <div>
-          <p className="eyebrow">HackerRank · Separate progress</p>
-          <h2 id="hackerrank-activity-title">HackerRank · {username}</h2>
-        </div>
-        <button
-          className="button secondary"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            setError("");
-            void refresh();
-          }}
-        >
-          {busy ? "Refreshing HackerRank…" : "Refresh HackerRank"}
-        </button>
-      </div>
+      <ActivityPanelHeader
+        titleId="hackerrank-activity-title"
+        platform="HackerRank"
+        username={username}
+        busy={busy}
+        onRefresh={() => {
+          setBusy(true);
+          setError("");
+          void refresh();
+        }}
+      >
+        <p>
+          Counts use saved public solved-challenge timestamps. Public history may be incomplete and
+          first-ever solve dates are not guaranteed.
+        </p>
+        <p>
+          Saved unique problems reflects the challenges collected so far. HackerRank does not expose
+          a verified overall solve total or difficulty breakdown in this feed.
+        </p>
+      </ActivityPanelHeader>
       {error && (
         <p className="inline-error" role="alert">
           {error} <Link href="/feature?platform=hackerrank">HackerRank setup</Link>
@@ -96,7 +100,6 @@ export function HackerRankActivityPanel({ username }: { username: string }) {
               <dd>≥ {progress.solvedThisWeek}</dd>
             </div>
           </dl>
-          <p className="eyebrow">Available solved activity · Asia/Kolkata</p>
           <ActivityInsights
             platform="hackerrank"
             days={progress.days}
@@ -113,13 +116,7 @@ export function HackerRankActivityPanel({ username }: { username: string }) {
               HackerRank could not be refreshed. Showing your saved progress.
             </p>
           )}
-          <p className="activity-coverage">
-            Counts use available public solved-challenge timestamps. Public history may be
-            incomplete and first-ever solve dates are not guaranteed. Hatched dates have no
-            available history; counts are lower bounds. HackerRank does not expose a verified
-            overall solve total or difficulty breakdown in this feed.
-          </p>
-          <p className="field-help">
+          <p className="activity-footer">
             Last checked {formatter.format(new Date(progress.checkedAt))} IST.{" "}
             <a
               href={`https://www.hackerrank.com/profile/${encodeURIComponent(username)}`}
