@@ -646,6 +646,17 @@ button:disabled {
 .tracking-intro h1 {
   font-size: clamp(2.25rem, 4vw, 3.25rem);
 }
+.feature-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding-top: 1.5rem;
+  font-size: 0.875rem;
+}
+.feature-tabs a[aria-current="page"] {
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
 .dashboard-layout {
   padding-block: clamp(2rem, 6vw, 4rem);
 }

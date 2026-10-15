@@ -1,17 +1,15 @@
 import "server-only";
 import { and, asc, eq, gte, isNotNull, lt, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { acceptedActivity, gfgProblems, type Account } from "@/lib/db/schema";
+import { acceptedActivity, gfgProblems, hackerRankProblems, type Account } from "@/lib/db/schema";
+import { platformLabels, platformUsername } from "@/lib/tracking/platforms";
 import { ApiError } from "@/lib/http/api-error";
 import { ACTIVITY_DAY_MS, activityDayStart } from "./calendar";
 import type { ActivityDayDetails, ActivityPlatform } from "./types";
 
 export function requireActivityPlatform(account: Account, platform: ActivityPlatform) {
-  if (!(platform === "gfg" ? account.gfgUsername : account.leetcodeUsername))
-    throw new ApiError(
-      409,
-      `Register your ${platform === "gfg" ? "GFG" : "LeetCode"} username first.`,
-    );
+  if (!platformUsername(account, platform))
+    throw new ApiError(409, `Register your ${platformLabels[platform]} username first.`);
 }
 
 /** Read saved observations only; selecting a day never makes an upstream request. */
@@ -22,6 +20,39 @@ export async function getActivityDay(
   now = new Date(),
 ): Promise<ActivityDayDetails> {
   requireActivityPlatform(account, platform);
+  if (platform === "hackerrank") {
+    const start = activityDayStart(date);
+    const end = new Date(start.getTime() + ACTIVITY_DAY_MS);
+    const rows = await db()
+      .select({
+        id: hackerRankProblems.id,
+        title: hackerRankProblems.title,
+        slug: hackerRankProblems.slug,
+        contest: hackerRankProblems.contest,
+      })
+      .from(hackerRankProblems)
+      .where(
+        and(
+          eq(hackerRankProblems.accountId, account.id),
+          gte(hackerRankProblems.solvedAt, start),
+          lt(hackerRankProblems.solvedAt, end),
+          lte(hackerRankProblems.solvedAt, now),
+        ),
+      )
+      .orderBy(asc(hackerRankProblems.title));
+    return {
+      date,
+      basis: "solved",
+      problems: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        url:
+          row.contest === "master"
+            ? `https://www.hackerrank.com/challenges/${encodeURIComponent(row.slug)}`
+            : `https://www.hackerrank.com/contests/${encodeURIComponent(row.contest)}/challenges/${encodeURIComponent(row.slug)}`,
+      })),
+    };
+  }
   if (platform === "leetcode") {
     const rows = await db()
       .select({ id: acceptedActivity.titleSlug, title: acceptedActivity.title })

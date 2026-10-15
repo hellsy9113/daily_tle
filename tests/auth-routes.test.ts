@@ -32,6 +32,9 @@ const account: Account = {
   gfgUsername: null,
   gfgUsernameKey: null,
   gfgRegisteredAt: null,
+  hackerRankUsername: null,
+  hackerRankUsernameKey: null,
+  hackerRankRegisteredAt: null,
   usernameKey: null,
   chatId: null,
   status: "pending",
@@ -77,6 +80,39 @@ describe("Telegram authentication routes", () => {
     );
     expect(response.headers.get("location")).toBe(`${origin}/feature`);
     expect(response.headers.get("set-cookie")).toContain("tracking_login_destination=;");
+  });
+  it("preserves HackerRank selection through canonical login and callback", async () => {
+    const alias = await login(
+      new NextRequest("https://preview.example/api/auth/telegram/login?next=hackerrank"),
+    );
+    expect(alias.headers.get("location")).toBe(`${origin}/api/auth/telegram/login?next=hackerrank`);
+    const started = await login(
+      new NextRequest(`${origin}/api/auth/telegram/login?next=hackerrank`),
+    );
+    expect(decodeURIComponent(started.headers.get("set-cookie")!)).toContain(
+      "tracking_login_destination=/feature?platform=hackerrank",
+    );
+    const response = await callback(
+      new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
+        headers: {
+          cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature?platform=hackerrank`,
+        },
+      }),
+    );
+    expect(response.headers.get("location")).toBe(`${origin}/feature?platform=hackerrank`);
+  });
+  it("retains the HackerRank tab when authentication fails", async () => {
+    vi.mocked(finishTelegramLogin).mockRejectedValue(new Error("Verification failed"));
+    const response = await callback(
+      new NextRequest(`${origin}/api/auth/telegram/callback`, {
+        headers: {
+          cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature?platform=hackerrank`,
+        },
+      }),
+    );
+    expect(response.headers.get("location")).toBe(
+      `${origin}/feature?platform=hackerrank&error=login`,
+    );
   });
   it("does not accept an arbitrary login destination", async () => {
     const response = await callback(

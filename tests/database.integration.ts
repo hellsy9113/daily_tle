@@ -13,7 +13,18 @@ import {
   sessions,
   gfgProblems,
   gfgSnapshots,
+  hackerRankProblems,
+  hackerRankSnapshots,
+  hackerRankSync,
 } from "@/lib/db/schema";
+import { getHackerRankProfile } from "@/lib/hackerrank/client";
+import { getHackerRankProgress, registerHackerRank } from "@/lib/hackerrank/service";
+import {
+  claimHackerRankSync,
+  readHackerRankProblems,
+  saveHackerRankSync,
+} from "@/lib/hackerrank/store";
+import { hackerRankProfile as profileFixture } from "./hackerrank-fixtures";
 import { getGfgProfile } from "@/lib/gfg/client";
 import { getGfgProgress, registerGfg } from "@/lib/gfg/service";
 import { claimGfgSync, readGfgProblems, saveGfgSync } from "@/lib/gfg/store";
@@ -56,6 +67,7 @@ vi.mock("@/lib/leetcode/user-identity", () => ({
 }));
 vi.mock("@/lib/leetcode/last-day-solved", () => ({ getLastDaySolvedQuestions: vi.fn() }));
 vi.mock("@/lib/leetcode/accepted-history", () => ({ getAcceptedHistory: vi.fn() }));
+vi.mock("@/lib/hackerrank/client", () => ({ getHackerRankProfile: vi.fn() }));
 vi.mock("@/lib/gfg/client", () => ({ getGfgProfile: vi.fn() }));
 vi.mock("@/lib/tracking/telegram-client", async (original) => ({
   ...(await original<typeof import("@/lib/tracking/telegram-client")>()),
@@ -72,6 +84,14 @@ const admin = postgres(process.env.DATABASE_URL!, {
   onnotice: () => {},
 });
 const now = new Date("2026-10-13T03:00:00Z");
+function hrProfile(username = "hr_101", ids = ["old"], checkedAt = now) {
+  const result = profileFixture(username, ids, checkedAt);
+  result.problems = result.problems.map((problem) => ({
+    ...problem,
+    solvedAt: "2026-10-12T02:00:00.000Z",
+  }));
+  return result;
+}
 function gfgProfile(username = "gfg_101", ids = ["old"], checkedAt = now): GfgProfile {
   return {
     platform: "gfg",
@@ -124,6 +144,9 @@ beforeEach(async () => {
   vi.mocked(sendTrackingMessage).mockResolvedValue();
   vi.mocked(getLastDaySolvedQuestions).mockRejectedValue(new ApiError(502, "Upstream unavailable"));
   vi.mocked(getAcceptedHistory).mockResolvedValue({ username: "user_101", submissions: [] });
+  vi.mocked(getHackerRankProfile).mockImplementation(async (username, at = now) =>
+    hrProfile(String(username), ["old"], at),
+  );
   vi.mocked(getGfgProfile).mockImplementation(async (username, at = now) =>
     gfgProfile(String(username), ["old"], at),
   );
@@ -278,6 +301,254 @@ describe("saved problem details and persistent weekly goals", () => {
     expect(progress.days.find((day) => day.date === details.date)?.count).toBe(
       details.problems.length,
     );
+  });
+});
+
+describe("separate HackerRank registration, calendar, and reports", () => {
+  async function registeredAccount(telegramId = 101) {
+    const user = await account(telegramId);
+    await registerHackerRank(user, `hr_${telegramId}`);
+    return (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+  }
+  it("connects a HackerRank-only account through the existing bot and schedules only its opted-in report", async () => {
+    const user = await registeredAccount();
+    expect(user).toMatchObject({
+      leetcodeUsername: null,
+      gfgUsername: null,
+      hackerRankUsername: "hr_101",
+    });
+    expect(
+      await processTrackingUpdate({
+        updateId: 99,
+        userId: 101,
+        chatId: 101,
+        text: "/start invalid-token",
+      }),
+    ).toContain("/feature?platform=hackerrank");
+    const link = await createConnectionLink(user);
+    expect(
+      await processTrackingUpdate({
+        updateId: 1,
+        userId: 101,
+        chatId: 101,
+        text: `/start ${startToken(link.url)}`,
+      }),
+    ).toContain("HackerRank hr_101");
+    await prepareDeliveries(now);
+    await prepareDeliveries(now);
+    expect((await db().select().from(deliveries)).map((row) => row.platform)).toEqual([
+      "hackerrank",
+    ]);
+    expect(
+      (await trackingStatus((await db().select().from(accounts))[0], "hackerrank")).connected,
+    ).toBe(true);
+  });
+  it("enforces permanent, case-insensitive usernames and registration timestamps in the database", async () => {
+    const first = await registeredAccount();
+    const second = await account(102);
+    await expect(registerHackerRank(second, "HR_101")).rejects.toMatchObject({ status: 409 });
+    await expect(registerHackerRank(first, "replacement")).rejects.toMatchObject({ status: 409 });
+    await expect(
+      db()
+        .update(accounts)
+        .set({ hackerRankUsername: "replacement" })
+        .where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    await expect(
+      db()
+        .update(accounts)
+        .set({ hackerRankRegisteredAt: new Date(now.getTime() + 1000) })
+        .where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    expect(
+      (await db().select().from(accounts).where(eq(accounts.id, second.id)))[0].hackerRankUsername,
+    ).toBeNull();
+  });
+  it("rolls back registration when public verification fails", async () => {
+    const user = await account();
+    vi.mocked(getHackerRankProfile).mockRejectedValueOnce(new ApiError(404, "User not found"));
+    await expect(registerHackerRank(user, "missing")).rejects.toMatchObject({ status: 404 });
+    expect((await db().select().from(accounts))[0].hackerRankUsername).toBeNull();
+    expect(await db().select().from(hackerRankProblems)).toEqual([]);
+  });
+  it("imports timestamped history, caches refreshes, and preserves older saved challenges", async () => {
+    const user = await registeredAccount();
+    const initial = await getHackerRankProgress(user, now);
+    expect(initial).toMatchObject({ savedSolved: 1, solvedToday: 0, solvedThisWeek: 1 });
+    expect(getHackerRankProfile).toHaveBeenCalledTimes(1);
+    const later = new Date(now.getTime() + 6 * 60_000);
+    vi.mocked(getHackerRankProfile).mockResolvedValueOnce(hrProfile("hr_101", ["new"], later));
+    expect(await getHackerRankProgress(user, later)).toMatchObject({
+      savedSolved: 2,
+      refreshFailed: false,
+    });
+    const saved = await readHackerRankProblems(user.id);
+    expect(saved.find((item) => item.slug === "old")?.baseline).toBe(true);
+    expect(saved.find((item) => item.slug === "new")?.baseline).toBe(false);
+    expect(await db().select().from(hackerRankSnapshots)).toHaveLength(1);
+    expect(await claimHackerRankSync(user.id, "early", new Date(later.getTime() + 60_000))).toBe(
+      false,
+    );
+  });
+  it("leases concurrent refreshes and rolls back all writes from a lost lease", async () => {
+    const user = await registeredAccount();
+    const later = new Date(now.getTime() + 6 * 60_000);
+    const claims = await Promise.all([
+      claimHackerRankSync(user.id, "first", later),
+      claimHackerRankSync(user.id, "second", later),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await expect(
+      saveHackerRankSync(user.id, "forged", hrProfile("hr_101", ["uncommitted"], later)),
+    ).rejects.toThrow("lease expired");
+    expect((await readHackerRankProblems(user.id)).map((problem) => problem.slug)).toEqual(["old"]);
+    expect((await db().select().from(hackerRankSnapshots))[0].availableSolved).toBe(1);
+  });
+  it("keeps saved data available and backs off after upstream rate limiting", async () => {
+    const user = await registeredAccount();
+    const later = new Date(now.getTime() + 6 * 60_000);
+    vi.mocked(getHackerRankProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    expect(await getHackerRankProgress(user, later)).toMatchObject({
+      savedSolved: 1,
+      refreshFailed: true,
+      refreshing: false,
+    });
+    expect(await claimHackerRankSync(user.id, "early", new Date(later.getTime() + 60_000))).toBe(
+      false,
+    );
+    expect(await db().select().from(hackerRankProblems)).toHaveLength(1);
+  });
+  it("uses the same IST boundaries for the calendar and own-account saved day links", async () => {
+    const first = await account(101);
+    const data = hrProfile("hr_101", ["before", "after"]);
+    data.problems[0].solvedAt = "2026-10-11T18:29:59.000Z";
+    data.problems[1].solvedAt = "2026-10-11T18:30:00.000Z";
+    vi.mocked(getHackerRankProfile).mockResolvedValueOnce(data);
+    await registerHackerRank(first, "hr_101");
+    const user = (await db().select().from(accounts).where(eq(accounts.id, first.id)))[0];
+    const other = await registeredAccount(102);
+    const progress = await getHackerRankProgress(user, now);
+    const calls = vi.mocked(getHackerRankProfile).mock.calls.length;
+    const details = await getActivityDay(user, "hackerrank", "2026-10-12", now);
+    expect(details).toMatchObject({
+      basis: "solved",
+      problems: [{ id: "master:after", url: "https://www.hackerrank.com/challenges/after" }],
+    });
+    expect(progress.days.find((day) => day.date === details.date)?.count).toBe(
+      details.problems.length,
+    );
+    expect(
+      (await getActivityDay(other, "hackerrank", "2026-10-12", now)).problems.map(
+        (problem) => problem.id,
+      ),
+    ).toEqual(["master:old"]);
+    expect(getHackerRankProfile).toHaveBeenCalledTimes(calls);
+  });
+  it("retains the earliest saved solve date when an upstream re-solve appears later", async () => {
+    const user = await registeredAccount();
+    const later = new Date(now.getTime() + 6 * 60_000);
+    const data = hrProfile("hr_101", ["old"], later);
+    data.problems[0].solvedAt = now.toISOString();
+    vi.mocked(getHackerRankProfile).mockResolvedValueOnce(data);
+    await getHackerRankProgress(user, later);
+    expect((await readHackerRankProblems(user.id))[0].solvedAt).toBe("2026-10-12T02:00:00.000Z");
+  });
+  it("delivers each platform once, saves HackerRank report data, and does not resend on recovery", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await registerHackerRank(user, "hr_101");
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
+      username: "user_101",
+      period: "lastday",
+      timezone: "Asia/Kolkata",
+      start: "2026-10-11T18:30:00Z",
+      end: "2026-10-12T18:30:00Z",
+      count: 0,
+      questions: [],
+      mayBeIncomplete: false,
+    });
+    vi.mocked(getHackerRankProfile).mockResolvedValueOnce(hrProfile("hr_101", ["old", "new"]));
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 3,
+      failed: 0,
+    });
+    const messages = vi.mocked(sendTrackingMessage).mock.calls.map(([, message]) => message);
+    expect(
+      messages.some(
+        (message) =>
+          message.includes("HackerRank daily recap") && message.includes("/challenges/new"),
+      ),
+    ).toBe(true);
+    expect(await db().select().from(hackerRankProblems)).toHaveLength(2);
+    expect((await db().select().from(hackerRankSync))[0].profile?.username).toBe("hr_101");
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 0,
+      failed: 0,
+    });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(3);
+    expect((await trackingStatus(user, "hackerrank")).lastDelivery?.status).toBe("sent");
+  });
+  it("keeps LeetCode and GFG reports available when HackerRank is rate limited", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await registerHackerRank(user, "hr_101");
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue({
+      username: "user_101",
+      period: "lastday",
+      timezone: "Asia/Kolkata",
+      start: "2026-10-11T18:30:00Z",
+      end: "2026-10-12T18:30:00Z",
+      count: 0,
+      questions: [],
+      mayBeIncomplete: false,
+    });
+    vi.mocked(getHackerRankProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 2,
+      failed: 1,
+    });
+    const failed = (
+      await db().select().from(deliveries).where(eq(deliveries.platform, "hackerrank"))
+    )[0];
+    expect(failed).toMatchObject({ status: "failed", lastError: "lookup_429", messages: null });
+    expect(failed.nextAttemptAt.getTime()).toBe(now.getTime() + 5 * 60_000);
+  });
+  it("resumes only unsent HackerRank parts and pauses pending reports on all platforms", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await registerHackerRank(user, "hr_101");
+    await prepareDeliveries(now);
+    await db()
+      .update(deliveries)
+      .set({
+        messages: ["already sent", "remaining HackerRank report"],
+        sentParts: 1,
+        status: "sending",
+        leaseToken: "expired",
+        leaseUntil: new Date(now.getTime() - 1),
+      })
+      .where(eq(deliveries.platform, "hackerrank"));
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(2);
+    const messages = vi.mocked(sendTrackingMessage).mock.calls.map(([, message]) => message);
+    expect(messages).toContain("remaining HackerRank report");
+    expect(messages).not.toContain("already sent");
+    expect(getHackerRankProfile).toHaveBeenCalledTimes(1);
+    // Start a fresh day's pending reports, then pause the shared bot connection.
+    const tomorrow = new Date(now.getTime() + 86_400_000);
+    await prepareDeliveries(tomorrow);
+    await processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/stop" });
+    expect(
+      (await db().select().from(deliveries))
+        .filter((row) => row.reportDate === "2026-10-13")
+        .map((row) => row.status),
+    ).toEqual(["cancelled", "cancelled", "cancelled"]);
+  });
+  it("excludes a HackerRank opt-in registered after the daily cutoff", async () => {
+    const user = await activeAccount();
+    vi.setSystemTime(new Date(now.getTime() + 60_000));
+    await registerHackerRank(user, "hr_101");
+    await prepareDeliveries(new Date(now.getTime() + 60_000));
+    expect((await db().select().from(deliveries)).map((row) => row.platform)).toEqual(["leetcode"]);
   });
 });
 

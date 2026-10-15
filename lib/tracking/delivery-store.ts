@@ -19,6 +19,8 @@ import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
 import type { GfgProfile } from "@/lib/gfg/types";
 import { gfgSummary, writeGfgProfile } from "@/lib/gfg/store";
 import { gfgSync } from "@/lib/db/schema";
+import type { HackerRankProfile } from "@/lib/hackerrank/types";
+import { cacheHackerRankProfile, writeHackerRankProfile } from "@/lib/hackerrank/store";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
@@ -68,6 +70,13 @@ export async function prepareDeliveries(now: Date) {
       AND gfg_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
   await db()
+    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    SELECT id, 'hackerrank', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL
+    AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
+    AND hackerrank_registered_at <= ${range.cutoff.toISOString()}::timestamptz
+    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
+  await db()
     .execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
     WHERE report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
   return range.reportDate;
@@ -77,6 +86,7 @@ export async function claimDelivery(
   reportDate: string,
   now: Date,
   allowGfg = true,
+  allowHackerRank = true,
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
@@ -87,10 +97,11 @@ export async function claimDelivery(
     .where(
       and(
         eq(deliveries.reportDate, reportDate),
-        allowGfg ? undefined : eq(deliveries.platform, "leetcode"),
+        allowGfg ? undefined : ne(deliveries.platform, "gfg"),
+        allowHackerRank ? undefined : ne(deliveries.platform, "hackerrank"),
         eq(accounts.status, "active"),
         isNotNull(accounts.chatId),
-        sql`CASE WHEN ${deliveries.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
+        sql`CASE WHEN ${deliveries.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${deliveries.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
         sql`${deliveries.attempts} < 3`,
         lte(deliveries.nextAttemptAt, now),
         or(
@@ -114,7 +125,7 @@ export async function claimDelivery(
     .where(eq(deliveries.id, candidate))
     .returning({
       ...getTableColumns(deliveries),
-      username: sql<string>`(SELECT CASE WHEN ${deliveries.platform} = 'gfg' THEN gfg_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${deliveries.accountId})`,
+      username: sql<string>`(SELECT CASE WHEN ${deliveries.platform} = 'hackerrank' THEN hackerrank_username WHEN ${deliveries.platform} = 'gfg' THEN gfg_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${deliveries.accountId})`,
       chatId:
         sql<number>`(SELECT chat_id FROM ${accounts} WHERE id = ${deliveries.accountId})`.mapWith(
           Number,
@@ -162,10 +173,13 @@ export async function updateDelivery(
 export async function prepareDeliveryReport(
   delivery: ClaimedDelivery,
   messages: string[],
-  result: SolvedQuestionsResult | GfgProfile,
+  result: SolvedQuestionsResult | GfgProfile | HackerRankProfile,
 ) {
   await db().transaction(async (transaction) => {
-    if ("platform" in result) {
+    if ("platform" in result && result.platform === "hackerrank") {
+      await writeHackerRankProfile(transaction, delivery.accountId, result);
+      await cacheHackerRankProfile(transaction, delivery.accountId, result);
+    } else if ("platform" in result) {
       await writeGfgProfile(transaction, delivery.accountId, result);
       await transaction
         .insert(gfgSync)

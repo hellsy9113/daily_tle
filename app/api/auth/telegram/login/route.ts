@@ -10,6 +10,8 @@ export async function GET(request: NextRequest) {
   try {
     const canonicalLogin = new URL("/api/auth/telegram/login", appUrl());
     const destination = loginDestination(request.nextUrl.searchParams.get("next"));
+    if (destination === "/feature?platform=hackerrank")
+      canonicalLogin.searchParams.set("next", "hackerrank");
     if (destination === "/feature") canonicalLogin.searchParams.set("next", "feature");
     if (request.nextUrl.origin !== canonicalLogin.origin)
       return NextResponse.redirect(canonicalLogin, { headers: { "Cache-Control": "no-store" } });

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { AccountStatus, DeliveryStatus } from "@/lib/tracking/types";
 import type { GfgDifficulty, GfgProfileSummary } from "@/lib/gfg/types";
 import type { ActivityPlatform } from "@/lib/activity/types";
+import type { HackerRankSummary } from "@/lib/hackerrank/types";
 import {
   bigint,
   boolean,
@@ -31,6 +32,11 @@ export const accounts = tracking.table(
     gfgUsername: text("gfg_username"),
     gfgUsernameKey: text("gfg_username_key").generatedAlwaysAs(sql`lower(gfg_username)`),
     gfgRegisteredAt: time("gfg_registered_at"),
+    hackerRankUsername: text("hackerrank_username"),
+    hackerRankUsernameKey: text("hackerrank_username_key").generatedAlwaysAs(
+      sql`lower(hackerrank_username)`,
+    ),
+    hackerRankRegisteredAt: time("hackerrank_registered_at"),
     usernameKey: text("username_key").generatedAlwaysAs(sql`lower(leetcode_username)`),
     chatId: bigint("chat_id", { mode: "number" }).unique(),
     status: text("status").$type<AccountStatus>().notNull().default("pending"),
@@ -41,6 +47,7 @@ export const accounts = tracking.table(
   (table) => [
     uniqueIndex("accounts_username_key_unique").on(table.usernameKey),
     uniqueIndex("accounts_gfg_username_key_unique").on(table.gfgUsernameKey),
+    uniqueIndex("accounts_hackerrank_username_key_unique").on(table.hackerRankUsernameKey),
     check(
       "accounts_status_check",
       sql`${table.status} IN ('pending', 'active', 'paused', 'blocked')`,
@@ -86,7 +93,7 @@ export const deliveries = tracking.table(
       .notNull()
       .references(() => accounts.id),
     reportDate: date("report_date").notNull(),
-    platform: text("platform").$type<"leetcode" | "gfg">().notNull().default("leetcode"),
+    platform: text("platform").$type<ActivityPlatform>().notNull().default("leetcode"),
     start: time("period_start").notNull(),
     end: time("period_end").notNull(),
     status: text("status").$type<DeliveryStatus>().notNull().default("pending"),
@@ -203,6 +210,46 @@ export const gfgSnapshots = tracking.table(
   (table) => [primaryKey({ columns: [table.accountId, table.date] })],
 );
 
+export const hackerRankProblems = tracking.table(
+  "hackerrank_problems",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    id: text("problem_id").notNull(),
+    title: text("title").notNull(),
+    slug: text("slug").notNull(),
+    contest: text("contest").notNull(),
+    solvedAt: time("solved_at").notNull(),
+    firstObservedAt: time("first_observed_at").notNull(),
+    baseline: boolean("baseline").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.id] })],
+);
+export const hackerRankSync = tracking.table("hackerrank_sync", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id),
+  profile: jsonb("profile").$type<HackerRankSummary>(),
+  refreshedAt: time("refreshed_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: time("lease_until"),
+  lastError: integer("last_error"),
+});
+export const hackerRankSnapshots = tracking.table(
+  "hackerrank_snapshots",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    date: date("snapshot_date").notNull(),
+    availableSolved: integer("available_solved").notNull(),
+    historyComplete: boolean("history_complete").notNull(),
+    checkedAt: time("checked_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+);
+
 export const activityGoals = tracking.table(
   "activity_goals",
   {
@@ -214,7 +261,10 @@ export const activityGoals = tracking.table(
   },
   (table) => [
     primaryKey({ columns: [table.accountId, table.platform] }),
-    check("activity_goals_platform_check", sql`${table.platform} IN ('leetcode', 'gfg')`),
+    check(
+      "activity_goals_platform_check",
+      sql`${table.platform} IN ('leetcode', 'gfg', 'hackerrank')`,
+    ),
     check("activity_goals_target_check", sql`${table.weeklyTarget} BETWEEN 1 AND 1000`),
   ],
 );

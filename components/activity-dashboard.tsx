@@ -6,6 +6,8 @@ import type { TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { ApiError } from "@/lib/http/api-error";
 import { requestJson } from "@/lib/http/client";
+import { platformLabels, statusPaths } from "@/lib/tracking/platforms";
+import type { ActivityPlatform } from "@/lib/activity/types";
 import type { ActivityResult } from "@/lib/activity/types";
 
 async function readDashboardData<T>(path: string, signal: AbortSignal): Promise<T> {
@@ -31,11 +33,13 @@ export function ActivityDashboard({
   botUrl,
   leetcodeEnabled = true,
   children,
+  statusPlatform = leetcodeEnabled ? "leetcode" : "gfg",
 }: {
   initialStatus: TrackingStatus;
   botUrl: string;
   leetcodeEnabled?: boolean;
   children?: React.ReactNode;
+  statusPlatform?: ActivityPlatform;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [activity, setActivity] = useState<ActivityResult | null>(null);
@@ -47,10 +51,7 @@ export function ActivityDashboard({
     const controller = new AbortController();
     request.current = controller;
     return Promise.allSettled([
-      readDashboardData<TrackingStatus>(
-        leetcodeEnabled ? "/api/tracking" : "/api/tracking/gfg",
-        controller.signal,
-      ),
+      readDashboardData<TrackingStatus>(statusPaths[statusPlatform], controller.signal),
       leetcodeEnabled
         ? readDashboardData<ActivityResult>("/api/tracking/activity", controller.signal)
         : Promise.resolve(null),
@@ -68,7 +69,7 @@ export function ActivityDashboard({
         );
       setBusy(false);
     });
-  }, [leetcodeEnabled]);
+  }, [leetcodeEnabled, statusPlatform]);
   useEffect(() => {
     void refresh();
     return () => request.current?.abort();
@@ -109,7 +110,7 @@ export function ActivityDashboard({
         </div>
         <dl className="bot-status-details">
           <div>
-            <dt>{leetcodeEnabled ? "LeetCode" : "GFG"} username</dt>
+            <dt>{platformLabels[statusPlatform]} username</dt>
             <dd className="mono">{status.username}</dd>
           </div>
           <div>

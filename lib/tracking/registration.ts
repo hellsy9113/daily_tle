@@ -7,6 +7,8 @@ import { getLeetCodeIdentity } from "@/lib/leetcode/user-identity";
 import { trackingBot, requireRegistrationAvailable } from "./config";
 import { hashToken, randomToken } from "./security";
 import type { ConnectionLink, TrackingStatus } from "./types";
+import type { ActivityPlatform } from "@/lib/activity/types";
+import { platformUsername } from "./platforms";
 
 function databaseCode(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null) return;
@@ -42,7 +44,7 @@ export async function registerUsername(account: Account, value: unknown): Promis
 
 export async function trackingStatus(
   account: Account,
-  platform: "leetcode" | "gfg" = "leetcode",
+  platform: ActivityPlatform = "leetcode",
 ): Promise<TrackingStatus> {
   const [latest] = await db()
     .select({
@@ -55,7 +57,7 @@ export async function trackingStatus(
     .orderBy(desc(deliveries.reportDate))
     .limit(1);
   return {
-    username: platform === "gfg" ? account.gfgUsername : account.leetcodeUsername,
+    username: platformUsername(account, platform),
     connected: account.chatId !== null,
     status: account.status,
     lastDelivery: latest ? { ...latest, sentAt: latest.sentAt?.toISOString() ?? null } : null,
@@ -63,8 +65,8 @@ export async function trackingStatus(
 }
 
 export async function createConnectionLink(account: Account): Promise<ConnectionLink> {
-  if (!account.leetcodeUsername && !account.gfgUsername)
-    throw new ApiError(409, "Register your LeetCode or GFG username first.");
+  if (!account.leetcodeUsername && !account.gfgUsername && !account.hackerRankUsername)
+    throw new ApiError(409, "Register a LeetCode, GFG, or HackerRank username first.");
   const bot = trackingBot();
   const token = randomToken();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);

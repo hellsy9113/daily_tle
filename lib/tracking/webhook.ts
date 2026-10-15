@@ -1,4 +1,5 @@
 import "server-only";
+import { accountSetupPath } from "./platforms";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, connectionTokens, deliveries, telegramUpdates } from "@/lib/db/schema";
@@ -76,12 +77,12 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
       .where(eq(accounts.telegramId, update.userId))
       .limit(1)
       .for("update");
-    const setupUrl = new URL(
-      account?.gfgUsername && !account.leetcodeUsername ? "/feature" : "/tracking",
-      appUrl(),
-    ).href;
+    const setupUrl = new URL(accountSetupPath(account), appUrl()).href;
     const setup = `Set up daily tracking at ${setupUrl}`;
-    if (!account || (!account.leetcodeUsername && !account.gfgUsername))
+    if (
+      !account ||
+      (!account.leetcodeUsername && !account.gfgUsername && !account.hackerRankUsername)
+    )
       return "text" in update ? setup : null;
     if ("blocked" in update) {
       if (account.chatId !== update.chatId) return null;
@@ -146,6 +147,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
     const names = [
       account.leetcodeUsername,
       account.gfgUsername ? `GFG ${account.gfgUsername}` : null,
+      account.hackerRankUsername ? `HackerRank ${account.hackerRankUsername}` : null,
     ]
       .filter(Boolean)
       .join(" and ");

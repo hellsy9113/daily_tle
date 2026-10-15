@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
     response.cookies.set(SESSION_COOKIE, token, { ...cookieOptions, maxAge: SESSION_SECONDS });
   } catch (error) {
     logLoginFailure(error, stage);
-    response = NextResponse.redirect(new URL(`${destination}?error=login`, appUrl()));
+    const retryUrl = new URL(destination, appUrl());
+    retryUrl.searchParams.set("error", "login");
+    response = NextResponse.redirect(retryUrl);
   }
   response.cookies.set(LOGIN_COOKIE, "", { ...cookieOptions, maxAge: 0 });
   response.cookies.set(LOGIN_DESTINATION_COOKIE, "", { ...cookieOptions, maxAge: 0 });

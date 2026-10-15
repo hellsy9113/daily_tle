@@ -1,6 +1,6 @@
 export type ActivityCoverage = "complete" | "partial" | "unknown";
-export type ActivityPlatform = "leetcode" | "gfg";
-export type ActivityBasis = "accepted" | "observed";
+export type ActivityPlatform = "leetcode" | "gfg" | "hackerrank";
+export type ActivityBasis = "accepted" | "observed" | "solved";
 
 export interface SavedProblem {
   id: string;

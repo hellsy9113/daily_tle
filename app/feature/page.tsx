@@ -6,37 +6,51 @@ import { serverAccount } from "@/lib/auth/session";
 import { registrationAvailable } from "@/lib/tracking/config";
 import { trackingStatus } from "@/lib/tracking/registration";
 
-export const metadata = { title: "GFG feature · LeetCode Tracker" };
+export const metadata = { title: "Optional features · LeetCode Tracker" };
 
 export default async function FeaturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; platform?: string }>;
 }) {
   const params = await searchParams;
+  const platform = params.platform === "hackerrank" ? "hackerrank" : "gfg";
+  const label = platform === "hackerrank" ? "HackerRank" : "GFG";
+  const displayName = platform === "hackerrank" ? "HackerRank" : "GeeksforGeeks";
   const available = registrationAvailable();
   let account;
   let status;
   let unavailable = false;
   try {
     account = await serverAccount();
-    if (account) status = await trackingStatus(account, "gfg");
+    if (account) status = await trackingStatus(account, platform);
   } catch (error) {
     unstable_rethrow(error);
     unavailable = true;
   }
   return (
     <SiteShell signedIn={Boolean(account)}>
+      <nav className="feature-tabs" aria-label="Optional tracking features">
+        <Link href="/feature" aria-current={platform === "gfg" ? "page" : undefined}>
+          GeeksforGeeks
+        </Link>
+        <Link
+          href="/feature?platform=hackerrank"
+          aria-current={platform === "hackerrank" ? "page" : undefined}
+        >
+          HackerRank
+        </Link>
+      </nav>
       <div className="tracking-layout">
         <div className="tracking-intro">
           <p className="eyebrow">An optional service for your daily grind</p>
           <h1>
-            GeeksforGeeks.
+            {displayName}.
             <br />
             Your progress, together.
           </h1>
           <p className="lead">
-            Track your GFG public profile alongside LeetCode, with its own calendar and daily
+            Track your {label} public profile alongside LeetCode, with its own calendar and daily
             Telegram recap.
           </p>
           <ol className="setup-steps">
@@ -44,32 +58,32 @@ export default async function FeaturePage({
               <span>01</span>Sign in with your Telegram account
             </li>
             <li>
-              <span>02</span>Register your GFG username once
+              <span>02</span>Register your {label} username once
             </li>
             <li>
               <span>03</span>Use the same Daily Grind bot connection
             </li>
           </ol>
           <p className="field-help">
-            GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone,
-            so newly observed activity is clearly labeled and historical daily counts remain
-            unavailable.
+            {platform === "hackerrank"
+              ? "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed."
+              : "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable."}
           </p>
         </div>
         {status && (available || status.username) && !unavailable ? (
-          <TrackingPanel platform="gfg" initialStatus={status} />
+          <TrackingPanel key={platform} platform={platform} initialStatus={status} />
         ) : (
-          <section className="tracking-panel" aria-labelledby="gfg-signin-title">
-            <p className="eyebrow">GeeksforGeeks tracking</p>
-            <h2 id="gfg-signin-title">
+          <section className="tracking-panel" aria-labelledby="feature-signin-title">
+            <p className="eyebrow">{displayName} tracking</p>
+            <h2 id="feature-signin-title">
               {unavailable
-                ? "GFG tracking is temporarily unavailable"
+                ? `${label} tracking is temporarily unavailable`
                 : available
                   ? "Sign in to enable this feature"
-                  : "GFG registration is being set up"}
+                  : `${label} registration is being set up`}
             </h2>
             <p className="muted">
-              Enable GFG separately for your account. Your LeetCode registration continues
+              Enable {label} separately for your account. Your LeetCode registration continues
               independently.
             </p>
             {params.error === "login" && (
@@ -78,7 +92,10 @@ export default async function FeaturePage({
               </p>
             )}
             {available && !unavailable ? (
-              <a className="button primary full-width" href="/api/auth/telegram/login?next=feature">
+              <a
+                className="button primary full-width"
+                href={`/api/auth/telegram/login?next=${platform === "hackerrank" ? "hackerrank" : "feature"}`}
+              >
                 Continue with Telegram <span aria-hidden="true">→</span>
               </a>
             ) : (
@@ -87,7 +104,7 @@ export default async function FeaturePage({
               </Link>
             )}
             <p className="field-help">
-              No GFG password is needed. Registration permanently links one public username.
+              No {label} password is needed. Registration permanently links one public username.
             </p>
           </section>
         )}

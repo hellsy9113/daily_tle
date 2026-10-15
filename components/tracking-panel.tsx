@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { ConnectionLink, TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { requestJson } from "@/lib/http/client";
+import type { ActivityPlatform } from "@/lib/activity/types";
+import { platformLabels, statusPaths } from "@/lib/tracking/platforms";
 
 const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -19,10 +21,10 @@ export function TrackingPanel({
   platform = "leetcode",
 }: {
   initialStatus: TrackingStatus;
-  platform?: "leetcode" | "gfg";
+  platform?: ActivityPlatform;
 }) {
-  const platformLabel = platform === "gfg" ? "GFG" : "LeetCode";
-  const statusPath = platform === "gfg" ? "/api/tracking/gfg" : "/api/tracking";
+  const platformLabel = platformLabels[platform];
+  const statusPath = statusPaths[platform];
   const router = useRouter();
   const checking = useRef(false);
   const request = useRef<AbortController | null>(null);
@@ -146,7 +148,7 @@ export function TrackingPanel({
     <section className="tracking-panel" aria-labelledby="setup-title">
       <div className="panel-heading">
         <p className="eyebrow">
-          {platform === "gfg" ? (
+          {platform !== "leetcode" ? (
             <span className="badge badge-active">Logged in</span>
           ) : status.username ? (
             "Your account"
@@ -190,8 +192,8 @@ export function TrackingPanel({
           />
           <p id="username-help" className="field-help">
             Your username is permanent once registered. Check the spelling before continuing.
-            {platform === "gfg" &&
-              " Only public profile data is accessed; GFG ownership is not verified."}
+            {platform !== "leetcode" &&
+              ` Only public profile data is accessed; ${platformLabel} ownership is not verified.`}
           </p>
           <label className="checkbox-label">
             <input
@@ -291,9 +293,11 @@ export function TrackingPanel({
             <div className="tracking-note">
               <p>
                 {status.status === "active"
-                  ? platform === "gfg"
-                    ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
-                    : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
+                  ? platform === "hackerrank"
+                    ? "You’re set. HackerRank recaps will arrive automatically, using available public solved activity."
+                    : platform === "gfg"
+                      ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
+                      : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
                   : status.status === "blocked"
                     ? "Unblock the bot in Telegram, then send /start to resume your reports."
                     : "Send /start to the bot when you're ready to resume."}

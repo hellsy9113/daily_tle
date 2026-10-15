@@ -3,7 +3,8 @@ import { isRecord } from "@/lib/http/validation";
 import type { ActivityPlatform, WeeklyGoal } from "./types";
 
 export function parseActivityPlatform(value: unknown): ActivityPlatform {
-  if (value !== "leetcode" && value !== "gfg") throw new ApiError(400, "Choose LeetCode or GFG.");
+  if (value !== "leetcode" && value !== "gfg" && value !== "hackerrank")
+    throw new ApiError(400, "Choose LeetCode, GFG, or HackerRank.");
   return value;
 }
 

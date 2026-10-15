@@ -36,7 +36,13 @@ export function ActivityInsights({
       <ActivityChart
         days={days}
         mode={mode}
-        label={platform === "gfg" ? "GeeksforGeeks progress by day" : "Accepted problems by day"}
+        label={
+          platform === "hackerrank"
+            ? "HackerRank progress by day"
+            : platform === "gfg"
+              ? "GeeksforGeeks progress by day"
+              : "Accepted problems by day"
+        }
         onSelectDay={(day) => setSelectedDate(day.date)}
         detailsId={detailsId}
       />
@@ -107,13 +113,13 @@ function DayProblems({ platform, day }: { platform: ActivityPlatform; day: Activ
       )}
       {details && (
         <>
-          {/* <p className="field-help" role="status">
-            {details.basis === "observed"
-              ? "Newly observed on this date; solve dates are unverified. The initial import is excluded."
-              : platform === "gfg"
-                ? "Based on available accepted timestamps; first-ever solve dates are not guaranteed."
-                : "Saved Accepted problems. Missing public history may leave this list incomplete."}
-          </p> */}
+          {(details.basis === "observed" || platform === "hackerrank") && (
+            <p className="field-help" role="status">
+              {details.basis === "observed"
+                ? "Newly observed on this date; solve dates are unverified. The initial import is excluded."
+                : "Saved HackerRank solved activity. Public history may be incomplete; first-ever solve dates are not guaranteed."}
+            </p>
+          )}
           {details.problems.length ? (
             <ul className="day-problems">
               {details.problems.map((problem) => (
@@ -132,7 +138,9 @@ function DayProblems({ platform, day }: { platform: ActivityPlatform; day: Activ
               {details.basis === "observed"
                 ? "No new problems were observed on this date. This does not establish a zero-solve day."
                 : day.coverage === "complete"
-                  ? "No Accepted problems were recorded for this day."
+                  ? platform === "hackerrank"
+                    ? "No solved challenges were recorded for this day."
+                    : "No Accepted problems were recorded for this day."
                   : "No saved problems for this date. Public history may be missing."}
             </p>
           )}

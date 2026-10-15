@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { activityLevel, activityWeeks } from "@/lib/activity/calendar";
 import type { ActivityDay } from "@/lib/activity/types";
+import type { ActivityBasis } from "@/lib/activity/types";
 
 const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -13,11 +14,11 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
 const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" });
 const dateLabel = (date: string) => dateFormatter.format(new Date(`${date}T12:00:00Z`));
 
-export function describeActivityDay(day: ActivityDay, mode: "accepted" | "observed" = "accepted") {
+export function describeActivityDay(day: ActivityDay, mode: ActivityBasis = "accepted") {
   const date = dateLabel(day.date);
   if (day.coverage === "unknown")
     return `${date}: ${mode === "observed" ? "no observation available" : "history unavailable"}`;
-  const count = `${day.count} ${mode === "observed" ? "newly observed" : "unique Accepted"} ${day.count === 1 ? "problem" : "problems"}`;
+  const count = `${day.count} ${mode === "observed" ? "newly observed" : mode === "solved" ? "unique solved" : "unique Accepted"} ${day.count === 1 ? "problem" : "problems"}`;
   const note =
     day.coverage === "partial"
       ? mode === "observed"
@@ -35,7 +36,7 @@ export function ActivityChart({
   detailsId,
 }: {
   days: ActivityDay[];
-  mode?: "accepted" | "observed";
+  mode?: ActivityBasis;
   label?: string;
   onSelectDay?: (day: ActivityDay) => void;
   detailsId?: string;

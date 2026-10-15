@@ -32,7 +32,7 @@ afterEach(async () => {
   vi.useRealTimers();
   delete environment.IS_REACT_ACT_ENVIRONMENT;
 });
-async function render(status = initial, platform: "leetcode" | "gfg" = "leetcode") {
+async function render(status = initial, platform: "leetcode" | "gfg" | "hackerrank" = "leetcode") {
   await act(() => root.render(<TrackingPanel initialStatus={status} platform={platform} />));
 }
 async function click(text: string) {
@@ -61,45 +61,51 @@ async function submit() {
 }
 
 describe("registration and connection interactions", () => {
-  it("keeps Feature open after GFG registration with an existing bot connection", async () => {
-    await render({ ...initial, connected: true, status: "active" }, "gfg");
-    await enterUsername("gfg_user");
-    await acknowledge();
-    vi.mocked(fetch).mockResolvedValue(
-      Response.json({ ...initial, username: "gfg_user", connected: true, status: "active" }),
-    );
-    await submit();
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/tracking/gfg",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(container.textContent).toContain("Logged in");
-    expect(container.textContent).toContain("gfg_user");
-    expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
-    expect(replace).not.toHaveBeenCalled();
-  });
-  it("updates a GFG connection in place when the user returns from Telegram", async () => {
-    await render({ ...initial, username: "gfg_user" }, "gfg");
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({
-        url: "https://t.me/test_bot?start=token",
-        expiresAt: new Date(Date.now() + 900_000).toISOString(),
-      }),
-    );
-    await click("Connect Telegram");
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...initial, username: "gfg_user", connected: true, status: "active" }),
-    );
-    await act(() => window.dispatchEvent(new Event("focus")));
-    expect(fetch).toHaveBeenLastCalledWith(
-      "/api/tracking/gfg",
-      expect.objectContaining({ cache: "no-store" }),
-    );
-    expect(container.textContent).toContain("Logged in");
-    expect(container.textContent).toContain("Connected");
-    expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
-    expect(replace).not.toHaveBeenCalled();
-  });
+  it.each(["gfg", "hackerrank"] as const)(
+    "keeps Feature open after %s registration with an existing bot connection",
+    async (platform) => {
+      await render({ ...initial, connected: true, status: "active" }, platform);
+      await enterUsername("gfg_user");
+      await acknowledge();
+      vi.mocked(fetch).mockResolvedValue(
+        Response.json({ ...initial, username: "gfg_user", connected: true, status: "active" }),
+      );
+      await submit();
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/tracking/${platform}`,
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(container.textContent).toContain("Logged in");
+      expect(container.textContent).toContain("gfg_user");
+      expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
+      expect(replace).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["gfg", "hackerrank"] as const)(
+    "updates a %s connection in place when the user returns from Telegram",
+    async (platform) => {
+      await render({ ...initial, username: "gfg_user" }, platform);
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({
+          url: "https://t.me/test_bot?start=token",
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        }),
+      );
+      await click("Connect Telegram");
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({ ...initial, username: "gfg_user", connected: true, status: "active" }),
+      );
+      await act(() => window.dispatchEvent(new Event("focus")));
+      expect(fetch).toHaveBeenLastCalledWith(
+        `/api/tracking/${platform}`,
+        expect.objectContaining({ cache: "no-store" }),
+      );
+      expect(container.textContent).toContain("Logged in");
+      expect(container.textContent).toContain("Connected");
+      expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
+      expect(replace).not.toHaveBeenCalled();
+    },
+  );
   it.each([Response.json(null, { status: 502 }), new Response("Bad Gateway", { status: 502 })])(
     "shows safe retry feedback for an invalid error response",
     async (response) => {

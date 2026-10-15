@@ -1,4 +1,7 @@
 import "server-only";
+import { getHackerRankProfile } from "@/lib/hackerrank/client";
+import { readHackerRankProblems, HACKERRANK_REFRESH_MS } from "@/lib/hackerrank/store";
+import { formatHackerRankDailyReport } from "@/lib/hackerrank/format-report";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
 import { getLastDaySolvedQuestions } from "@/lib/leetcode/last-day-solved";
 import {
@@ -48,6 +51,7 @@ export async function dispatchTracking({
   const stats = { skipped: false, sent: 0, failed: 0 };
   let rateLimitedUntil = 0;
   let gfgRateLimitedUntil = 0;
+  let hackerRankRateLimitedUntil = 0;
   const pace = createMessagePacer(pause);
   const ensureTime = (reserveMs = 12_000) => {
     if (performance.now() + reserveMs >= deadline) throw new Error("Dispatch budget exhausted.");
@@ -60,7 +64,13 @@ export async function dispatchTracking({
         let messages = delivery.messages;
         if (!messages) {
           // Retry against the stored calendar period, even if the wall clock changes.
-          if (delivery.platform === "gfg") {
+          if (delivery.platform === "hackerrank") {
+            ensureTime(24_000);
+            const saved = await readHackerRankProblems(delivery.accountId);
+            const result = await getHackerRankProfile(delivery.username);
+            messages = formatHackerRankDailyReport(result, saved, new Date(delivery.end));
+            await prepareDeliveryReport(delivery, messages, result);
+          } else if (delivery.platform === "gfg") {
             ensureTime(24_000);
             const [saved, state] = await Promise.all([
               readGfgProblems(delivery.accountId),
@@ -107,6 +117,11 @@ export async function dispatchTracking({
         stats.sent++;
       } catch (error) {
         stats.failed++;
+        if (delivery.platform === "hackerrank" && error instanceof ApiError && error.status === 429)
+          hackerRankRateLimitedUntil = Math.max(
+            hackerRankRateLimitedUntil,
+            Date.now() + HACKERRANK_REFRESH_MS,
+          );
         if (delivery.platform === "gfg" && error instanceof ApiError && error.status === 429)
           gfgRateLimitedUntil = Math.max(gfgRateLimitedUntil, Date.now() + GFG_REFRESH_MS);
         if (error instanceof TrackingTelegramError && error.kind === "rate_limit")
@@ -136,6 +151,7 @@ export async function dispatchTracking({
             reportDate,
             new Date(),
             Date.now() >= gfgRateLimitedUntil,
+            Date.now() >= hackerRankRateLimitedUntil,
           );
           if (!delivery) return;
           await processDelivery(delivery);

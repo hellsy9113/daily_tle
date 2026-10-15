@@ -220,7 +220,7 @@ status. Use Dashboard in the sticky navigation bar to view your progress.
 The GFG section appears on the shared dashboard only after GFG registration,
 with an independent calendar, profile total, difficulty breakdown, available dated
 counts, and newly observed progress. `/stop` and
-`/start` control delivery for both enabled services through the same bot.
+`/start` control delivery for all enabled services through the same bot.
 
 Apply `0003_gfg_tracking.sql` **before deploying this feature**:
 
@@ -323,6 +323,67 @@ week boundaries, opt-in authorization, feature sign-in, independent calendars,
 immutable registration, snapshot baselines, leases, cache backoff, and both-platform
 report preparation and recovery.
 
+## Optional HackerRank feature
+
+Choose **HackerRank** on `/feature` (or open `/feature?platform=hackerrank`), sign in
+with Telegram, and register one public username permanently. It works independently
+of LeetCode and GFG. The Feature page remains accessible with a Logged in status;
+use Dashboard in the sticky navigation to view progress. The HackerRank section
+appears only after registration, with its own 365-day calendar and saved problem
+links when selecting a day. The removed weekly practice/observation sections remain
+absent. Today/week summary counts reflect available saved activity.
+
+The existing Daily Grind connection, registration configuration, cron schedules,
+and `/start` / `/stop` commands are reused. HackerRank gets its own per-day delivery,
+report preparation, retry state, and upstream rate-limit backoff. A HackerRank-only
+account can connect to the bot without registering another platform. Recaps use the
+stored previous Asia/Kolkata calendar day and retain problems already saved by a
+dashboard refresh. Prepared message parts survive retries without re-fetching.
+
+Before deploying, run `npm run db:migrate` from the project root using the target
+database configuration. `0005_hackerrank_tracking.sql` adds immutable registration,
+normalized problems, snapshots, and sync leases, and extends platform constraints.
+No additional environment variables or bots are needed.
+
+### HackerRank public data and limitations
+
+Read-only live checks verified these public endpoints without HackerRank credentials:
+
+- `GET https://www.hackerrank.com/rest/hackers/USERNAME`
+- `GET https://www.hackerrank.com/rest/hackers/USERNAME/recent_challenges?limit=20&response_version=v2`
+- Further pages pass the returned opaque `cursor` until `last_page` is true.
+
+The official public profile's [client code](https://hrcdn.net/fcore/assets/static/js/async/hackerrank_r_community.08ac76eed4.js)
+labels this feed as solved challenges. Records provide `name`, `ch_slug`, `con_slug`,
+`url`, and `created_at` with a timezone offset. Challenge identity combines contest
+and challenge slug. Links are validated and constructed on HackerRank's origin.
+The earliest reported timestamp observed for each challenge is retained. These
+undocumented endpoints can change; the feed does not guarantee first-ever solve
+dates, an exhaustive lifetime inventory, an overall solve total, or difficulties.
+Submission-history counts are attempts and are not used as solved counts.
+
+Each refresh reads at most five pages of 20 records, with a 20-second total timeout.
+Older saved challenges survive later bounded fetches. A five-minute cache and refresh
+lease avoid repeated upstream requests. Failures preserve saved progress and trigger
+backoff. The dashboard labels counts as lower bounds and unavailable dates as unknown;
+missing records never establish a zero-solve day. Even a fully paginated public feed
+is not proof of exhaustive history. Daily reports include the same coverage caveat.
+Public-profile ownership is unverified; usernames are reserved case-insensitively.
+
+### HackerRank API
+
+| Method | Endpoint                                                         | Purpose                                                |
+| ------ | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| GET    | `/api/tracking/hackerrank`                                       | Own registration and report status                     |
+| POST   | `/api/tracking/hackerrank`                                       | Permanently register `{ "username": "your_username" }` |
+| GET    | `/api/hackerrank/[username]`                                     | Own cached calendar and saved counts                   |
+| GET    | `/api/tracking/activity/day?platform=hackerrank&date=YYYY-MM-DD` | Own saved problem links for an IST day                 |
+
+All endpoints require sign-in; progress and day details require the matching opt-in.
+Responses disable caching, and registration requires a matching Origin. Saved day
+selection never calls HackerRank. Telegram authentication returns to the selected
+HackerRank feature after success or failure.
+
 ## Database verification
 
 ```bash
@@ -364,11 +425,15 @@ app/
   globals.css                  Responsive styles and keyboard focus states
   layout.tsx                   Metadata, language, fonts, and skip link
   page.tsx                     Daily tracking homepage and signed-in redirect
-  tracking/                    Registration and account status
+  tracking/                    LeetCode registration and account status
+  feature/                     Independent GFG and HackerRank opt-in
+  dashboard/                   Shared activity dashboard
   not-found.tsx                Accessible missing-page response
 lib/
   auth/                        Telegram OpenID Connect and hashed database sessions
   db/                          Drizzle schema and pooled connection
+  gfg/                         GFG public inventory, cache, calendar, and recaps
+  hackerrank/                  HackerRank public solved history, cache, calendar, and recaps
   tracking/                    Registration, second webhook, and durable daily dispatch
   http/                        Shared API errors and runtime type guards
   leetcode/
