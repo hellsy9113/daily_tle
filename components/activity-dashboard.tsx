@@ -110,8 +110,8 @@ export function ActivityDashboard({
         </div>
         <dl className="bot-status-details">
           <div>
-            <dt>{platformLabels[statusPlatform]} username</dt>
-            <dd className="mono">{status.username}</dd>
+            {/* <dt>{platformLabels[statusPlatform]} username</dt>
+            <dd className="mono">{status.username}</dd> */}
           </div>
           <div>
             <dt>Daily report</dt>

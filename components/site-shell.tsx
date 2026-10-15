@@ -14,7 +14,7 @@ export function SiteShell({
           <span className="brand-mark" aria-hidden="true">
             ▲
           </span>{" "}
-          LeetCode Tracker
+          Track.it
         </Link>
         <nav aria-label="Main navigation">
           <Link href="/feature">Feature</Link>
