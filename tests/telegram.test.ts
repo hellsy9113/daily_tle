@@ -47,7 +47,8 @@ describe("Telegram webhook", () => {
       expect(replies[0].text).toContain("Check your LeetCode practice on demand");
       expect(replies[0].text).toContain("What you need:");
       expect(replies[0].text).toContain("public LeetCode username");
-      expect(replies[0].text).toContain("name:your_leetcode_username");
+      expect(replies[0].text).not.toContain("name:your_leetcode_username");
+      expect(replies[0].text).toContain("/help");
       expect(replies[0].text).toContain("/command");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     },
@@ -60,9 +61,10 @@ describe("Telegram webhook", () => {
       expect((await webhook(message(text))).status).toBe(200);
       expect(replies).toHaveLength(1);
       for (const command of [
-        "/start",
-        "/command",
-        "hello",
+        "profile:your_leetcode_username",
+        "accepted:your_leetcode_username",
+        "today:your_leetcode_username",
+        "thisweek:your_leetcode_username",
         "name:your_leetcode_username",
         "lastday:your_leetcode_username",
         "lastweek:your_leetcode_username",
@@ -151,7 +153,7 @@ describe("Telegram webhook", () => {
   it("sends a retry message and acknowledges an upstream lookup failure", async () => {
     const { replies } = mockApis({ lookupFails: true });
     expect((await webhook(message("name:example"))).status).toBe(200);
-    expect(replies[0].text).toContain("Could not fetch recent submissions");
+    expect(replies[0].text).toContain("Could not fetch LeetCode data");
   });
 
   it("returns 502 when Telegram rejects a reply so delivery can be retried", async () => {

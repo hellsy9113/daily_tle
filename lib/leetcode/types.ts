@@ -29,7 +29,15 @@ export interface AcceptedSubmission {
   timestamp: string;
 }
 
-export type SolvedPeriod = "lastweek" | "lastday";
+export type SolvedPeriod = "lastweek" | "lastday" | "today" | "thisweek";
+
+export interface RecentSolvedQuestions {
+  username: string;
+  count: number;
+  questions: AcceptedSubmission[];
+  sourceLimit: number;
+  checkedAt: string;
+}
 
 export interface SolvedQuestionsResult {
   username: string;

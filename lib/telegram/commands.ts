@@ -18,15 +18,18 @@ export function parseTextMessage(update: unknown): TelegramTextMessage | null {
 
 export function parseCommand(value: string): BotCommand {
   const text = value.trim();
-  const slashCommand = /^\/(start|command)(?:@[a-z0-9_]+)?(?:\s+[^;]+)?$/i.exec(text);
+  const slashCommand = /^\/(start|command|help)(?:@[a-z0-9_]+)?(?:\s+[^;]+)?$/i.exec(text);
   if (slashCommand) {
     return { type: slashCommand[1].toLowerCase() === "start" ? "start" : "help" };
   }
-  if (text.includes(";") && /^(hello\s*;|(?:name|lastweek|lastday)\s*:)/i.test(text)) {
+  if (
+    text.includes(";") &&
+    /^(hello\s*;|(?:name|lastweek|lastday|profile|accepted|today|thisweek)\s*:)/i.test(text)
+  ) {
     return { type: "usage" };
   }
   if (text.toLowerCase() === "hello") return { type: "greeting" };
-  const match = /^(name|lastweek|lastday)\s*:/i.exec(text);
+  const match = /^(name|lastweek|lastday|profile|accepted|today|thisweek)\s*:/i.exec(text);
   if (!match) return { type: "ignored" };
 
   try {
@@ -38,6 +41,14 @@ export function parseCommand(value: string): BotCommand {
         return { type: "lastweek", username };
       case "lastday":
         return { type: "lastday", username };
+      case "profile":
+        return { type: "profile", username };
+      case "accepted":
+        return { type: "accepted", username };
+      case "today":
+        return { type: "today", username };
+      case "thisweek":
+        return { type: "thisweek", username };
       default:
         return { type: "ignored" };
     }

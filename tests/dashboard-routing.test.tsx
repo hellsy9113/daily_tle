@@ -45,6 +45,10 @@ describe("connected dashboard navigation", () => {
     const html = renderToStaticMarkup(await Home());
     expect(html).toContain('href="/tracking"');
     expect(html).toContain('id="how-it-works"');
+    expect(html).toContain('id="demo"');
+    expect(html).toContain("GeeksforGeeks");
+    expect(html).toContain("HackerRank");
+    expect(html).toContain('href="https://t.me/todo1245bot"');
     expect(html).not.toMatch(
       /Existing bot|View bot commands|#commands|name:your_leetcode_username/,
     );

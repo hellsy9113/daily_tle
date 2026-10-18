@@ -128,7 +128,7 @@ describe.each([
     async (options) => {
       const { replies } = mockApis(options);
       expect((await webhook(`${command}:example`)).status).toBe(200);
-      expect(replies[0].text).toContain("Could not fetch recent submissions");
+      expect(replies[0].text).toContain("Could not fetch LeetCode data");
     },
   );
 

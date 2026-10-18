@@ -10,7 +10,10 @@ export interface CalendarPeriodRange {
 }
 
 /** Work entirely in UTC so the host's timezone cannot change the calendar boundaries. */
-export function getPreviousCalendarPeriod(period: SolvedPeriod, now: Date): CalendarPeriodRange {
+export function getPreviousCalendarPeriod(
+  period: Extract<SolvedPeriod, "lastday" | "lastweek">,
+  now: Date,
+): CalendarPeriodRange {
   const localNow = new Date(now.getTime() + IST_OFFSET_MS);
   const localMidnight = Date.UTC(
     localNow.getUTCFullYear(),
@@ -27,4 +30,12 @@ export function getPreviousCalendarPeriod(period: SolvedPeriod, now: Date): Cale
   const weekStart = todayStart - daysSinceMonday * DAY_MS;
 
   return { start: new Date(weekStart - 7 * DAY_MS), end: new Date(weekStart) };
+}
+
+export function getCurrentCalendarPeriod(
+  period: Extract<SolvedPeriod, "today" | "thisweek">,
+  now: Date,
+): CalendarPeriodRange {
+  const previous = getPreviousCalendarPeriod(period === "today" ? "lastday" : "lastweek", now);
+  return { start: previous.end, end: new Date(now.getTime() + 1) };
 }

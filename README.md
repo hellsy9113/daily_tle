@@ -18,9 +18,19 @@ automatically; the manual check remains available. Connected accounts visiting
 `/tracking` go straight to their dashboard, including paused or blocked accounts.
 Signed-in visitors to `/` are also redirected to `/dashboard`; accounts still
 finishing registration or connection are guided back to `/tracking`. The public
-homepage focuses on daily tracking, with an illustrative calendar and Telegram
-recap, features, and a setup guide. The original command bot is documented in
-its own chat through `/start` and `/command`.
+homepage introduces LeetCode, GFG, and HackerRank tracking, with an illustrative
+calendar, Telegram recap, features, and a setup guide. A live demo directly below
+the hero accepts a public LeetCode username without sign-in and displays unique
+recently Accepted problems as linked cards. It calls
+`GET /api/user/recent-solved/[username]` and never registers the username. Results
+are sorted newest-first and deduplicated by problem slug, using up to 20 public
+Accepted submissions; the feed is not a lifetime solved inventory. Loading, empty,
+error, retry, and cancelled-request states are handled without losing prior results.
+
+The demo links to the original query bot, `https://t.me/todo1245bot`. Set the optional
+server-side `TELEGRAM_BOT_USERNAME` to override that public link for another deployment;
+no bot token is exposed to the browser. This bot answers on demand and is separate
+from the Daily Grind delivery connection.
 
 ### Accepted-activity calendar
 
@@ -568,7 +578,12 @@ Send these messages in a private chat with your bot:
 | Message                           | Reply                                                                  |
 | --------------------------------- | ---------------------------------------------------------------------- |
 | `/start`                          | Static bot description, requirements, and getting-started instructions |
-| `/command`                        | All available commands with descriptions and usage                     |
+| `/command`                        | All username queries with descriptions and usage                       |
+| `/help`                           | Alias for the query guide                                              |
+| `profile:your_leetcode_username`  | Profile totals by difficulty and ranking                               |
+| `accepted:your_leetcode_username` | Unique recently Accepted problems with timestamps and links            |
+| `today:your_leetcode_username`    | Unique Accepted problems from IST midnight through the current instant |
+| `thisweek:your_leetcode_username` | Unique Accepted problems since Monday IST through the current instant  |
 | `hello`                           | `welcome`                                                              |
 | `name:your_leetcode_username`     | Recent submissions, verdicts, languages, and problem links             |
 | `lastweek:your_leetcode_username` | Unique Accepted problems from the previous Monday–Sunday week          |
@@ -576,9 +591,11 @@ Send these messages in a private chat with your bot:
 | `name:`                           | Usage instructions                                                     |
 
 The command prefix is case-insensitive; username capitalization is preserved.
-`/start` and `/command` also accept Telegram's `@bot_username` suffix. `/start`
+`/start`, `/command`, and `/help` accept Telegram's `@bot_username` suffix. `/start`
 accepts an optional start payload and always returns the same introduction.
-Both replies are static and do not request LeetCode data. On-demand lookups need
+The introduction lists navigation commands and requirements; username queries appear
+in `/command` and `/help`. All three help replies are static and do not request
+LeetCode data. On-demand lookups need
 only a public LeetCode username, with no website registration or LeetCode password.
 Send one command per message. Empty usernames and semicolon batches such as
 `lastweek:example; lastday:example` receive usage instructions. The period replies

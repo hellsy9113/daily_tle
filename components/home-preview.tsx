@@ -27,7 +27,7 @@ export function HomePreview() {
           <div className="preview-heading">
             <div>
               <p className="eyebrow">Every solution adds up</p>
-              <h2>Your practice, day by day.</h2>
+              <h2>One habit. More progress.</h2>
             </div>
             <span className="preview-status">Accepted</span>
           </div>
@@ -76,7 +76,7 @@ export function HomePreview() {
           </span>
           <div>
             <h3>Your daily recap</h3>
-            <p>LeetCode Tracker · Telegram</p>
+            <p>Daily Grind · Telegram</p>
           </div>
           <span className="preview-time">Morning</span>
         </div>

@@ -2,29 +2,37 @@ import Link from "next/link";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { HomePreview } from "@/components/home-preview";
 import { SiteShell } from "@/components/site-shell";
+import { LeetCodeDemo } from "@/components/leetcode-demo";
 import { serverAccount } from "@/lib/auth/session";
+import { queryBotUrl } from "@/lib/telegram/bot-link";
+
+export const metadata = {
+  title: "Track.it · Your coding practice, together",
+  description:
+    "Track LeetCode, GeeksforGeeks, and HackerRank progress with activity calendars and Telegram recaps. Try a live public LeetCode lookup without signing in.",
+};
 
 const features = [
   {
     number: "01",
-    title: "A recap worth waking up to.",
+    title: "Three platforms. One dashboard.",
     description:
-      "Yesterday's Accepted problems and their links, delivered to Telegram each morning. Pick up where you left off.",
-    detail: "Daily delivery · Asia/Kolkata",
+      "Bring your LeetCode practice together with optional GeeksforGeeks and HackerRank tracking. Each platform keeps its own calendar and counts.",
+    detail: "Enable each platform separately",
   },
   {
     number: "02",
-    title: "See the habit taking shape.",
+    title: "A calendar you can explore.",
     description:
-      "Follow your practice on a 365-day calendar. See active days, solved problems, and the progress you build over time.",
-    detail: "Your personal activity dashboard",
+      "See 365 days of available activity. Select a day to revisit saved problems and open their links. Missing public history stays clearly marked.",
+    detail: "Your saved practice, day by day",
   },
   {
     number: "03",
-    title: "Set up once. Keep solving.",
+    title: "Your morning, already organised.",
     description:
-      "Connect your Telegram account and register your LeetCode username once. Your daily recap takes care of itself.",
-    detail: "Pause and resume whenever you need",
+      "Daily Grind sends yesterday's available problems to Telegram. When every enabled platform has no matches, you receive one shared reminder.",
+    detail: "Daily recaps · Pause or resume in the bot",
   },
 ];
 
@@ -41,34 +49,41 @@ export default async function Home() {
         <div className="landing-hero">
           <div className="landing-intro">
             <p className="landing-kicker">
-              <span aria-hidden="true" /> A little practice. Every day.
+              <span aria-hidden="true" /> Track.it · Your daily coding rhythm
             </p>
             <h1>
-              Keep solving.
+              Make practice count.
               <br />
-              <span>See your progress.</span>
+              <span>See it all together.</span>
             </h1>
             <p className="lead">
-              Turn your LeetCode practice into a habit you can see. A daily Telegram recap and a
-              personal activity calendar keep every Accepted solution in view.
+              Your LeetCode, GeeksforGeeks, and HackerRank practice, with separate calendars, saved
+              problem links, and morning Telegram recaps. Less checking. More solving.
             </p>
             <div className="landing-actions">
               <Link className="button primary" href="/tracking">
                 Start tracking <span aria-hidden="true">→</span>
               </Link>
-              <a className="landing-text-link" href="#how-it-works">
-                How it works <span aria-hidden="true">↗</span>
+              <a className="landing-text-link" href="#demo">
+                Try the live demo <span aria-hidden="true">↓</span>
               </a>
             </div>
-            <p className="hero-caption">Sign in with Telegram. Bring your LeetCode username.</p>
+            <div className="landing-platforms" aria-label="Supported platforms">
+              <span>LeetCode</span>
+              <span>GeeksforGeeks</span>
+              <span>HackerRank</span>
+            </div>
+            <p className="hero-caption">Public profiles. One-time registration. Your own pace.</p>
           </div>
           <HomePreview />
         </div>
 
+        <LeetCodeDemo botUrl={queryBotUrl()} />
+
         <section className="landing-features" aria-labelledby="features-title">
           <div className="landing-section-heading">
             <p className="eyebrow">Built around your practice</p>
-            <h2 id="features-title">You do the solving. We keep the story.</h2>
+            <h2 id="features-title">One place to return to your progress.</h2>
           </div>
           <div className="landing-feature-grid">
             {features.map((feature) => (
@@ -105,8 +120,11 @@ export default async function Home() {
                 02
               </span>
               <div>
-                <h3>Register your LeetCode username</h3>
-                <p>Choose carefully: your account stays linked to this username.</p>
+                <h3>Add your practice profiles</h3>
+                <p>
+                  Register LeetCode through Tracking, or enable GFG and HackerRank on Feature. Each
+                  username is linked permanently.
+                </p>
               </div>
             </li>
             <li>
@@ -131,8 +149,8 @@ export default async function Home() {
           </Link>
         </section>
         <p className="landing-coverage">
-          Recaps and activity use available public LeetCode history. When coverage is limited, your
-          report and calendar make that clear.
+          Activity comes from available public profiles. Platform coverage differs; calendar info
+          explains what each count represents. The live LeetCode demo works without sign-in.
         </p>
       </div>
     </SiteShell>

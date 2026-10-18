@@ -10,5 +10,6 @@ export type BotCommand =
   | { type: "submissions"; username: string }
   | { type: "lastweek"; username: string }
   | { type: "lastday"; username: string }
+  | { type: "profile" | "accepted" | "today" | "thisweek"; username: string }
   | { type: "usage" }
   | { type: "ignored" };
