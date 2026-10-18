@@ -76,15 +76,19 @@ afterEach(async () => {
 
 describe("GFG feature onboarding and dashboard", () => {
   it("requires sign-in on Feature and returns to that page after authentication", async () => {
-    const html = renderToStaticMarkup(await FeaturePage({ searchParams: Promise.resolve({}) }));
-    expect(html).toContain("Sign in to enable this feature");
-    expect(html).toContain("/api/auth/telegram/login?next=feature");
+    const html = renderToStaticMarkup(
+      await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
+    );
+    expect(html).toContain("Sign in to choose your services");
+    expect(html).toContain("/api/auth/telegram/login?next=gfg");
     expect(html).not.toContain('name="username"');
   });
   it("shows the separate permanent GFG registration to a signed-in account", async () => {
     vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: null } as Account);
     vi.mocked(trackingStatus).mockResolvedValue({ ...status, username: null, connected: false });
-    const html = renderToStaticMarkup(await FeaturePage({ searchParams: Promise.resolve({}) }));
+    const html = renderToStaticMarkup(
+      await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
+    );
     expect(html).toContain('for="gfg-username"');
     expect(html).toContain("cannot be changed");
     expect(trackingStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "own" }), "gfg");
@@ -94,7 +98,9 @@ describe("GFG feature onboarding and dashboard", () => {
     async (accountStatus) => {
       vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: "gfg_user" } as Account);
       vi.mocked(trackingStatus).mockResolvedValue({ ...status, status: accountStatus });
-      const html = renderToStaticMarkup(await FeaturePage({ searchParams: Promise.resolve({}) }));
+      const html = renderToStaticMarkup(
+        await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
+      );
       expect(html).toContain("Logged in");
       expect(html).toContain("gfg_user");
       expect(html).not.toContain("View dashboard");

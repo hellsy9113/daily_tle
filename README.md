@@ -6,20 +6,26 @@ provides Telegram sign-in, permanent username registration, and an Accepted-acti
 
 ## Daily tracking setup
 
-Users sign in with Telegram, register one LeetCode username, and tap **Start** on
-their personal connection link. Yesterday's unique Accepted problems arrive at
+Users sign in with Telegram and land on `/feature` to choose LeetCode,
+GeeksforGeeks, or HackerRank. Each service is enabled independently by registering
+one permanent public username. Registration makes that service's dashboard panel
+available immediately; no other service is enabled automatically. The public
+navigation shows **Sign in**; **Feature** and **Dashboard** appear after sign-in.
+
+Connect Daily Grind once through a personal Telegram link and tap **Start** to
+receive recaps for all enabled services. Yesterday's available problems arrive at
 **8:30–9:30 a.m. Asia/Kolkata**. Failed or interrupted reports are retried during
 **9:30–10:30 a.m.** Daily commands are unnecessary; `/stop` pauses delivery and
-`/start` resumes the same account.
+`/start` resumes the same account. Delivery status is separate from service
+registration: pending, paused, or blocked delivery does not hide registered activity.
 
-After connecting the bot, setup redirects to `/dashboard`: bot status at the top,
-a 365-day calendar in the center. Returning from Telegram checks the connection
-automatically; the manual check remains available. Connected accounts visiting
-`/tracking` go straight to their dashboard, including paused or blocked accounts.
-Signed-in visitors to `/` are also redirected to `/dashboard`; accounts still
-finishing registration or connection are guided back to `/tracking`. The public
-homepage introduces LeetCode, GFG, and HackerRank tracking, with an illustrative
-calendar, Telegram recap, features, and a setup guide. A live demo directly below
+Returning from Telegram checks the connection automatically; the manual check
+remains available on the selected service page. Signed-in homepage visitors are
+redirected to `/dashboard`; accounts without a registered service are sent to
+`/feature`. The legacy `/tracking` page redirects to `/feature?platform=leetcode`.
+
+The public homepage introduces LeetCode, GFG, and HackerRank tracking, with an
+illustrative calendar, Telegram recap, features, and a setup guide. A live demo directly below
 the hero accepts a public LeetCode username without sign-in and displays unique
 recently Accepted problems as linked cards. It calls
 `GET /api/user/recent-solved/[username]` and never registers the username. Results
@@ -132,7 +138,7 @@ path; `http://localhost:3000` is only accepted during local development. Enter
 `true` without quotes or surrounding spaces for `TRACKING_REGISTRATION_ENABLED`.
 The login client ID must belong to the second bot.
 
-If the setup message persists, visit `/tracking` and inspect that request in
+If the setup message persists, visit `/feature` and inspect that request in
 Vercel's runtime logs. Search for `[tracking:setup] Registration unavailable`:
 each issue names the missing or invalid variable and the reason. Logs never
 include configuration values, and public error responses remain generic.
@@ -140,7 +146,7 @@ Variables in `.env.local` are not automatically uploaded to Vercel.
 
 ### Telegram approves sign-in but the website reports failure
 
-Start a new sign-in from `https://daily-tle-ruby.vercel.app/tracking` and finish it
+Start a new sign-in from `https://daily-tle-ruby.vercel.app/feature` and finish it
 in the same browser within ten minutes. Login first redirects deployment aliases
 to the configured website origin so the callback receives its login cookie.
 Authentication redirects are never cached.
@@ -228,8 +234,8 @@ statuses are preserved. Account responses do not expose chat IDs or tokens.
 
 ## Optional GeeksforGeeks feature
 
-Visit `/feature`, sign in with Telegram, and permanently register one public GFG
-username. GFG is a separate opt-in: it works with or without a LeetCode username.
+Sign in with Telegram, choose **GeeksforGeeks** on `/feature`, and permanently
+register one public GFG username. GFG is a separate opt-in: it works with or without a LeetCode username.
 Connect the existing Daily Grind bot if you have not already connected Telegram.
 The Feature page stays accessible after registration and shows your logged-in
 status. Use Dashboard in the sticky navigation bar to view your progress.
@@ -343,8 +349,8 @@ report preparation and recovery.
 
 ## Optional HackerRank feature
 
-Choose **HackerRank** on `/feature` (or open `/feature?platform=hackerrank`), sign in
-with Telegram, and register one public username permanently. It works independently
+Sign in with Telegram, choose **HackerRank** on `/feature` (or open
+`/feature?platform=hackerrank`), and register one public username permanently. It works independently
 of LeetCode and GFG. The Feature page remains accessible with a Logged in status;
 use Dashboard in the sticky navigation to view progress. The HackerRank section
 appears only after registration, with its own 365-day calendar and saved problem
@@ -443,8 +449,8 @@ app/
   globals.css                  Responsive styles and keyboard focus states
   layout.tsx                   Metadata, language, fonts, and skip link
   page.tsx                     Daily tracking homepage and signed-in redirect
-  tracking/                    LeetCode registration and account status
-  feature/                     Independent GFG and HackerRank opt-in
+  tracking/                    Legacy redirect to LeetCode service setup
+  feature/                     Independent LeetCode, GFG, and HackerRank activation
   dashboard/                   Shared activity dashboard
   not-found.tsx                Accessible missing-page response
 lib/

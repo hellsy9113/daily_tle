@@ -1109,8 +1109,8 @@ describe("account-scoped Accepted activity", () => {
     );
     expect(getAcceptedHistory).toHaveBeenCalledTimes(2);
   });
-  it("keeps first-refresh failures as errors and requires a registered connection", async () => {
-    const pending = await account(102, "not-connected");
+  it("requires a registered service and preserves first-refresh errors", async () => {
+    const pending = await account(102);
     await expect(getAccountActivity(pending, now)).rejects.toMatchObject({ status: 409 });
     const user = await activeAccount();
     vi.mocked(getAcceptedHistory).mockRejectedValue(new ApiError(502, "Malformed history"));
@@ -1118,6 +1118,23 @@ describe("account-scoped Accepted activity", () => {
     await expect(getAccountActivity(user, now)).rejects.toMatchObject({ status: 502 });
     expect(await db().select().from(acceptedActivity)).toHaveLength(0);
     expect(getAcceptedHistory).toHaveBeenCalledTimes(1);
+  });
+  it("loads LeetCode activity for a registered service before connecting Daily Grind", async () => {
+    const user = await account(101, "not-connected");
+    expect(user.chatId).toBeNull();
+    vi.mocked(getAcceptedHistory).mockResolvedValueOnce({
+      username: user.leetcodeUsername!,
+      submissions: [accepted("known", "2026-10-12T02:00:00Z")],
+    });
+    expect(await getAccountActivity(user, now)).toMatchObject({
+      username: "not-connected",
+      uniqueQuestions: 1,
+    });
+    expect((await db().select().from(accounts))[0]).toMatchObject({
+      chatId: null,
+      status: "pending",
+    });
+    expect(await db().select().from(deliveries)).toHaveLength(0);
   });
   it("saves report observations atomically with prepared messages and resumes without losing the calendar", async () => {
     const user = await activeAccount();

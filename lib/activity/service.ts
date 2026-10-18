@@ -13,8 +13,8 @@ import {
 } from "./store";
 
 export async function getAccountActivity(account: Account, now = new Date()) {
-  if (!account.leetcodeUsername || account.chatId === null)
-    throw new ApiError(409, "Connect Telegram before viewing your activity.");
+  if (!account.leetcodeUsername)
+    throw new ApiError(409, "Enable LeetCode tracking on the Feature page first.");
   const token = randomToken();
   if (await claimActivitySync(account.id, token, now)) {
     try {

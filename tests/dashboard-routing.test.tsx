@@ -5,6 +5,7 @@ import { trackingStatus } from "@/lib/tracking/registration";
 import TrackingPage from "@/app/tracking/page";
 import DashboardPage from "@/app/dashboard/page";
 import Home from "@/app/page";
+import FeaturePage from "@/app/feature/page";
 import type { Account } from "@/lib/db/schema";
 
 vi.mock("next/navigation", async () => ({
@@ -43,7 +44,11 @@ describe("connected dashboard navigation", () => {
   it("keeps the public homepage available without a session", async () => {
     vi.mocked(serverAccount).mockResolvedValue(null);
     const html = renderToStaticMarkup(await Home());
-    expect(html).toContain('href="/tracking"');
+    expect(html).toContain('href="/api/auth/telegram/login"');
+    const navigation = /<nav aria-label="Main navigation">([\s\S]*?)<\/nav>/.exec(html)?.[1];
+    expect(navigation).toBeDefined();
+    expect(navigation).not.toContain('href="/feature"');
+    expect(navigation).toContain("Sign in");
     expect(html).toContain('id="how-it-works"');
     expect(html).toContain('id="demo"');
     expect(html).toContain("GeeksforGeeks");
@@ -69,27 +74,19 @@ describe("connected dashboard navigation", () => {
       digest: "NEXT_REDIRECT;replace;/dashboard;307;",
     });
     vi.mocked(serverAccount).mockRejectedValue(frameworkError);
-    await expect(TrackingPage({ searchParams: Promise.resolve({}) })).rejects.toBe(frameworkError);
+    await expect(FeaturePage({ searchParams: Promise.resolve({}) })).rejects.toBe(frameworkError);
   });
-  it.each(["active", "paused", "blocked"] as const)(
-    "takes a connected %s account out of onboarding",
-    async (status) => {
-      vi.mocked(trackingStatus).mockResolvedValue({
-        username: "fixed-user",
-        connected: true,
-        status,
-        lastDelivery: null,
-      });
-      await expect(TrackingPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-        "redirect:/dashboard",
-      );
-    },
-  );
-  it.each([null, { ...account, leetcodeUsername: null }, { ...account, chatId: null }])(
-    "requires sign-in, registration, and connection before the dashboard",
+  it.each([{}, { error: "login" }])("preserves old LeetCode setup links", async (params) => {
+    await expect(TrackingPage({ searchParams: Promise.resolve(params) })).rejects.toThrow(
+      `redirect:/feature?platform=leetcode${params.error ? "&error=login" : ""}`,
+    );
+    expect(serverAccount).not.toHaveBeenCalled();
+  });
+  it.each([null, { ...account, leetcodeUsername: null }])(
+    "requires sign-in and at least one registered service before the dashboard",
     async (user) => {
       vi.mocked(serverAccount).mockResolvedValue(user);
-      await expect(DashboardPage()).rejects.toThrow("redirect:/tracking");
+      await expect(DashboardPage()).rejects.toThrow("redirect:/feature");
       expect(trackingStatus).not.toHaveBeenCalled();
     },
   );
@@ -98,13 +95,36 @@ describe("connected dashboard navigation", () => {
     expect(trackingStatus).toHaveBeenCalledExactlyOnceWith(account);
     expect(page.props.children.props.botUrl).toBe("https://t.me/test_bot");
   });
-  it("keeps unconnected registered accounts in setup", async () => {
-    vi.mocked(trackingStatus).mockResolvedValue({
-      username: "fixed-user",
-      connected: false,
-      status: "pending",
-      lastDelivery: null,
-    });
-    expect(await TrackingPage({ searchParams: Promise.resolve({}) })).toBeDefined();
-  });
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "opens the dashboard for %s alone before Daily Grind is connected",
+    async (platform) => {
+      const user = {
+        ...account,
+        leetcodeUsername: null,
+        gfgUsername: null,
+        hackerRankUsername: null,
+        chatId: null,
+        status: "pending",
+        [platform === "hackerrank" ? "hackerRankUsername" : `${platform}Username`]: "fixed-user",
+      } as Account;
+      vi.mocked(serverAccount).mockResolvedValue(user);
+      vi.mocked(trackingStatus).mockResolvedValue({
+        username: "fixed-user",
+        connected: false,
+        status: "pending",
+        lastDelivery: null,
+      });
+      const page = await DashboardPage();
+      expect(page.props.children.props.leetcodeEnabled).toBe(platform === "leetcode");
+      expect(page.props.children.props.statusPlatform).toBe(platform);
+      expect(trackingStatus).toHaveBeenCalledWith(
+        ...(platform === "leetcode" ? [user] : [user, platform]),
+      );
+      const html = renderToStaticMarkup(page);
+      expect(html).toContain(`href="/feature?platform=${platform}"`);
+      expect(html).toContain("Connect Daily Grind");
+      expect(html).not.toContain("Scheduled for the next morning");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 });

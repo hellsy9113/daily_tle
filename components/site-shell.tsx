@@ -10,17 +10,19 @@ export function SiteShell({
   return (
     <div className="page-shell">
       <header className="site-header">
-        <Link className="brand" href="/" aria-label="LeetCode Tracker home">
+        <Link className="brand" href="/" aria-label="Track.it home">
           <span className="brand-mark" aria-hidden="true">
             ▲
           </span>{" "}
           Track.it
         </Link>
         <nav aria-label="Main navigation">
-          <Link href="/feature">Feature</Link>
-          <Link href={signedIn ? "/dashboard" : "/tracking"}>
-            {signedIn ? "Dashboard" : "Tracking"}
-          </Link>
+          {signedIn && <Link href="/feature">Feature</Link>}
+          {signedIn ? (
+            <Link href="/dashboard">Dashboard</Link>
+          ) : (
+            <a href="/api/auth/telegram/login">Sign in</a>
+          )}
           {signedIn && (
             <form action="/api/auth/logout" method="post">
               <button className="text-button" type="submit">

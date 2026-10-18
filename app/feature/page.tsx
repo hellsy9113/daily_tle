@@ -3,10 +3,38 @@ import { unstable_rethrow } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
 import { TrackingPanel } from "@/components/tracking-panel";
 import { serverAccount } from "@/lib/auth/session";
+import type { Account } from "@/lib/db/schema";
 import { registrationAvailable } from "@/lib/tracking/config";
 import { trackingStatus } from "@/lib/tracking/registration";
+import { featurePaths, platformUsername } from "@/lib/tracking/platforms";
+import type { ActivityPlatform } from "@/lib/activity/types";
 
-export const metadata = { title: "Optional features · LeetCode Tracker" };
+export const metadata = { title: "Choose your services · Track.it" };
+
+const services = [
+  {
+    platform: "leetcode",
+    name: "LeetCode",
+    description:
+      "Revisit Accepted problems with a daily calendar, saved links, and Telegram recaps.",
+    coverage:
+      "LeetCode exposes recent Accepted history only. Saved activity builds over time; older solves may be missing.",
+  },
+  {
+    platform: "gfg",
+    name: "GeeksforGeeks",
+    description: "Follow your solved inventory and newly observed practice in a separate calendar.",
+    coverage:
+      "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable.",
+  },
+  {
+    platform: "hackerrank",
+    name: "HackerRank",
+    description: "Keep public solved challenges, problem links, and daily recaps together.",
+    coverage:
+      "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed.",
+  },
+] satisfies { platform: ActivityPlatform; name: string; description: string; coverage: string }[];
 
 export default async function FeaturePage({
   searchParams,
@@ -14,91 +42,118 @@ export default async function FeaturePage({
   searchParams: Promise<{ error?: string; platform?: string }>;
 }) {
   const params = await searchParams;
-  const platform = params.platform === "hackerrank" ? "hackerrank" : "gfg";
-  const label = platform === "hackerrank" ? "HackerRank" : "GFG";
-  const displayName = platform === "hackerrank" ? "HackerRank" : "GeeksforGeeks";
+  const selected = services.find((service) => service.platform === params.platform);
   const available = registrationAvailable();
-  let account;
+  let account: Account | null = null;
   let status;
   let unavailable = false;
   try {
     account = await serverAccount();
-    if (account) status = await trackingStatus(account, platform);
+    if (account && selected) status = await trackingStatus(account, selected.platform);
   } catch (error) {
     unstable_rethrow(error);
     unavailable = true;
   }
+
   return (
     <SiteShell signedIn={Boolean(account)}>
-      <nav className="feature-tabs" aria-label="Optional tracking features">
-        <Link href="/feature" aria-current={platform === "gfg" ? "page" : undefined}>
-          GeeksforGeeks
-        </Link>
-        <Link
-          href="/feature?platform=hackerrank"
-          aria-current={platform === "hackerrank" ? "page" : undefined}
-        >
-          HackerRank
-        </Link>
-      </nav>
-      <div className="tracking-layout">
-        <div className="tracking-intro">
-          <p className="eyebrow">An optional service for your daily grind</p>
-          <h1>
-            {displayName}.
-            <br />
-            Your progress, together.
-          </h1>
-          <p className="lead">
-            Track your {label} public profile alongside LeetCode, with its own calendar and daily
-            Telegram recap.
-          </p>
-
-          <p className="field-help">
-            {platform === "hackerrank"
-              ? "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed."
-              : "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable."}
-          </p>
-        </div>
-        {status && (available || status.username) && !unavailable ? (
-          <TrackingPanel key={platform} platform={platform} initialStatus={status} />
-        ) : (
-          <section className="tracking-panel" aria-labelledby="feature-signin-title">
-            <p className="eyebrow">{displayName} tracking</p>
-            <h2 id="feature-signin-title">
-              {unavailable
-                ? `${label} tracking is temporarily unavailable`
-                : available
-                  ? "Sign in to enable this feature"
-                  : `${label} registration is being set up`}
-            </h2>
-            <p className="muted">
-              Enable {label} separately for your account. Your LeetCode registration continues
-              independently.
-            </p>
-            {params.error === "login" && (
-              <p className="inline-error" role="alert">
-                Sign-in expired or could not be verified. Please try again.
-              </p>
-            )}
-            {available && !unavailable ? (
-              <a
-                className="button primary full-width"
-                href={`/api/auth/telegram/login?next=${platform === "hackerrank" ? "hackerrank" : "feature"}`}
-              >
-                Continue with Telegram <span aria-hidden="true">→</span>
-              </a>
-            ) : (
-              <Link className="button secondary full-width" href="/">
-                Return home
-              </Link>
-            )}
-            <p className="field-help">
-              No {label} password is needed. Registration permanently links one public username.
-            </p>
-          </section>
-        )}
+      <div className="feature-heading">
+        <p className="eyebrow">
+          {account ? <span className="badge badge-active">Logged in</span> : "Your daily practice"}
+        </p>
+        <h1>{account ? "Choose what you track." : "Your progress starts with sign-in."}</h1>
+        <p className="lead">
+          {account
+            ? "Enable LeetCode, GeeksforGeeks, or HackerRank independently. Register each public username once to add its activity to your dashboard."
+            : "Sign in with Telegram, then choose the services you want to track. No coding-platform password is needed."}
+        </p>
       </div>
+
+      {account && (
+        <nav className="service-grid" aria-label="Tracking services">
+          {services.map((service) => {
+            const username = platformUsername(account, service.platform);
+            return (
+              <Link
+                className="service-card"
+                href={featurePaths[service.platform]}
+                key={service.platform}
+                aria-current={selected?.platform === service.platform ? "page" : undefined}
+              >
+                <span className={`badge ${username ? "badge-active" : ""}`}>
+                  {username ? "Enabled" : "Not enabled"}
+                </span>
+                <h2>{service.name}</h2>
+                <p>{service.description}</p>
+                {username && <span className="service-username mono">{username}</span>}
+                <span className="service-action">
+                  {username ? "Manage service" : `Enable ${service.name}`}{" "}
+                  <span aria-hidden="true">→</span>
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {account && selected && !unavailable && status && (available || status.username) ? (
+        <div className="tracking-layout feature-setup">
+          <div className="tracking-intro">
+            <p className="eyebrow">{selected.name} service</p>
+            <h2>
+              {status.username ? "Your service is enabled." : `Enable ${selected.name} tracking.`}
+            </h2>
+            <p className="lead">{selected.description}</p>
+            <p className="field-help">{selected.coverage}</p>
+            <p className="field-help">
+              Your dashboard is available after registration. Connect Daily Grind once for all
+              enabled services to receive morning Telegram recaps.
+            </p>
+          </div>
+          <TrackingPanel
+            key={selected.platform}
+            platform={selected.platform}
+            initialStatus={status}
+          />
+        </div>
+      ) : !account || unavailable || (selected && !status?.username && !available) ? (
+        <section className="tracking-panel feature-signin" aria-labelledby="feature-signin-title">
+          <h2 id="feature-signin-title">
+            {unavailable
+              ? "Tracking is temporarily unavailable"
+              : !available
+                ? "Service registration is being set up"
+                : "Sign in to choose your services"}
+          </h2>
+          <p className="muted">
+            {unavailable
+              ? "Please try again shortly."
+              : "Use the Telegram account where you want your daily recaps delivered. Your services are enabled separately after sign-in."}
+          </p>
+          {params.error === "login" && (
+            <p className="inline-error" role="alert">
+              Sign-in expired or could not be verified. Please try again.
+            </p>
+          )}
+          {available && !unavailable && !account ? (
+            <a
+              className="button primary full-width"
+              href={`/api/auth/telegram/login?next=${selected?.platform ?? "feature"}`}
+            >
+              Continue with Telegram <span aria-hidden="true">→</span>
+            </a>
+          ) : (
+            <Link className="button secondary full-width" href="/">
+              Return home
+            </Link>
+          )}
+        </section>
+      ) : (
+        <p className="field-help">
+          Choose a service above to register or manage it. Only enabled services appear on your
+          dashboard.
+        </p>
+      )}
     </SiteShell>
   );
 }

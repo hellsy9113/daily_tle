@@ -67,7 +67,6 @@ export function TrackingPanel({
       const next = await requestJson<TrackingStatus>(statusPath, { signal });
       if (signal?.aborted) return;
       setStatus(next);
-      if (platform === "leetcode" && next.username && next.connected) router.replace("/dashboard");
     } catch (failure) {
       if (signal?.aborted) return;
       setError(
@@ -77,7 +76,7 @@ export function TrackingPanel({
       if (!signal?.aborted) setRefreshing(false);
       checking.current = false;
     }
-  }, [router, statusPath, platform]);
+  }, [statusPath]);
 
   useEffect(() => {
     if (!link || expired || status.connected) return;
@@ -111,7 +110,10 @@ export function TrackingPanel({
         body: JSON.stringify({ username }),
         signal,
       });
-      if (!signal?.aborted) setStatus(next);
+      if (!signal?.aborted) {
+        setStatus(next);
+        router.refresh();
+      }
     } catch (failure) {
       if (signal?.aborted) return;
       setError(failure instanceof Error ? failure.message : "Registration failed. Try again.");
@@ -148,23 +150,15 @@ export function TrackingPanel({
     <section className="tracking-panel" aria-labelledby="setup-title">
       <div className="panel-heading">
         <p className="eyebrow">
-          {platform !== "leetcode" ? (
-            <span className="badge badge-active">Logged in</span>
-          ) : status.username ? (
-            "Your account"
-          ) : (
-            "One-time setup"
-          )}
+          <span className="badge badge-active">Logged in</span>
         </p>
         <h2 id="setup-title" ref={heading} tabIndex={-1}>
-          {status.username ? "Daily tracking" : `Add your ${platformLabel} username`}
+          {status.username ? `${platformLabel} tracking` : `Add your ${platformLabel} username`}
         </h2>
       </div>
       <p className="sr-only" role="status" aria-live="polite">
         {status.username
-          ? status.status === "active"
-            ? "Telegram is connected. Daily tracking is active."
-            : `Username ${status.username} is permanently registered. Telegram status: ${status.status}.`
+          ? `${platformLabel} tracking is enabled. Username ${status.username} is permanently registered. Telegram status: ${status.status}.`
           : ""}
       </p>
       {error && (
@@ -215,6 +209,10 @@ export function TrackingPanel({
         </form>
       ) : (
         <>
+          <p className="tracking-note">
+            <span className="badge badge-active">Service enabled</span> Open Dashboard from the
+            navigation to view your activity.
+          </p>
           <dl className="account-details">
             <div>
               <dt>{platformLabel} username</dt>
@@ -224,7 +222,7 @@ export function TrackingPanel({
               </dd>
             </div>
             <div>
-              <dt>Telegram</dt>
+              <dt>Daily Grind</dt>
               <dd>
                 <span className={`badge ${status.status === "active" ? "badge-active" : ""}`}>
                   {accountStatusLabels[status.status]}

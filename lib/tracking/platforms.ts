@@ -11,6 +11,11 @@ export const statusPaths: Record<ActivityPlatform, string> = {
   gfg: "/api/tracking/gfg",
   hackerrank: "/api/tracking/hackerrank",
 };
+export const featurePaths = {
+  leetcode: "/feature?platform=leetcode",
+  gfg: "/feature?platform=gfg",
+  hackerrank: "/feature?platform=hackerrank",
+} as const satisfies Record<ActivityPlatform, string>;
 export function platformUsername(account: Account, platform: ActivityPlatform) {
   return platform === "hackerrank"
     ? account.hackerRankUsername
@@ -20,10 +25,10 @@ export function platformUsername(account: Account, platform: ActivityPlatform) {
 }
 export function accountSetupPath(account?: Account | null) {
   return account?.leetcodeUsername
-    ? "/tracking"
+    ? featurePaths.leetcode
     : account?.gfgUsername
-      ? "/feature"
+      ? featurePaths.gfg
       : account?.hackerRankUsername
-        ? "/feature?platform=hackerrank"
-        : "/tracking";
+        ? featurePaths.hackerrank
+        : "/feature";
 }

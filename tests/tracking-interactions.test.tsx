@@ -6,7 +6,8 @@ import { TrackingPanel } from "@/components/tracking-panel";
 import type { TrackingStatus } from "@/lib/tracking/types";
 
 const replace = vi.hoisted(() => vi.fn());
-const router = { replace };
+const refresh = vi.hoisted(() => vi.fn());
+const router = { replace, refresh };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 const initial: TrackingStatus = {
@@ -21,6 +22,7 @@ const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT
 
 beforeEach(() => {
   replace.mockClear();
+  refresh.mockClear();
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.append(container);
@@ -61,7 +63,7 @@ async function submit() {
 }
 
 describe("registration and connection interactions", () => {
-  it.each(["gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
     "keeps Feature open after %s registration with an existing bot connection",
     async (platform) => {
       await render({ ...initial, connected: true, status: "active" }, platform);
@@ -72,16 +74,18 @@ describe("registration and connection interactions", () => {
       );
       await submit();
       expect(fetch).toHaveBeenCalledWith(
-        `/api/tracking/${platform}`,
+        platform === "leetcode" ? "/api/tracking" : `/api/tracking/${platform}`,
         expect.objectContaining({ method: "POST" }),
       );
       expect(container.textContent).toContain("Logged in");
       expect(container.textContent).toContain("gfg_user");
       expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
       expect(replace).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(container.textContent).toContain("Service enabled");
     },
   );
-  it.each(["gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
     "updates a %s connection in place when the user returns from Telegram",
     async (platform) => {
       await render({ ...initial, username: "gfg_user" }, platform);
@@ -97,7 +101,7 @@ describe("registration and connection interactions", () => {
       );
       await act(() => window.dispatchEvent(new Event("focus")));
       expect(fetch).toHaveBeenLastCalledWith(
-        `/api/tracking/${platform}`,
+        platform === "leetcode" ? "/api/tracking" : `/api/tracking/${platform}`,
         expect.objectContaining({ cache: "no-store" }),
       );
       expect(container.textContent).toContain("Logged in");
@@ -202,9 +206,9 @@ describe("registration and connection interactions", () => {
     await click("check connection");
     expect(container.textContent).toContain("Connected");
     expect(container.textContent).toContain("No daily commands needed");
-    expect(replace).toHaveBeenCalledWith("/dashboard");
+    expect(replace).not.toHaveBeenCalled();
   });
-  it("checks on return from Telegram and redirects a connected account", async () => {
+  it("checks on return from Telegram and keeps the service page open", async () => {
     await render({ ...initial, username: "my_username" });
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
@@ -221,7 +225,7 @@ describe("registration and connection interactions", () => {
       "/api/tracking",
       expect.objectContaining({ cache: "no-store" }),
     );
-    expect(replace).toHaveBeenCalledWith("/dashboard");
+    expect(replace).not.toHaveBeenCalled();
   });
   it("polls briefly while waiting for Start and stops after connecting", async () => {
     vi.useFakeTimers();
@@ -237,7 +241,7 @@ describe("registration and connection interactions", () => {
       Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
     );
     await act(() => vi.advanceTimersByTime(5000));
-    expect(replace).toHaveBeenCalledWith("/dashboard");
+    expect(replace).not.toHaveBeenCalled();
     const count = vi.mocked(fetch).mock.calls.length;
     await act(() => vi.advanceTimersByTime(60_000));
     expect(fetch).toHaveBeenCalledTimes(count);

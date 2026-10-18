@@ -106,6 +106,38 @@ describe("Accepted calendar accessibility and interaction", () => {
   });
 });
 describe("activity dashboard", () => {
+  it("keeps registered activity available while Daily Grind is disconnected", async () => {
+    const disconnected = { ...status, connected: false, status: "pending" as const };
+    responses(activity, disconnected);
+    await act(() =>
+      root.render(
+        <ActivityDashboard initialStatus={disconnected} botUrl="https://t.me/test_bot" />,
+      ),
+    );
+    expect(container.querySelector('a[href="/feature?platform=leetcode"]')?.textContent).toContain(
+      "Connect Daily Grind",
+    );
+    expect(container.textContent).toContain("Your service is enabled");
+    expect(container.textContent).not.toContain("Scheduled for the next morning");
+    expect(container.querySelector('[aria-label="Accepted problems by day"]')).not.toBeNull();
+  });
+  it("shows session expiry for a dashboard without LeetCode enabled", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("Sign in", { status: 401 }));
+    await act(() =>
+      root.render(
+        <ActivityDashboard
+          initialStatus={status}
+          botUrl="https://t.me/test_bot"
+          leetcodeEnabled={false}
+          statusPlatform="gfg"
+        />,
+      ),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Your session expired",
+    );
+    expect(container.querySelector('[role="alert"] a')?.getAttribute("href")).toBe("/feature");
+  });
   it("starts with an intentional loading state", async () => {
     vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
     await renderDashboard();

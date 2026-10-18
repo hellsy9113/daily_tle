@@ -65,6 +65,28 @@ beforeEach(() => {
 });
 
 describe("Telegram authentication routes", () => {
+  it.each(["leetcode", "gfg"])("preserves the %s service through sign-in", async (platform) => {
+    const alias = await login(
+      new NextRequest(`https://preview.example/api/auth/telegram/login?next=${platform}`),
+    );
+    expect(alias.headers.get("location")).toBe(
+      `${origin}/api/auth/telegram/login?next=${platform}`,
+    );
+    const started = await login(
+      new NextRequest(`${origin}/api/auth/telegram/login?next=${platform}`),
+    );
+    expect(decodeURIComponent(started.headers.get("set-cookie")!)).toContain(
+      `tracking_login_destination=/feature?platform=${platform}`,
+    );
+    const response = await callback(
+      new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
+        headers: {
+          cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature?platform=${platform}`,
+        },
+      }),
+    );
+    expect(response.headers.get("location")).toBe(`${origin}/feature?platform=${platform}`);
+  });
   it("retains the Feature destination when moving an alias to the canonical origin", async () => {
     const response = await login(
       new NextRequest("https://preview.example/api/auth/telegram/login?next=feature"),
@@ -122,7 +144,7 @@ describe("Telegram authentication routes", () => {
         },
       }),
     );
-    expect(response.headers.get("location")).toBe(`${origin}/tracking`);
+    expect(response.headers.get("location")).toBe(`${origin}/feature`);
   });
   it("moves aliases to the canonical origin before creating a login or cookie", async () => {
     const response = await login(
@@ -162,7 +184,7 @@ describe("Telegram authentication routes", () => {
 
   it("creates a session after verification and clears the temporary cookie", async () => {
     const response = await callback(callbackRequest());
-    expect(response.headers.get("location")).toBe(`${origin}/tracking`);
+    expect(response.headers.get("location")).toBe(`${origin}/feature`);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(finishTelegramLogin).toHaveBeenCalledWith(
       expect.objectContaining({ pathname: "/api/auth/telegram/callback" }),
@@ -181,7 +203,7 @@ describe("Telegram authentication routes", () => {
       new TelegramLoginFailure("token_exchange", "invalid_client", 502),
     );
     const response = await callback(callbackRequest());
-    expect(response.headers.get("location")).toBe(`${origin}/tracking?error=login`);
+    expect(response.headers.get("location")).toBe(`${origin}/feature?error=login`);
     expect(response.headers.get("set-cookie")).not.toContain(sessionToken);
     expect(createSession).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith("[telegram:auth] Sign-in failed", {
@@ -197,7 +219,7 @@ describe("Telegram authentication routes", () => {
   ] as const)("identifies database failures during %s", async (stage, operation) => {
     vi.mocked(operation).mockRejectedValue({ cause: { code: "42P01", query: "private-query" } });
     const response = await callback(callbackRequest());
-    expect(response.headers.get("location")).toBe(`${origin}/tracking?error=login`);
+    expect(response.headers.get("location")).toBe(`${origin}/feature?error=login`);
     expect(console.error).toHaveBeenCalledWith("[telegram:auth] Sign-in failed", {
       stage,
       reason: "42P01",

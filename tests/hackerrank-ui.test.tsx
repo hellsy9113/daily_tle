@@ -62,15 +62,8 @@ const feature = () => FeaturePage({ searchParams: Promise.resolve({ platform: "h
 describe("HackerRank optional tracking", () => {
   it("provides separate feature choices and returns sign-in to HackerRank", async () => {
     const html = renderToStaticMarkup(await feature());
-    expect(html).toContain('href="/feature"');
-    expect(
-      new DOMParser()
-        .parseFromString(html, "text/html")
-        .querySelector('a[href="/feature?platform=hackerrank"]')
-        ?.getAttribute("aria-current"),
-    ).toBe("page");
     expect(html).toContain("/api/auth/telegram/login?next=hackerrank");
-    expect(html).toContain("Sign in to enable this feature");
+    expect(html).toContain("Sign in to choose your services");
     expect(html).not.toContain('name="username"');
   });
   it("registers independently and stays accessible after registration", async () => {
@@ -96,9 +89,12 @@ describe("HackerRank optional tracking", () => {
     expect(html).not.toContain("hackerrank-activity-title");
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("directs an unconnected HackerRank-only account to its own setup", async () => {
+  it("opens the dashboard for an unconnected HackerRank-only account", async () => {
     vi.mocked(serverAccount).mockResolvedValue({ ...account, chatId: null });
-    await expect(DashboardPage()).rejects.toThrow("redirect:/feature?platform=hackerrank");
+    vi.mocked(trackingStatus).mockResolvedValue({ ...status, connected: false, status: "pending" });
+    const html = renderToStaticMarkup(await DashboardPage());
+    expect(html).toContain("Connect Daily Grind");
+    expect(html).toContain('href="/feature?platform=hackerrank"');
   });
   it("supports a HackerRank-only dashboard without fetching other platforms", async () => {
     vi.mocked(serverAccount).mockResolvedValue(account);

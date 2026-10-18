@@ -7,7 +7,7 @@ import type { TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { ApiError } from "@/lib/http/api-error";
 import { requestJson } from "@/lib/http/client";
-import { statusPaths } from "@/lib/tracking/platforms";
+import { featurePaths, statusPaths } from "@/lib/tracking/platforms";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import type { ActivityResult } from "@/lib/activity/types";
 
@@ -94,9 +94,20 @@ export function ActivityDashboard({
             </span>
           </div>
           <div className="dashboard-actions">
-            <a className="button secondary" href={botUrl} target="_blank" rel="noopener noreferrer">
-              Open bot <span aria-hidden="true">↗</span>
-            </a>
+            {status.connected ? (
+              <a
+                className="button secondary"
+                href={botUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open bot <span aria-hidden="true">↗</span>
+              </a>
+            ) : (
+              <a className="button secondary" href={featurePaths[statusPlatform]}>
+                Connect Daily Grind <span aria-hidden="true">→</span>
+              </a>
+            )}
             <button
               className="text-button"
               onClick={() => {
@@ -120,19 +131,29 @@ export function ActivityDashboard({
             <dd>
               {latest
                 ? `${latest.reportDate} · ${deliveryStatusLabels[latest.status]}`
-                : "Scheduled for the next morning"}
+                : status.connected
+                  ? "Scheduled for the next morning"
+                  : "Connect Daily Grind to schedule reports"}
             </dd>
           </div>
         </dl>
         <p className="field-help">
-          {status.status === "blocked"
-            ? "Unblock the bot and send /start to resume reports."
-            : status.status === "paused"
-              ? "Send /start in the bot to resume reports."
-              : "Send /stop in the bot to pause, or /start to resume."}{" "}
+          {!status.connected
+            ? "Your service is enabled. Connect Daily Grind once to receive Telegram recaps for all enabled services."
+            : status.status === "blocked"
+              ? "Unblock the bot and send /start to resume reports."
+              : status.status === "paused"
+                ? "Send /start in the bot to resume reports."
+                : "Send /stop in the bot to pause, or /start to resume."}{" "}
           Delayed reports may arrive by 10:30 a.m. IST.
         </p>
       </section>
+
+      {error && (
+        <p className="inline-error" role="alert">
+          {error} <a href="/feature">Sign-in &amp; services</a>
+        </p>
+      )}
 
       {leetcodeEnabled && (
         <section
@@ -161,11 +182,6 @@ export function ActivityDashboard({
                 : "Available history covers every displayed day."}
             </p>
           </ActivityPanelHeader>
-          {error && (
-            <p className="inline-error" role="alert">
-              {error} <a href="/tracking">Sign-in &amp; setup</a>
-            </p>
-          )}
           {!activity ? (
             <div className="activity-empty" role="status">
               {busy

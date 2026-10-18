@@ -9,7 +9,7 @@ import { queryBotUrl } from "@/lib/telegram/bot-link";
 export const metadata = {
   title: "Track.it · Your coding practice, together",
   description:
-    "Track LeetCode, GeeksforGeeks, and HackerRank progress with activity calendars and Telegram recaps. Try a live public LeetCode lookup without signing in.",
+    "Sign in with Telegram and choose LeetCode, GeeksforGeeks, or HackerRank tracking. Follow your practice with activity calendars and daily recaps.",
 };
 
 const features = [
@@ -17,7 +17,7 @@ const features = [
     number: "01",
     title: "Three platforms. One dashboard.",
     description:
-      "Bring your LeetCode practice together with optional GeeksforGeeks and HackerRank tracking. Each platform keeps its own calendar and counts.",
+      "Choose LeetCode, GeeksforGeeks, or HackerRank tracking. Each service is enabled independently, with its own calendar and counts.",
     detail: "Enable each platform separately",
   },
   {
@@ -61,9 +61,9 @@ export default async function Home() {
               problem links, and morning Telegram recaps. Less checking. More solving.
             </p>
             <div className="landing-actions">
-              <Link className="button primary" href="/tracking">
-                Start tracking <span aria-hidden="true">→</span>
-              </Link>
+              <a className="button primary" href="/api/auth/telegram/login">
+                Sign in with Telegram <span aria-hidden="true">→</span>
+              </a>
               <a className="landing-text-link" href="#demo">
                 Try the live demo <span aria-hidden="true">↓</span>
               </a>
@@ -120,10 +120,10 @@ export default async function Home() {
                 02
               </span>
               <div>
-                <h3>Add your practice profiles</h3>
+                <h3>Choose your services on Feature</h3>
                 <p>
-                  Register LeetCode through Tracking, or enable GFG and HackerRank on Feature. Each
-                  username is linked permanently.
+                  Enable LeetCode, GFG, or HackerRank by registering its public username once. Each
+                  service gets its own dashboard panel.
                 </p>
               </div>
             </li>
@@ -132,8 +132,11 @@ export default async function Home() {
                 03
               </span>
               <div>
-                <h3>Connect your daily recaps</h3>
-                <p>Open your personal Telegram link and tap Start. Your dashboard is ready.</p>
+                <h3>Explore your progress</h3>
+                <p>
+                  Your service is ready after registration. Connect Daily Grind once to receive
+                  morning recaps for all your enabled services.
+                </p>
               </div>
             </li>
           </ol>
@@ -144,8 +147,8 @@ export default async function Home() {
             <p className="eyebrow">Small steps. Daily progress.</p>
             <h2 id="start-title">Your next Accepted is a good place to start.</h2>
           </div>
-          <Link className="button primary" href="/tracking">
-            Start tracking <span aria-hidden="true">→</span>
+          <Link className="button primary" href="/feature">
+            Choose your services <span aria-hidden="true">→</span>
           </Link>
         </section>
         <p className="landing-coverage">
