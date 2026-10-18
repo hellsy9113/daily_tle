@@ -9,6 +9,7 @@ export function ActivityPanelHeader({
   busy,
   onRefresh,
   children,
+  controls,
 }: {
   titleId: string;
   platform: string;
@@ -16,6 +17,7 @@ export function ActivityPanelHeader({
   busy: boolean;
   onRefresh: () => void;
   children: ReactNode;
+  controls?: ReactNode;
 }) {
   return (
     <div className="activity-heading">
@@ -27,6 +29,7 @@ export function ActivityPanelHeader({
         </h2>
       </div>
       <div className="activity-panel-actions">
+        {controls}
         <button type="button" className="button secondary" disabled={busy} onClick={onRefresh}>
           {busy ? `Refreshing ${platform}…` : `Refresh ${platform}`}
         </button>

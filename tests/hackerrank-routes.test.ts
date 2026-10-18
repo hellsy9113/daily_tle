@@ -30,12 +30,16 @@ beforeEach(() => {
     connected: true,
     status: "active",
     lastDelivery: null,
+    paused: false,
+    registrationId: null,
   });
   vi.mocked(registerHackerRank).mockResolvedValue({
     username: "Hackerrank_User",
     connected: true,
     status: "active",
     lastDelivery: null,
+    paused: false,
+    registrationId: null,
   });
 });
 describe("HackerRank feature authorization and routes", () => {
@@ -81,13 +85,26 @@ describe("HackerRank feature authorization and routes", () => {
   });
   it("registers a separate HackerRank username without accepting account IDs or cross-origin mutations", async () => {
     expect(
-      (await register(request({ username: "Hackerrank_User" }, "https://attacker.example"))).status,
+      (
+        await register(
+          request(
+            { username: "Hackerrank_User", acceptedAgreement: true, agreementVersion: "1" },
+            "https://attacker.example",
+          ),
+        )
+      ).status,
     ).toBe(403);
     expect(
       (await register(request({ username: "Hackerrank_User", accountId: "other" }))).status,
     ).toBe(400);
     expect(registerHackerRank).not.toHaveBeenCalled();
-    expect((await register(request({ username: "Hackerrank_User" }))).status).toBe(201);
+    expect(
+      (
+        await register(
+          request({ username: "Hackerrank_User", acceptedAgreement: true, agreementVersion: "1" }),
+        )
+      ).status,
+    ).toBe(201);
     expect(registerHackerRank).toHaveBeenCalledExactlyOnceWith(own, "Hackerrank_User");
   });
 });

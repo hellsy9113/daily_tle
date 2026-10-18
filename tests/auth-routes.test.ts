@@ -26,6 +26,7 @@ const origin = "https://tracker.example";
 const loginToken = "l".repeat(43);
 const sessionToken = "s".repeat(43);
 const account: Account = {
+  theme: null,
   id: "account-id",
   telegramId: 123,
   leetcodeUsername: null,

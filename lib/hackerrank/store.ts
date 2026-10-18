@@ -1,4 +1,5 @@
 import "server-only";
+import { lockRegistration } from "@/lib/tracking/services";
 import { and, eq, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { hackerRankProblems, hackerRankSnapshots, hackerRankSync } from "@/lib/db/schema";
@@ -95,23 +96,31 @@ export async function readHackerRankProblems(
   }));
 }
 
-export async function claimHackerRankSync(accountId: string, token: string, now: Date) {
-  const rows = await db()
-    .insert(hackerRankSync)
-    .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
-    .onConflictDoUpdate({
-      target: hackerRankSync.accountId,
-      set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
-      setWhere: and(
-        or(
-          sql`${hackerRankSync.refreshedAt} IS NULL`,
-          lte(hackerRankSync.refreshedAt, new Date(now.getTime() - HACKERRANK_REFRESH_MS)),
+export async function claimHackerRankSync(
+  accountId: string,
+  token: string,
+  now: Date,
+  registrationId?: string,
+) {
+  return db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "hackerrank", registrationId);
+    const rows = await transaction
+      .insert(hackerRankSync)
+      .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
+      .onConflictDoUpdate({
+        target: hackerRankSync.accountId,
+        set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
+        setWhere: and(
+          or(
+            sql`${hackerRankSync.refreshedAt} IS NULL`,
+            lte(hackerRankSync.refreshedAt, new Date(now.getTime() - HACKERRANK_REFRESH_MS)),
+          ),
+          or(sql`${hackerRankSync.leaseUntil} IS NULL`, lte(hackerRankSync.leaseUntil, now)),
         ),
-        or(sql`${hackerRankSync.leaseUntil} IS NULL`, lte(hackerRankSync.leaseUntil, now)),
-      ),
-    })
-    .returning({ id: hackerRankSync.accountId });
-  return rows.length > 0;
+      })
+      .returning({ id: hackerRankSync.accountId });
+    return rows.length > 0;
+  });
 }
 
 export async function saveHackerRankSync(
@@ -120,6 +129,13 @@ export async function saveHackerRankSync(
   profile: HackerRankProfile,
 ) {
   await db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "hackerrank");
+    const [lease] = await transaction
+      .select()
+      .from(hackerRankSync)
+      .where(and(eq(hackerRankSync.accountId, accountId), eq(hackerRankSync.leaseToken, token)))
+      .for("update");
+    if (!lease) throw new Error("Refresh lease expired or service was revoked.");
     await writeHackerRankProfile(transaction, accountId, profile);
     const updated = await transaction
       .update(hackerRankSync)

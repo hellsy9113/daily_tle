@@ -27,6 +27,7 @@ export const accounts = tracking.table(
   "accounts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    theme: text("theme").$type<"light" | "dark">(),
     telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
     leetcodeUsername: text("leetcode_username"),
     gfgUsername: text("gfg_username"),
@@ -53,6 +54,68 @@ export const accounts = tracking.table(
       sql`${table.status} IN ('pending', 'active', 'paused', 'blocked')`,
     ),
   ],
+);
+
+export const platformServices = tracking.table(
+  "platform_services",
+  {
+    registrationId: uuid("registration_id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    platform: text("platform").$type<ActivityPlatform>().notNull(),
+    paused: boolean("paused").notNull().default(false),
+    agreementVersion: text("agreement_version"),
+    agreementAcceptedAt: time("agreement_accepted_at"),
+  },
+  (table) => [
+    uniqueIndex("platform_services_account_id_platform_key").on(table.accountId, table.platform),
+  ],
+);
+
+export const dailyCollections = tracking.table(
+  "daily_collections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    registrationId: uuid("registration_id")
+      .notNull()
+      .references(() => platformServices.registrationId, { onDelete: "cascade" }),
+    platform: text("platform").$type<ActivityPlatform>().notNull(),
+    reportDate: date("report_date").notNull(),
+    start: time("period_start").notNull(),
+    end: time("period_end").notNull(),
+    recapEligible: boolean("recap_eligible").notNull(),
+    status: text("status")
+      .$type<"pending" | "collecting" | "complete" | "failed">()
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: time("next_attempt_at").notNull().defaultNow(),
+    leaseToken: text("lease_token"),
+    leaseUntil: time("lease_until"),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    uniqueIndex("daily_collections_registration_id_report_date_key").on(
+      table.registrationId,
+      table.reportDate,
+    ),
+  ],
+);
+
+export const reportReminders = tracking.table(
+  "report_reminders",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    reportDate: date("report_date").notNull(),
+    sentAt: time("sent_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.reportDate] })],
 );
 
 export const sessions = tracking.table("sessions", {
@@ -92,6 +155,9 @@ export const deliveries = tracking.table(
     accountId: uuid("account_id")
       .notNull()
       .references(() => accounts.id),
+    registrationId: uuid("registration_id")
+      .notNull()
+      .references(() => platformServices.registrationId, { onDelete: "cascade" }),
     reportDate: date("report_date").notNull(),
     platform: text("platform").$type<ActivityPlatform>().notNull().default("leetcode"),
     start: time("period_start").notNull(),

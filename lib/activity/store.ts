@@ -1,4 +1,5 @@
 import "server-only";
+import { lockRegistration } from "@/lib/tracking/services";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { acceptedActivity, activityDays, activitySync, type Account } from "@/lib/db/schema";
@@ -140,20 +141,28 @@ export async function activityState(accountId: string) {
   return state;
 }
 
-export async function claimActivitySync(accountId: string, token: string, now: Date) {
-  const rows = await db()
-    .insert(activitySync)
-    .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
-    .onConflictDoUpdate({
-      target: activitySync.accountId,
-      set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
-      setWhere: and(
-        sql`(${activitySync.refreshedAt} IS NULL OR ${activitySync.refreshedAt} <= ${new Date(now.getTime() - 60_000).toISOString()}::timestamptz)`,
-        sql`(${activitySync.leaseUntil} IS NULL OR ${activitySync.leaseUntil} <= ${now.toISOString()}::timestamptz)`,
-      ),
-    })
-    .returning({ accountId: activitySync.accountId });
-  return rows.length > 0;
+export async function claimActivitySync(
+  accountId: string,
+  token: string,
+  now: Date,
+  registrationId?: string,
+) {
+  return db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "leetcode", registrationId);
+    const rows = await transaction
+      .insert(activitySync)
+      .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
+      .onConflictDoUpdate({
+        target: activitySync.accountId,
+        set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
+        setWhere: and(
+          sql`(${activitySync.refreshedAt} IS NULL OR ${activitySync.refreshedAt} <= ${new Date(now.getTime() - 60_000).toISOString()}::timestamptz)`,
+          sql`(${activitySync.leaseUntil} IS NULL OR ${activitySync.leaseUntil} <= ${now.toISOString()}::timestamptz)`,
+        ),
+      })
+      .returning({ accountId: activitySync.accountId });
+    return rows.length > 0;
+  });
 }
 
 export async function saveActivitySync(
@@ -162,6 +171,13 @@ export async function saveActivitySync(
   observation: ActivityObservation,
 ) {
   await db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "leetcode");
+    const [lease] = await transaction
+      .select()
+      .from(activitySync)
+      .where(and(eq(activitySync.accountId, accountId), eq(activitySync.leaseToken, token)))
+      .for("update");
+    if (!lease) throw new Error("Refresh lease expired or service was revoked.");
     await writeActivityObservation(transaction, accountId, observation);
     const rows = await transaction
       .update(activitySync)

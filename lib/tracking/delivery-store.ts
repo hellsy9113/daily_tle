@@ -1,6 +1,8 @@
 import "server-only";
 import { and, eq, getTableColumns, gt, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
+import { ApiError } from "@/lib/http/api-error";
 import {
   accounts,
   connectionTokens,
@@ -9,18 +11,19 @@ import {
   loginAttempts,
   sessions,
   telegramUpdates,
+  platformServices,
+  dailyCollections,
+  reportReminders,
   type Delivery,
 } from "@/lib/db/schema";
 import { getPreviousCalendarPeriod } from "@/lib/leetcode/calendar-periods";
 import { randomToken } from "./security";
-import { writeActivityObservation } from "@/lib/activity/store";
-import { observeSolvedPeriod } from "@/lib/activity/observations";
 import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
 import type { GfgProfile } from "@/lib/gfg/types";
-import { gfgSummary, writeGfgProfile } from "@/lib/gfg/store";
-import { gfgSync } from "@/lib/db/schema";
 import type { HackerRankProfile } from "@/lib/hackerrank/types";
-import { cacheHackerRankProfile, writeHackerRankProfile } from "@/lib/hackerrank/store";
+import { lockRegistration } from "./services";
+import { writeCollectedResult } from "./result-store";
+import { prepareCollections } from "./collection-store";
 import { EMPTY_REPORT } from "./format-report";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
@@ -56,30 +59,30 @@ export async function releaseDispatchLock(token: string) {
 
 export async function prepareDeliveries(now: Date) {
   const range = reportPeriod(now);
-  await db()
-    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+  await db().transaction(async (transaction) => {
+    await transaction.select({ id: accounts.id }).from(accounts).orderBy(accounts.id).for("update");
+    await prepareCollections(transaction, now);
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
     SELECT id, 'leetcode', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL
+    FROM ${accounts} WHERE status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'leetcode' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'leetcode' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
-  await db()
-    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
     SELECT id, 'gfg', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL
+    FROM ${accounts} WHERE status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'gfg' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'gfg' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
       AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
       AND gfg_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
-  await db()
-    .execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
     SELECT id, 'hackerrank', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL
+    FROM ${accounts} WHERE status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'hackerrank' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'hackerrank' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND hackerrank_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
-  await db()
-    .execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
+    await transaction.execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
     WHERE report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
+  });
   return range.reportDate;
 }
 
@@ -93,14 +96,18 @@ export async function prepareEmptyDayReports(reportDate: string, now: Date) {
       last_error = NULL, lease_token = NULL, lease_until = NULL
     FROM ${accounts} AS account
     WHERE target.account_id = account.id AND account.status = 'active' AND account.chat_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = target.registration_id AND NOT s.paused)
+      AND NOT EXISTS (SELECT 1 FROM ${reportReminders} reminder WHERE reminder.account_id = target.account_id AND reminder.report_date = target.report_date)
       AND target.report_date = ${reportDate}::date AND target.status = 'sent' AND target.messages = '[]'::jsonb
       AND target.platform = (
         SELECT min(sibling.platform) FROM ${deliveries} AS sibling
         WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+          AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = sibling.registration_id AND NOT s.paused)
       )
       AND NOT EXISTS (
         SELECT 1 FROM ${deliveries} AS sibling
         WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+          AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = sibling.registration_id AND NOT s.paused)
           AND (sibling.messages IS NULL OR sibling.messages <> '[]'::jsonb OR sibling.status <> 'sent')
       )
     RETURNING target.id
@@ -113,33 +120,41 @@ export async function claimDelivery(
   now: Date,
   allowGfg = true,
   allowHackerRank = true,
+  preparedOnly = false,
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
+  const candidateDelivery = alias(deliveries, "candidate_delivery");
   const candidate = db()
-    .select({ id: deliveries.id })
-    .from(deliveries)
-    .innerJoin(accounts, eq(deliveries.accountId, accounts.id))
+    .select({ id: candidateDelivery.id })
+    .from(candidateDelivery)
+    .innerJoin(accounts, eq(candidateDelivery.accountId, accounts.id))
+    .innerJoin(
+      platformServices,
+      eq(candidateDelivery.registrationId, platformServices.registrationId),
+    )
     .where(
       and(
-        eq(deliveries.reportDate, reportDate),
-        allowGfg ? undefined : ne(deliveries.platform, "gfg"),
-        allowHackerRank ? undefined : ne(deliveries.platform, "hackerrank"),
+        eq(candidateDelivery.reportDate, reportDate),
+        preparedOnly ? isNotNull(candidateDelivery.messages) : undefined,
+        allowGfg ? undefined : ne(candidateDelivery.platform, "gfg"),
+        allowHackerRank ? undefined : ne(candidateDelivery.platform, "hackerrank"),
         eq(accounts.status, "active"),
+        eq(platformServices.paused, false),
         isNotNull(accounts.chatId),
-        sql`CASE WHEN ${deliveries.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${deliveries.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
-        sql`${deliveries.attempts} < 3`,
-        lte(deliveries.nextAttemptAt, now),
+        sql`CASE WHEN ${candidateDelivery.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${candidateDelivery.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
+        sql`${candidateDelivery.attempts} < 3`,
+        lte(candidateDelivery.nextAttemptAt, now),
         or(
-          eq(deliveries.status, "pending"),
-          eq(deliveries.status, "failed"),
-          and(eq(deliveries.status, "sending"), lte(deliveries.leaseUntil, now)),
+          eq(candidateDelivery.status, "pending"),
+          eq(candidateDelivery.status, "failed"),
+          and(eq(candidateDelivery.status, "sending"), lte(candidateDelivery.leaseUntil, now)),
         ),
       ),
     )
-    .orderBy(deliveries.createdAt)
+    .orderBy(candidateDelivery.createdAt)
     .limit(1)
-    .for("update", { skipLocked: true });
+    .for("update", { of: candidateDelivery, skipLocked: true });
   const [claimed] = await db()
     .update(deliveries)
     .set({
@@ -165,17 +180,86 @@ export async function deliveryIsActive(delivery: ClaimedDelivery) {
     .select({ id: deliveries.id })
     .from(deliveries)
     .innerJoin(accounts, eq(deliveries.accountId, accounts.id))
+    .innerJoin(platformServices, eq(deliveries.registrationId, platformServices.registrationId))
     .where(
       and(
         eq(deliveries.id, delivery.id),
         eq(deliveries.leaseToken, delivery.leaseToken!),
         eq(deliveries.status, "sending"),
         eq(accounts.status, "active"),
+        eq(platformServices.paused, false),
         gt(deliveries.leaseUntil, new Date()),
       ),
     )
     .limit(1);
   return Boolean(row);
+}
+
+/** Serialize the last eligibility check and network send with pause/revocation. */
+export async function sendDeliveryPart(
+  delivery: ClaimedDelivery,
+  index: number,
+  send: () => Promise<void>,
+) {
+  return db().transaction(async (transaction) => {
+    let registration;
+    try {
+      registration = await lockRegistration(
+        transaction,
+        delivery.accountId,
+        delivery.platform,
+        delivery.registrationId,
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) return false;
+      throw error;
+    }
+    if (registration.service.paused || registration.account.status !== "active") return false;
+    const [leased] = await transaction
+      .select({ id: deliveries.id })
+      .from(deliveries)
+      .where(
+        and(
+          eq(deliveries.id, delivery.id),
+          eq(deliveries.registrationId, delivery.registrationId),
+          eq(deliveries.status, "sending"),
+          eq(deliveries.leaseToken, delivery.leaseToken!),
+          gt(deliveries.leaseUntil, new Date()),
+        ),
+      )
+      .for("update");
+    if (!leased) return false;
+    const reminder = delivery.messages?.[index] === EMPTY_REPORT;
+    if (reminder) {
+      const [sent] = await transaction
+        .select()
+        .from(reportReminders)
+        .where(
+          and(
+            eq(reportReminders.accountId, delivery.accountId),
+            eq(reportReminders.reportDate, delivery.reportDate),
+          ),
+        );
+      if (sent) {
+        await transaction
+          .update(deliveries)
+          .set({ status: "cancelled", leaseToken: null, leaseUntil: null })
+          .where(eq(deliveries.id, delivery.id));
+        return false;
+      }
+    }
+    await send();
+    if (reminder)
+      await transaction
+        .insert(reportReminders)
+        .values({ accountId: delivery.accountId, reportDate: delivery.reportDate })
+        .onConflictDoNothing();
+    await transaction
+      .update(deliveries)
+      .set({ sentParts: index + 1 })
+      .where(eq(deliveries.id, delivery.id));
+    return true;
+  });
 }
 
 export async function updateDelivery(
@@ -202,37 +286,13 @@ export async function prepareDeliveryReport(
   result: SolvedQuestionsResult | GfgProfile | HackerRankProfile,
 ) {
   await db().transaction(async (transaction) => {
-    if ("platform" in result && result.platform === "hackerrank") {
-      await writeHackerRankProfile(transaction, delivery.accountId, result);
-      await cacheHackerRankProfile(transaction, delivery.accountId, result);
-    } else if ("platform" in result) {
-      await writeGfgProfile(transaction, delivery.accountId, result);
-      await transaction
-        .insert(gfgSync)
-        .values({
-          accountId: delivery.accountId,
-          profile: gfgSummary(result),
-          refreshedAt: new Date(result.checkedAt),
-        })
-        .onConflictDoUpdate({
-          target: gfgSync.accountId,
-          set: {
-            profile: gfgSummary(result),
-            refreshedAt: new Date(result.checkedAt),
-            lastError: null,
-          },
-          setWhere: or(
-            sql`${gfgSync.refreshedAt} IS NULL`,
-            lte(gfgSync.refreshedAt, new Date(result.checkedAt)),
-          ),
-        });
-    } else {
-      await writeActivityObservation(
-        transaction,
-        delivery.accountId,
-        observeSolvedPeriod(result, new Date()),
-      );
-    }
+    await lockRegistration(
+      transaction,
+      delivery.accountId,
+      delivery.platform,
+      delivery.registrationId,
+    );
+    await writeCollectedResult(transaction, delivery.accountId, result);
     const rows = await transaction
       .update(deliveries)
       .set({ messages })

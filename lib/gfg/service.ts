@@ -1,4 +1,5 @@
 import "server-only";
+import { currentRegistration, recordAgreement } from "@/lib/tracking/services";
 import { and, eq, isNull } from "drizzle-orm";
 import { accounts, gfgSync, type Account } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
@@ -23,7 +24,10 @@ import type { GfgQuery } from "./types";
 export async function registerGfg(account: Account, value: unknown) {
   requireRegistrationAvailable();
   if (account.gfgUsername)
-    throw new ApiError(409, "Your GFG username is already registered and cannot be changed.");
+    throw new ApiError(
+      409,
+      "Your GFG username is already registered. Revoke this service in Profile before registering a different username.",
+    );
   const profile = await getGfgProfile(value);
   try {
     const registered = await db().transaction(async (transaction) => {
@@ -33,7 +37,10 @@ export async function registerGfg(account: Account, value: unknown) {
         .where(and(eq(accounts.id, account.id), isNull(accounts.gfgUsername)))
         .returning();
       if (!updated)
-        throw new ApiError(409, "Your GFG username is already registered and cannot be changed.");
+        throw new ApiError(
+          409,
+          "Your GFG username is already registered. Revoke this service in Profile before registering a different username.",
+        );
       await writeGfgProfile(transaction, account.id, profile);
       await transaction
         .insert(gfgSync)
@@ -50,6 +57,7 @@ export async function registerGfg(account: Account, value: unknown) {
             lastError: null,
           },
         });
+      await recordAgreement(transaction, account.id, "gfg");
       return updated;
     });
     return trackingStatus(registered, "gfg");
@@ -67,10 +75,11 @@ export async function registerGfg(account: Account, value: unknown) {
 export async function getGfgProgress(account: Account, query?: GfgQuery, now = new Date()) {
   if (!account.gfgUsername)
     throw new ApiError(409, "Enable GFG tracking on the Feature page first.");
+  const registration = await currentRegistration(account.id, "gfg");
   const token = randomToken();
-  if (await claimGfgSync(account.id, token, now)) {
+  if (await claimGfgSync(account.id, token, now, registration.service.registrationId)) {
     try {
-      await saveGfgSync(account.id, token, await getGfgProfile(account.gfgUsername, now));
+      await saveGfgSync(account.id, token, await getGfgProfile(registration.username, now));
     } catch (error) {
       await failGfgSync(account.id, token, error instanceof ApiError ? error.status : 503, now);
       if (!(await gfgState(account.id))?.profile) throw error;

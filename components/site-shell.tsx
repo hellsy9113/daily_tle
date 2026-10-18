@@ -23,13 +23,7 @@ export function SiteShell({
           ) : (
             <a href="/api/auth/telegram/login">Sign in</a>
           )}
-          {signedIn && (
-            <form action="/api/auth/logout" method="post">
-              <button className="text-button" type="submit">
-                Sign out
-              </button>
-            </form>
-          )}
+          {signedIn && <Link href="/profile">Profile</Link>}
         </nav>
       </header>
       <main id="main-content" tabIndex={-1}>

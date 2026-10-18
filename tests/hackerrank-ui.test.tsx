@@ -32,6 +32,8 @@ const status = {
   connected: true,
   status: "active",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 } as const;
 const account = {
   id: "own",
@@ -71,7 +73,7 @@ describe("HackerRank optional tracking", () => {
     vi.mocked(trackingStatus).mockResolvedValueOnce({ ...status, username: null });
     let html = renderToStaticMarkup(await feature());
     expect(html).toContain('for="hackerrank-username"');
-    expect(html).toContain("cannot be changed");
+    expect(html).toContain("stays fixed until you revoke");
     expect(trackingStatus).toHaveBeenCalledWith(account, "hackerrank");
     html = renderToStaticMarkup(await feature());
     expect(html).toContain("Logged in");

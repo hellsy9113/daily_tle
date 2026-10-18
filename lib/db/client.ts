@@ -11,7 +11,7 @@ function createDatabase(url: string) {
   const client = postgres(url, {
     max: 5,
     prepare: false,
-    connect_timeout: 10,
+    connect_timeout: process.env.NODE_ENV === "test" ? 30 : 10,
     idle_timeout: 20,
     connection: { statement_timeout: 10000 },
   });

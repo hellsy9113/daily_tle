@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   scroll-padding-top: 5rem;
   --background: #ffffff;
   --surface: #fafafa;
@@ -24,7 +24,8 @@
   --font-mono: var(--font-geist-mono);
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --background: #0a0a0a;
     --surface: #111111;
     --foreground: #ededed;
@@ -39,6 +40,22 @@
     --activity-3: #2da44e;
     --activity-4: #56d364;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --surface: #111111;
+  --foreground: #ededed;
+  --muted: #a3a3a3;
+  --border: #333333;
+  --control-border: #737373;
+  --error: #fca5a5;
+  --success: #86efac;
+  --activity-0: #20252b;
+  --activity-1: #104c29;
+  --activity-2: #19733c;
+  --activity-3: #2da44e;
+  --activity-4: #56d364;
 }
 * {
   box-sizing: border-box;
@@ -699,13 +716,20 @@ code,
   font-size: 0.75rem;
 }
 @media (prefers-color-scheme: dark) {
-  .landing-page {
+  :root:not([data-theme="light"]) .landing-page {
     --landing-accent: #f7ad73;
     --landing-accent-ink: #201309;
     --landing-tint: #1e1813;
     --telegram-accent: #87c9ee;
     --telegram-tint: #152a36;
   }
+}
+:root[data-theme="dark"] .landing-page {
+  --landing-accent: #f7ad73;
+  --landing-accent-ink: #201309;
+  --landing-tint: #1e1813;
+  --telegram-accent: #87c9ee;
+  --telegram-tint: #152a36;
 }
 @media (max-width: 850px) {
   .landing-hero {
@@ -845,10 +869,10 @@ button:disabled {
   text-decoration: none;
 }
 .service-card:hover,
-.service-card[aria-current="page"] {
+.service-card:has([aria-current="page"]) {
   border-color: var(--foreground);
 }
-.service-card[aria-current="page"] {
+.service-card:has([aria-current="page"]) {
   box-shadow: inset 0 0 0 1px var(--foreground);
 }
 .service-card h2 {
@@ -1295,6 +1319,177 @@ button:disabled {
 .refresh-button {
   margin-top: 0.75rem;
   width: 100%;
+}
+.service-card-toolbar,
+.dialog-actions,
+.theme-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.service-card h2 a {
+  text-decoration: none;
+}
+.service-control {
+  position: relative;
+  display: inline-flex;
+}
+.icon-button {
+  width: 44px;
+  height: 44px;
+  padding: 0.5rem;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.control-error {
+  position: absolute;
+  z-index: 6;
+  top: 100%;
+  right: 0;
+  width: min(18rem, 70vw);
+  padding: 0.75rem;
+  background: var(--background);
+  border: 1px solid var(--error);
+  border-radius: 6px;
+}
+.consent-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--foreground);
+  background: var(--surface);
+  box-shadow: 0 20px 80px #0004;
+  overflow-y: auto;
+}
+.consent-dialog::backdrop {
+  background: #0008;
+}
+.consent-dialog h2 {
+  margin-top: 0;
+}
+.consent-dialog h2:focus {
+  outline: none;
+}
+.agreement-content {
+  font-size: 0.875rem;
+}
+.agreement-content p + p {
+  margin-top: 0.625rem;
+}
+.agreement-content li + li {
+  margin-top: 0.625rem;
+}
+.agreement-content ul {
+  padding-left: 1.25rem;
+}
+.agreement-content .mono {
+  overflow-wrap: anywhere;
+}
+.dialog-actions {
+  margin-top: 1.5rem;
+  justify-content: flex-end;
+}
+.button.danger {
+  background: var(--error);
+  color: var(--background);
+  border-color: var(--error);
+}
+.danger-text {
+  color: var(--error);
+}
+.profile-layout {
+  display: grid;
+  gap: 1.5rem;
+  padding-block: clamp(2rem, 6vw, 4rem);
+}
+.profile-layout h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.04em;
+  margin-block: 0 0.5rem;
+}
+.profile-layout h2 {
+  margin-top: 0;
+}
+.profile-layout .account-details + form {
+  margin-top: 1.5rem;
+}
+.profile-layout .account-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.theme-options {
+  justify-content: flex-start;
+}
+.profile-notice {
+  border-left: 2px solid var(--success);
+  color: var(--success);
+  padding: 0.75rem;
+  margin: 0;
+}
+.profile-services table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+.profile-services th,
+.profile-services td {
+  padding: 1rem 0.75rem 1rem 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.profile-services thead th {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.paused-service .activity-heading h2 {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .profile-layout .account-details {
+    grid-template-columns: 1fr;
+  }
+  .profile-services table,
+  .profile-services tbody,
+  .profile-services tr,
+  .profile-services td,
+  .profile-services tbody th {
+    display: block;
+  }
+  .profile-services thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .profile-services tr + tr {
+    margin-top: 1.25rem;
+  }
+  .profile-services td,
+  .profile-services tbody th {
+    padding: 0.5rem 0;
+    border: 0;
+  }
+  .profile-services td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .dialog-actions .button {
+    width: 100%;
+  }
 }
 @media (max-width: 700px) {
   :root {

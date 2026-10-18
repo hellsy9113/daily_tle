@@ -1,4 +1,5 @@
 import "server-only";
+import { currentRegistration, recordAgreement } from "@/lib/tracking/services";
 import { and, eq, isNull } from "drizzle-orm";
 import { accounts, hackerRankSync, type Account } from "@/lib/db/schema";
 import { db } from "@/lib/db/client";
@@ -24,7 +25,7 @@ export async function registerHackerRank(account: Account, value: unknown) {
   if (account.hackerRankUsername)
     throw new ApiError(
       409,
-      "Your HackerRank username is already registered and cannot be changed.",
+      "Your HackerRank username is already registered. Revoke this service in Profile before registering a different username.",
     );
   const profile = await getHackerRankProfile(value);
   try {
@@ -37,7 +38,7 @@ export async function registerHackerRank(account: Account, value: unknown) {
       if (!updated)
         throw new ApiError(
           409,
-          "Your HackerRank username is already registered and cannot be changed.",
+          "Your HackerRank username is already registered. Revoke this service in Profile before registering a different username.",
         );
       await writeHackerRankProfile(transaction, account.id, profile);
       await transaction
@@ -55,6 +56,7 @@ export async function registerHackerRank(account: Account, value: unknown) {
             lastError: null,
           },
         });
+      await recordAgreement(transaction, account.id, "hackerrank");
       return updated;
     });
     return trackingStatus(registered, "hackerrank");
@@ -72,13 +74,14 @@ export async function registerHackerRank(account: Account, value: unknown) {
 export async function getHackerRankProgress(account: Account, now = new Date()) {
   if (!account.hackerRankUsername)
     throw new ApiError(409, "Enable HackerRank tracking on the Feature page first.");
+  const registration = await currentRegistration(account.id, "hackerrank");
   const token = randomToken();
-  if (await claimHackerRankSync(account.id, token, now)) {
+  if (await claimHackerRankSync(account.id, token, now, registration.service.registrationId)) {
     try {
       await saveHackerRankSync(
         account.id,
         token,
-        await getHackerRankProfile(account.hackerRankUsername, now),
+        await getHackerRankProfile(registration.username, now),
       );
     } catch (error) {
       await failHackerRankSync(

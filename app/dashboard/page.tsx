@@ -1,3 +1,4 @@
+import { PausedService } from "@/components/service-control";
 import { redirect } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
 import { ActivityDashboard } from "@/components/activity-dashboard";
@@ -19,9 +20,12 @@ export default async function DashboardPage() {
     : account.gfgUsername
       ? "gfg"
       : "hackerrank";
-  const status = account.leetcodeUsername
-    ? await trackingStatus(account)
-    : await trackingStatus(account, platform);
+  const [leetcodeStatus, gfgStatus, hackerRankStatus] = await Promise.all([
+    account.leetcodeUsername ? trackingStatus(account) : null,
+    account.gfgUsername ? trackingStatus(account, "gfg") : null,
+    account.hackerRankUsername ? trackingStatus(account, "hackerrank") : null,
+  ]);
+  const status = (leetcodeStatus ?? gfgStatus ?? hackerRankStatus)!;
   const botUrl = `https://t.me/${trackingBot().username}`;
   return (
     <SiteShell signedIn>
@@ -29,12 +33,41 @@ export default async function DashboardPage() {
         botUrl={botUrl}
         statusPlatform={platform}
         initialStatus={status}
-        leetcodeEnabled={Boolean(account.leetcodeUsername)}
+        leetcodeEnabled={Boolean(account.leetcodeUsername) && !status.paused}
       >
-        {account.gfgUsername && <GfgActivityPanel username={account.gfgUsername} />}
-        {account.hackerRankUsername && (
-          <HackerRankActivityPanel username={account.hackerRankUsername} />
+        {account.leetcodeUsername && status.paused && status.registrationId && (
+          <PausedService
+            platform="leetcode"
+            username={account.leetcodeUsername}
+            registrationId={status.registrationId}
+          />
         )}
+        {account.gfgUsername &&
+          (gfgStatus?.paused && gfgStatus.registrationId ? (
+            <PausedService
+              platform="gfg"
+              username={account.gfgUsername}
+              registrationId={gfgStatus.registrationId}
+            />
+          ) : (
+            <GfgActivityPanel
+              username={account.gfgUsername}
+              registrationId={gfgStatus?.registrationId ?? undefined}
+            />
+          ))}
+        {account.hackerRankUsername &&
+          (hackerRankStatus?.paused && hackerRankStatus.registrationId ? (
+            <PausedService
+              platform="hackerrank"
+              username={account.hackerRankUsername}
+              registrationId={hackerRankStatus.registrationId}
+            />
+          ) : (
+            <HackerRankActivityPanel
+              username={account.hackerRankUsername}
+              registrationId={hackerRankStatus?.registrationId ?? undefined}
+            />
+          ))}
       </ActivityDashboard>
     </SiteShell>
   );

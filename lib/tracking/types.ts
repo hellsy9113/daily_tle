@@ -3,6 +3,8 @@ export type DeliveryStatus = "pending" | "sending" | "sent" | "failed" | "cancel
 export type ReportStatus = DeliveryStatus | "empty";
 
 export interface TrackingStatus {
+  paused: boolean;
+  registrationId: string | null;
   username: string | null;
   connected: boolean;
   status: AccountStatus;

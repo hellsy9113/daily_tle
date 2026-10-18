@@ -1,4 +1,5 @@
 import "server-only";
+import { lockRegistration } from "@/lib/tracking/services";
 import { and, eq, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { gfgProblems, gfgSnapshots, gfgSync } from "@/lib/db/schema";
@@ -86,27 +87,42 @@ export async function readGfgProblems(accountId: string): Promise<StoredGfgProbl
   }));
 }
 
-export async function claimGfgSync(accountId: string, token: string, now: Date) {
-  const rows = await db()
-    .insert(gfgSync)
-    .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
-    .onConflictDoUpdate({
-      target: gfgSync.accountId,
-      set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
-      setWhere: and(
-        or(
-          sql`${gfgSync.refreshedAt} IS NULL`,
-          lte(gfgSync.refreshedAt, new Date(now.getTime() - GFG_REFRESH_MS)),
+export async function claimGfgSync(
+  accountId: string,
+  token: string,
+  now: Date,
+  registrationId?: string,
+) {
+  return db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "gfg", registrationId);
+    const rows = await transaction
+      .insert(gfgSync)
+      .values({ accountId, leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) })
+      .onConflictDoUpdate({
+        target: gfgSync.accountId,
+        set: { leaseToken: token, leaseUntil: new Date(now.getTime() + 60_000) },
+        setWhere: and(
+          or(
+            sql`${gfgSync.refreshedAt} IS NULL`,
+            lte(gfgSync.refreshedAt, new Date(now.getTime() - GFG_REFRESH_MS)),
+          ),
+          or(sql`${gfgSync.leaseUntil} IS NULL`, lte(gfgSync.leaseUntil, now)),
         ),
-        or(sql`${gfgSync.leaseUntil} IS NULL`, lte(gfgSync.leaseUntil, now)),
-      ),
-    })
-    .returning({ id: gfgSync.accountId });
-  return rows.length > 0;
+      })
+      .returning({ id: gfgSync.accountId });
+    return rows.length > 0;
+  });
 }
 
 export async function saveGfgSync(accountId: string, token: string, profile: GfgProfile) {
   await db().transaction(async (transaction) => {
+    await lockRegistration(transaction, accountId, "gfg");
+    const [lease] = await transaction
+      .select()
+      .from(gfgSync)
+      .where(and(eq(gfgSync.accountId, accountId), eq(gfgSync.leaseToken, token)))
+      .for("update");
+    if (!lease) throw new Error("Refresh lease expired or service was revoked.");
     await writeGfgProfile(transaction, accountId, profile);
     const updated = await transaction
       .update(gfgSync)

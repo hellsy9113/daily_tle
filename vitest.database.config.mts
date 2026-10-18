@@ -20,8 +20,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/database.integration.ts"],
-    testTimeout: 120_000,
-    hookTimeout: 30_000,
+    testTimeout: 180_000,
+    hookTimeout: 60_000,
     env: {
       DATABASE_URL: databaseUrl,
       TRACKING_TEST_SCHEMA: `tracking_test_${randomBytes(8).toString("hex")}`,

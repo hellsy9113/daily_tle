@@ -2,10 +2,17 @@ import "server-only";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { ApiError } from "@/lib/http/api-error";
 import { db } from "@/lib/db/client";
-import { accounts, connectionTokens, deliveries, type Account } from "@/lib/db/schema";
+import {
+  accounts,
+  connectionTokens,
+  deliveries,
+  platformServices,
+  type Account,
+} from "@/lib/db/schema";
 import { getLeetCodeIdentity } from "@/lib/leetcode/user-identity";
 import { trackingBot, requireRegistrationAvailable } from "./config";
 import { hashToken, randomToken } from "./security";
+import { recordAgreement } from "./services";
 import type { ConnectionLink, TrackingStatus } from "./types";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import { platformUsername } from "./platforms";
@@ -19,21 +26,28 @@ function databaseCode(error: unknown): string | undefined {
 export async function registerUsername(account: Account, value: unknown): Promise<TrackingStatus> {
   requireRegistrationAvailable();
   if (account.leetcodeUsername)
-    throw new ApiError(409, "Your LeetCode username is already registered and cannot be changed.");
+    throw new ApiError(
+      409,
+      "Your LeetCode username is already registered. Revoke this service in Profile before registering a different username.",
+    );
   if (typeof value !== "string" || value.length > 100)
     throw new ApiError(400, "Enter a valid LeetCode username.");
   const username = await getLeetCodeIdentity(value);
   try {
-    const [registered] = await db()
-      .update(accounts)
-      .set({ leetcodeUsername: username, registeredAt: new Date() })
-      .where(and(eq(accounts.id, account.id), isNull(accounts.leetcodeUsername)))
-      .returning();
-    if (!registered)
-      throw new ApiError(
-        409,
-        "Your LeetCode username is already registered and cannot be changed.",
-      );
+    const registered = await db().transaction(async (transaction) => {
+      const [updated] = await transaction
+        .update(accounts)
+        .set({ leetcodeUsername: username, registeredAt: new Date() })
+        .where(and(eq(accounts.id, account.id), isNull(accounts.leetcodeUsername)))
+        .returning();
+      if (!updated)
+        throw new ApiError(
+          409,
+          "Your LeetCode username is already registered. Revoke this service in Profile before registering a different username.",
+        );
+      await recordAgreement(transaction, account.id, "leetcode");
+      return updated;
+    });
     return trackingStatus(registered);
   } catch (error) {
     if (databaseCode(error) === "23505")
@@ -46,6 +60,11 @@ export async function trackingStatus(
   account: Account,
   platform: ActivityPlatform = "leetcode",
 ): Promise<TrackingStatus> {
+  const [service] = await db()
+    .select()
+    .from(platformServices)
+    .where(and(eq(platformServices.accountId, account.id), eq(platformServices.platform, platform)))
+    .limit(1);
   const [latest] = await db()
     .select({
       reportDate: deliveries.reportDate,
@@ -58,6 +77,8 @@ export async function trackingStatus(
     .orderBy(desc(deliveries.reportDate))
     .limit(1);
   return {
+    paused: service?.paused ?? false,
+    registrationId: service?.registrationId ?? null,
     username: platformUsername(account, platform),
     connected: account.chatId !== null,
     status: account.status,

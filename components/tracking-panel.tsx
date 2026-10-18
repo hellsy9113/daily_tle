@@ -1,5 +1,7 @@
 "use client";
 
+import { ConsentDialog } from "./consent-dialog";
+import { AGREEMENT_VERSION, agreementClauses } from "@/lib/tracking/agreement";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ConnectionLink, TrackingStatus } from "@/lib/tracking/types";
@@ -31,7 +33,7 @@ export function TrackingPanel({
   const heading = useRef<HTMLHeadingElement>(null);
   const [status, setStatus] = useState(initialStatus);
   const [username, setUsername] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  const [agreementOpen, setAgreementOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -98,8 +100,8 @@ export function TrackingPanel({
     };
   }, [link, expired, status.connected, refresh]);
 
-  async function register(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function register() {
+    if (busy) return;
     setBusy(true);
     setError("");
     const signal = request.current?.signal;
@@ -107,11 +109,16 @@ export function TrackingPanel({
       const next = await requestJson<TrackingStatus>(statusPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({
+          username,
+          agreementVersion: AGREEMENT_VERSION,
+          acceptedAgreement: true,
+        }),
         signal,
       });
       if (!signal?.aborted) {
         setStatus(next);
+        setAgreementOpen(false);
         router.refresh();
       }
     } catch (failure) {
@@ -158,16 +165,50 @@ export function TrackingPanel({
       </div>
       <p className="sr-only" role="status" aria-live="polite">
         {status.username
-          ? `${platformLabel} tracking is enabled. Username ${status.username} is permanently registered. Telegram status: ${status.status}.`
+          ? `${platformLabel} tracking is enabled. Username ${status.username} is fixed until you revoke this service. Telegram status: ${status.status}.`
           : ""}
       </p>
-      {error && (
+      {error && !agreementOpen && (
         <p className="inline-error" role="alert">
           {error}
         </p>
       )}
+      {agreementOpen && (
+        <ConsentDialog
+          title={`${platformLabel} user agreement`}
+          acknowledgment="I agree to these terms and confirm this is my own profile."
+          confirmLabel="Accept & register"
+          busy={busy}
+          error={error}
+          onCancel={() => {
+            setAgreementOpen(false);
+            setError("");
+          }}
+          onConfirm={() => void register()}
+        >
+          <p>
+            Register <strong className="mono">{username.trim()}</strong> for{" "}
+            <strong>{platformLabel}</strong>.
+          </p>
+          <ul>
+            {agreementClauses.map((clause) => (
+              <li key={clause}>{clause}</li>
+            ))}
+          </ul>
+        </ConsentDialog>
+      )}
       {!status.username ? (
-        <form onSubmit={register} className="registration-form" aria-busy={busy}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (username.trim() && !busy) {
+              setError("");
+              setAgreementOpen(true);
+            }
+          }}
+          className="registration-form"
+          aria-busy={busy}
+        >
           <label htmlFor={`${platform}-username`}>{platformLabel} username</label>
           <input
             id={`${platform}-username`}
@@ -185,33 +226,26 @@ export function TrackingPanel({
             placeholder="your_username"
           />
           <p id="username-help" className="field-help">
-            Your username is permanent once registered. Check the spelling before continuing.
+            Your username stays fixed until you revoke the service. Check the spelling before
+            continuing.
             {platform !== "leetcode" &&
               ` Only public profile data is accessed; ${platformLabel} ownership is not verified.`}
           </p>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(event) => setConfirmed(event.target.checked)}
-              required
-              disabled={busy}
-            />
-            <span>I understand that this username cannot be changed.</span>
-          </label>
           <button
             className="button primary full-width"
             type="submit"
-            disabled={busy || !confirmed || !username.trim()}
+            disabled={busy || !username.trim()}
           >
-            {busy ? "Checking username…" : "Register permanently"}
+            Continue to agreement
           </button>
         </form>
       ) : (
         <>
           <p className="tracking-note">
-            <span className="badge badge-active">Service enabled</span> Open Dashboard from the
-            navigation to view your activity.
+            <span className={`badge ${status.paused ? "" : "badge-active"}`}>
+              {status.paused ? "Service paused" : "Service enabled"}
+            </span>{" "}
+            Open Dashboard from the navigation to view your activity.
           </p>
           <dl className="account-details">
             <div>
@@ -290,15 +324,17 @@ export function TrackingPanel({
           ) : (
             <div className="tracking-note">
               <p>
-                {status.status === "active"
-                  ? platform === "hackerrank"
-                    ? "You’re set. HackerRank recaps will arrive automatically, using available public solved activity."
-                    : platform === "gfg"
-                      ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
-                      : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
-                  : status.status === "blocked"
-                    ? "Unblock the bot in Telegram, then send /start to resume your reports."
-                    : "Send /start to the bot when you're ready to resume."}
+                {status.paused
+                  ? "This service is paused. Daily data is still saved; resume from its service card to restore activity and future recaps."
+                  : status.status === "active"
+                    ? platform === "hackerrank"
+                      ? "You’re set. HackerRank recaps will arrive automatically, using available public solved activity."
+                      : platform === "gfg"
+                        ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
+                        : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
+                    : status.status === "blocked"
+                      ? "Unblock the bot in Telegram, then send /start to resume your reports."
+                      : "Send /start to the bot when you're ready to resume."}
               </p>
               <p className="field-help">
                 Use /stop in the bot to pause. Delayed reports may arrive during the 9:30–10:30 a.m.

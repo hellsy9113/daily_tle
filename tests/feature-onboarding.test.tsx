@@ -26,6 +26,8 @@ const initial = {
   connected: false,
   status: "pending",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 } as const;
 const page = async (platform?: string) =>
   renderToStaticMarkup(await FeaturePage({ searchParams: Promise.resolve({ platform }) }));

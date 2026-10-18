@@ -1,6 +1,6 @@
 import { requireAccount } from "@/lib/auth/session";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
-import { isRecord } from "@/lib/http/validation";
+import { parseRegistration } from "@/lib/tracking/agreement";
 import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { requireSameOrigin } from "@/lib/tracking/security";
 
@@ -24,9 +24,7 @@ export async function POST(request: Request) {
     } catch {
       throw new ApiError(400, "Invalid JSON");
     }
-    if (!isRecord(body) || Object.keys(body).some((key) => key !== "username"))
-      throw new ApiError(400, "Provide only your LeetCode username.");
-    return Response.json(await registerUsername(account, body.username), { status: 201 });
+    return Response.json(await registerUsername(account, parseRegistration(body)), { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

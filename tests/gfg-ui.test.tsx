@@ -55,6 +55,8 @@ const status: TrackingStatus = {
   connected: true,
   status: "active",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 };
 let container: HTMLDivElement;
 let root: Root;
@@ -90,7 +92,7 @@ describe("GFG feature onboarding and dashboard", () => {
       await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
     );
     expect(html).toContain('for="gfg-username"');
-    expect(html).toContain("cannot be changed");
+    expect(html).toContain("stays fixed until you revoke");
     expect(trackingStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "own" }), "gfg");
   });
   it.each(["active", "paused", "blocked"] as const)(

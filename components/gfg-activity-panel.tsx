@@ -1,5 +1,6 @@
 "use client";
 
+import { ServiceControl } from "./service-control";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
@@ -13,7 +14,13 @@ const formatter = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
 });
 
-export function GfgActivityPanel({ username }: { username: string | null }) {
+export function GfgActivityPanel({
+  username,
+  registrationId,
+}: {
+  username: string | null;
+  registrationId?: string;
+}) {
   const [progress, setProgress] = useState<GfgProgress | null>(null);
   const [busy, setBusy] = useState(Boolean(username));
   const [error, setError] = useState("");
@@ -59,6 +66,11 @@ export function GfgActivityPanel({ username }: { username: string | null }) {
     >
       {username ? (
         <ActivityPanelHeader
+          controls={
+            registrationId ? (
+              <ServiceControl platform="gfg" paused={false} registrationId={registrationId} />
+            ) : undefined
+          }
           titleId="gfg-activity-title"
           platform="GFG"
           username={username}

@@ -38,6 +38,8 @@ const status: TrackingStatus = {
   connected: true,
   status: "active",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 };
 let container: HTMLDivElement;
 let root: Root;

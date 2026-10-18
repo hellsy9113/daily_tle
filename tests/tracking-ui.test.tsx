@@ -10,6 +10,8 @@ const initial: TrackingStatus = {
   connected: false,
   status: "pending",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 };
 
 describe("tracking UI states", () => {
@@ -17,9 +19,9 @@ describe("tracking UI states", () => {
     const html = renderToStaticMarkup(<TrackingPanel initialStatus={initial} />);
     expect(html).toContain('for="leetcode-username"');
     expect(html).toContain('aria-describedby="username-help"');
-    expect(html).toContain("cannot be changed");
-    expect(html).toContain('type="checkbox"');
-    expect(html).toContain("Register permanently");
+    expect(html).toContain("stays fixed until you revoke");
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).toContain("Continue to agreement");
     expect(html).toContain("disabled");
   });
   it("renders registered usernames read-only with one connection action", () => {
@@ -56,7 +58,7 @@ describe("tracking UI states", () => {
     expect(html).toContain("Could not deliver");
     expect(html).not.toMatch(/lease|database|postgres/i);
   });
-  it("provides navigation, one main landmark and logout for authenticated users", () => {
+  it("provides navigation, one main landmark and a profile link for authenticated users", () => {
     const html = renderToStaticMarkup(
       <SiteShell signedIn>
         <p>Content</p>
@@ -64,7 +66,8 @@ describe("tracking UI states", () => {
     );
     expect(html).toContain('aria-label="Main navigation"');
     expect(html).toContain('id="main-content"');
-    expect(html).toContain('action="/api/auth/logout"');
+    expect(html).not.toContain('action="/api/auth/logout"');
+    expect(html).toContain('href="/profile"');
     expect(html).toContain('href="/feature"');
     expect(html).toContain('href="/dashboard"');
     expect(html).not.toContain("Commands");

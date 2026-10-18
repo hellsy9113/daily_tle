@@ -1,3 +1,5 @@
+import { unstable_rethrow } from "next/navigation";
+import { serverAccount } from "@/lib/auth/session";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -18,9 +20,19 @@ export const metadata: Metadata = {
     "Register once and receive a daily recap of your solved LeetCode questions in Telegram.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  let theme: "light" | "dark" | undefined;
+  try {
+    theme = (await serverAccount())?.theme ?? undefined;
+  } catch (error) {
+    unstable_rethrow(error);
+  }
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html
+      data-theme={theme}
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
       <body>
         <a className="skip-link" href="#main-content">
           Skip to main content

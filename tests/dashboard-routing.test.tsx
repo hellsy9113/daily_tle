@@ -30,9 +30,38 @@ beforeEach(() => {
     connected: true,
     status: "active",
     lastDelivery: null,
+    paused: false,
+    registrationId: null,
   });
 });
 describe("connected dashboard navigation", () => {
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "replaces a paused %s calendar with a resume placeholder",
+    async (platform) => {
+      const usernames = {
+        leetcodeUsername: "lc_user",
+        gfgUsername: "gfg_user",
+        hackerRankUsername: "hr_user",
+      };
+      vi.mocked(serverAccount).mockResolvedValue({ ...account, ...usernames });
+      vi.mocked(trackingStatus).mockImplementation(async (_account, selected = "leetcode") => ({
+        username: selected === "leetcode" ? "lc_user" : selected === "gfg" ? "gfg_user" : "hr_user",
+        connected: true,
+        status: "active",
+        lastDelivery: null,
+        paused: selected === platform,
+        registrationId: "10000000-0000-4000-8000-000000000001",
+      }));
+      const html = renderToStaticMarkup(await DashboardPage());
+      expect(html).toContain("Your daily data is still saved");
+      expect(html).toContain(
+        `aria-label="Resume ${platform === "leetcode" ? "LeetCode" : platform === "gfg" ? "GFG" : "HackerRank"}"`,
+      );
+      expect(html).not.toContain(
+        `id="${platform === "leetcode" ? "activity-title" : `${platform}-activity-title`}"`,
+      );
+    },
+  );
   it.each([account, { ...account, leetcodeUsername: null, chatId: null }])(
     "redirects a signed-in homepage visitor to the dashboard",
     async (user) => {
@@ -113,6 +142,8 @@ describe("connected dashboard navigation", () => {
         connected: false,
         status: "pending",
         lastDelivery: null,
+        paused: false,
+        registrationId: null,
       });
       const page = await DashboardPage();
       expect(page.props.children.props.leetcodeEnabled).toBe(platform === "leetcode");

@@ -1,5 +1,6 @@
 "use client";
 
+import { ServiceControl } from "./service-control";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
@@ -12,7 +13,13 @@ const formatter = new Intl.DateTimeFormat("en-IN", {
   timeStyle: "short",
   timeZone: "Asia/Kolkata",
 });
-export function HackerRankActivityPanel({ username }: { username: string }) {
+export function HackerRankActivityPanel({
+  username,
+  registrationId,
+}: {
+  username: string;
+  registrationId?: string;
+}) {
   const [progress, setProgress] = useState<HackerRankProgress | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
@@ -54,6 +61,11 @@ export function HackerRankActivityPanel({ username }: { username: string }) {
       aria-busy={busy || progress?.refreshing}
     >
       <ActivityPanelHeader
+        controls={
+          registrationId ? (
+            <ServiceControl platform="hackerrank" paused={false} registrationId={registrationId} />
+          ) : undefined
+        }
         titleId="hackerrank-activity-title"
         platform="HackerRank"
         username={username}

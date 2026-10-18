@@ -18,6 +18,7 @@ vi.mock("@/lib/tracking/registration", () => ({
   createConnectionLink: vi.fn(),
 }));
 const ownAccount: Account = {
+  theme: null,
   id: "own-account",
   telegramId: 101,
   leetcodeUsername: null,
@@ -49,6 +50,8 @@ beforeEach(() => {
     connected: false,
     status: "pending",
     lastDelivery: null,
+    paused: false,
+    registrationId: null,
   });
 });
 
@@ -62,7 +65,10 @@ describe("authenticated tracking endpoints", () => {
   it("requires authentication for reads and writes", async () => {
     vi.mocked(requireAccount).mockRejectedValue(new ApiError(401, "Sign in to continue."));
     expect((await GET(new Request("http://localhost:3000/api/tracking"))).status).toBe(401);
-    expect((await POST(request({ username: "test" }))).status).toBe(401);
+    expect(
+      (await POST(request({ username: "test", acceptedAgreement: true, agreementVersion: "1" })))
+        .status,
+    ).toBe(401);
     expect(registerUsername).not.toHaveBeenCalled();
   });
   it("rejects attempts to supply another account identifier", async () => {
@@ -70,7 +76,16 @@ describe("authenticated tracking endpoints", () => {
     expect(registerUsername).not.toHaveBeenCalled();
   });
   it("rejects cross-origin mutation before accessing the account", async () => {
-    expect((await POST(request({ username: "test" }, "https://other.test"))).status).toBe(403);
+    expect(
+      (
+        await POST(
+          request(
+            { username: "test", acceptedAgreement: true, agreementVersion: "1" },
+            "https://other.test",
+          ),
+        )
+      ).status,
+    ).toBe(403);
     expect(requireAccount).not.toHaveBeenCalled();
   });
   it("registers using the authenticated identity", async () => {
@@ -79,13 +94,21 @@ describe("authenticated tracking endpoints", () => {
       connected: false,
       status: "pending",
       lastDelivery: null,
+      paused: false,
+      registrationId: null,
     });
-    expect((await POST(request({ username: "test" }))).status).toBe(201);
+    expect(
+      (await POST(request({ username: "test", acceptedAgreement: true, agreementVersion: "1" })))
+        .status,
+    ).toBe(201);
     expect(registerUsername).toHaveBeenCalledWith(ownAccount, "test");
   });
   it("preserves registration conflicts", async () => {
     vi.mocked(registerUsername).mockRejectedValue(new ApiError(409, "Already registered."));
-    expect((await POST(request({ username: "test" }))).status).toBe(409);
+    expect(
+      (await POST(request({ username: "test", acceptedAgreement: true, agreementVersion: "1" })))
+        .status,
+    ).toBe(409);
   });
   it("creates a connection link only for the session account", async () => {
     vi.mocked(createConnectionLink).mockResolvedValue({

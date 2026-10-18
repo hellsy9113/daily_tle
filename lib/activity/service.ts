@@ -1,4 +1,5 @@
 import "server-only";
+import { currentRegistration } from "@/lib/tracking/services";
 import { ApiError } from "@/lib/http/api-error";
 import type { Account } from "@/lib/db/schema";
 import { getAcceptedHistory } from "@/lib/leetcode/accepted-history";
@@ -15,10 +16,11 @@ import {
 export async function getAccountActivity(account: Account, now = new Date()) {
   if (!account.leetcodeUsername)
     throw new ApiError(409, "Enable LeetCode tracking on the Feature page first.");
+  const registration = await currentRegistration(account.id, "leetcode");
   const token = randomToken();
-  if (await claimActivitySync(account.id, token, now)) {
+  if (await claimActivitySync(account.id, token, now, registration.service.registrationId)) {
     try {
-      const history = await getAcceptedHistory(account.leetcodeUsername);
+      const history = await getAcceptedHistory(registration.username);
       await saveActivitySync(account.id, token, observeAcceptedHistory(history.submissions, now));
     } catch (error) {
       await failActivitySync(

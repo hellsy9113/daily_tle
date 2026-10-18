@@ -5,6 +5,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { db, closeDatabase } from "@/lib/db/client";
 import {
   accounts,
+  platformServices,
+  dailyCollections,
+  activitySync,
+  gfgSync,
   acceptedActivity,
   activityDays,
   activityGoals,
@@ -49,6 +53,13 @@ import {
   createConnectionLink,
   trackingStatus,
 } from "@/lib/tracking/registration";
+import { revokeService, setServicePaused } from "@/lib/tracking/services";
+import {
+  claimCollection,
+  completeCollection,
+  failCollection,
+} from "@/lib/tracking/collection-store";
+import { profileSummary } from "@/lib/profile";
 import { hashToken } from "@/lib/tracking/security";
 import { processTrackingUpdate } from "@/lib/tracking/webhook";
 import {
@@ -82,7 +93,7 @@ if (!/^tracking_test_[a-f0-9]{16}$/.test(namespace))
 const admin = postgres(process.env.DATABASE_URL!, {
   max: 1,
   prepare: false,
-  connect_timeout: 10,
+  connect_timeout: 30,
   onnotice: () => {},
 });
 const now = new Date("2026-10-13T03:00:00Z");
@@ -140,6 +151,7 @@ function leetcodeReport(username = "user_101", ids: string[] = []) {
 }
 
 beforeAll(async () => {
+  console.info("tracking_test_schema", namespace);
   for (const filename of (await readdir("migrations"))
     .filter((name) => name.endsWith(".sql"))
     .sort()) {
@@ -218,6 +230,334 @@ const record = (accountId: string, history: ReturnType<typeof accepted>[], at = 
   );
 const onDay = (result: Awaited<ReturnType<typeof readActivity>>, date: string) =>
   result.days.find((day) => day.date === date)!;
+
+describe("platform lifecycle and permanent deletion", () => {
+  it("backfills existing accounts and reports when upgrading the old schema", async () => {
+    const upgrade = `${namespace}_upgrade`;
+    try {
+      const filenames = (await readdir("migrations"))
+        .filter((name) => name.endsWith(".sql"))
+        .sort();
+      for (const name of filenames.filter((name) => name < "0006")) {
+        await admin.unsafe(
+          (await readFile(`migrations/${name}`, "utf8")).replace(/\btracking\b/g, upgrade),
+        );
+      }
+      const [legacy] = await admin.unsafe(
+        `INSERT INTO ${upgrade}.accounts (telegram_id, chat_id, status, connected_at, leetcode_username, registered_at, gfg_username, gfg_registered_at, hackerrank_username, hackerrank_registered_at) VALUES (991, 991, 'active', now(), 'legacy_lc', now(), 'legacy_gfg', now(), 'legacy_hr', now()) RETURNING id`,
+      );
+      await admin.unsafe(
+        `INSERT INTO ${upgrade}.deliveries (account_id, platform, report_date, period_start, period_end, status, messages, sent_parts, sent_at) VALUES ($1, 'leetcode', '2026-10-12', '2026-10-11T18:30:00Z', '2026-10-12T18:30:00Z', 'sent', jsonb_build_array($2::text), 1, now())`,
+        [legacy.id, EMPTY_REPORT],
+      );
+      await admin.unsafe(
+        (await readFile("migrations/0006_profile_and_services.sql", "utf8")).replace(
+          /\btracking\b/g,
+          upgrade,
+        ),
+      );
+      const services = await admin.unsafe(`SELECT * FROM ${upgrade}.platform_services`);
+      expect(services).toHaveLength(3);
+      expect(
+        services.every(
+          (service) =>
+            !service.paused &&
+            service.agreement_version === null &&
+            service.agreement_accepted_at === null,
+        ),
+      ).toBe(true);
+      const [report] = await admin.unsafe(
+        `SELECT d.registration_id, s.platform FROM ${upgrade}.deliveries d JOIN ${upgrade}.platform_services s ON d.registration_id = s.registration_id`,
+      );
+      expect(report.platform).toBe("leetcode");
+      expect(report.registration_id).toBeTruthy();
+      expect(await admin.unsafe(`SELECT * FROM ${upgrade}.report_reminders`)).toHaveLength(1);
+      await expect(
+        admin.unsafe(
+          `UPDATE ${upgrade}.accounts SET leetcode_username = 'replacement' WHERE id = $1`,
+          [legacy.id],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+    } finally {
+      await admin.unsafe(`DROP SCHEMA IF EXISTS ${upgrade} CASCADE`);
+    }
+  });
+  const freshAccount = async (id: string) =>
+    (await db().select().from(accounts).where(eq(accounts.id, id)))[0];
+  const ownRows = (
+    table:
+      | typeof acceptedActivity
+      | typeof activityDays
+      | typeof activitySync
+      | typeof gfgProblems
+      | typeof gfgSync
+      | typeof gfgSnapshots
+      | typeof hackerRankProblems
+      | typeof hackerRankSync
+      | typeof hackerRankSnapshots,
+    id: string,
+  ) => db().select().from(table).where(eq(table.accountId, id));
+  it("starts legacy registrations unpaused without fabricating agreement acceptance and persists the account theme", async () => {
+    const user = await activeAccount();
+    expect((await db().select().from(platformServices))[0]).toMatchObject({
+      paused: false,
+      agreementVersion: null,
+      agreementAcceptedAt: null,
+    });
+    await db().update(accounts).set({ theme: "dark" }).where(eq(accounts.id, user.id));
+    await registerGfg(user, "gfg_101");
+    const summary = await profileSummary(await freshAccount(user.id));
+    expect(summary.theme).toBe("dark");
+    expect(summary.services.filter((service) => service.username)).toHaveLength(2);
+    const service = (
+      await db().select().from(platformServices).where(eq(platformServices.platform, "gfg"))
+    )[0];
+    expect(service.agreementVersion).toBe("1");
+    expect(service.agreementAcceptedAt).not.toBeNull();
+  });
+  it.each(["pending", "paused", "blocked"] as const)(
+    "collects daily activity with Telegram status %s without delivering recaps",
+    async (status) => {
+      const user = status === "pending" ? await account(101, "user_101") : await activeAccount();
+      if (status !== "pending")
+        await db().update(accounts).set({ status }).where(eq(accounts.id, user.id));
+      vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(
+        leetcodeReport("user_101", ["daily-saved"]),
+      );
+      await dispatchTracking({ now, pause: async () => {} });
+      expect(await ownRows(acceptedActivity, user.id)).toHaveLength(1);
+      expect((await db().select().from(dailyCollections))[0].status).toBe("complete");
+      expect(sendTrackingMessage).not.toHaveBeenCalled();
+      expect(await db().select().from(deliveries)).toHaveLength(0);
+    },
+  );
+  it("keeps collecting a paused platform, suppresses even empty reminders, and resumes only future recaps", async () => {
+    const user = await activeAccount();
+    const service = await trackingStatus(user);
+    await prepareDeliveries(now);
+    await setServicePaused(user.id, "leetcode", service.registrationId!, true);
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(
+      leetcodeReport("user_101", ["during-pause"]),
+    );
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(await ownRows(acceptedActivity, user.id)).toHaveLength(1);
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+    expect((await db().select().from(accounts))[0].status).toBe("active");
+    await setServicePaused(user.id, "leetcode", service.registrationId!, false);
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+    expect((await readActivity(user, now)).uniqueQuestions).toBe(1);
+  });
+  it("does not repeat a shared reminder after its original platform is paused or revoked", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(leetcodeReport());
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(1);
+    const [reminder] = await db().select().from(deliveries).where(eq(deliveries.sentParts, 1));
+    const service = await trackingStatus(await freshAccount(user.id), reminder.platform);
+    await setServicePaused(user.id, reminder.platform, service.registrationId!, true);
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(1);
+    await revokeService(user.id, reminder.platform, service.registrationId!);
+    await dispatchTracking({ now, pause: async () => {} });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(1);
+  });
+  it("keeps platform controls independent of other platforms and the bot's global pause", async () => {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    const lc = await trackingStatus(await freshAccount(user.id));
+    await setServicePaused(user.id, "leetcode", lc.registrationId!, true);
+    expect((await trackingStatus(await freshAccount(user.id), "gfg")).paused).toBe(false);
+    await processTrackingUpdate({ updateId: 991, userId: 101, chatId: 101, text: "/stop" });
+    await setServicePaused(user.id, "leetcode", lc.registrationId!, false);
+    expect((await freshAccount(user.id)).status).toBe("paused");
+    await setServicePaused(user.id, "leetcode", lc.registrationId!, true);
+    await processTrackingUpdate({ updateId: 992, userId: 101, chatId: 101, text: "/start" });
+    expect((await trackingStatus(await freshAccount(user.id))).paused).toBe(true);
+  });
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "deletes every saved %s record while preserving other platforms, accounts and sessions",
+    async (platform) => {
+      const user = await activeAccount();
+      const other = await activeAccount(102);
+      await registerGfg(user, "gfg_101");
+      await registerHackerRank(user, "hr_101");
+      const current = await freshAccount(user.id);
+      await getAccountActivity(current, now);
+      await record(user.id, [accepted("my-solve", "2026-10-12T02:00:00Z")]);
+      await record(other.id, [accepted("other-solve", "2026-10-12T02:00:00Z")]);
+      for (const service of ["leetcode", "gfg", "hackerrank"] as const)
+        await saveWeeklyGoal(current, service, 5);
+      const token = await createSession(user.id);
+      await prepareDeliveries(now);
+      const service = await trackingStatus(current, platform);
+      await revokeService(user.id, platform, service.registrationId!);
+      const tables =
+        platform === "leetcode"
+          ? [acceptedActivity, activityDays, activitySync]
+          : platform === "gfg"
+            ? [gfgProblems, gfgSnapshots, gfgSync]
+            : [hackerRankProblems, hackerRankSnapshots, hackerRankSync];
+      for (const table of tables) expect(await ownRows(table, user.id)).toHaveLength(0);
+      expect(
+        await db()
+          .select()
+          .from(activityGoals)
+          .where(and(eq(activityGoals.accountId, user.id), eq(activityGoals.platform, platform))),
+      ).toHaveLength(0);
+      expect(
+        await db()
+          .select()
+          .from(deliveries)
+          .where(and(eq(deliveries.accountId, user.id), eq(deliveries.platform, platform))),
+      ).toHaveLength(0);
+      expect(
+        await db()
+          .select()
+          .from(dailyCollections)
+          .where(eq(dailyCollections.registrationId, service.registrationId!)),
+      ).toHaveLength(0);
+      expect(
+        await db()
+          .select()
+          .from(platformServices)
+          .where(eq(platformServices.registrationId, service.registrationId!)),
+      ).toHaveLength(0);
+      const remaining = await freshAccount(user.id);
+      expect((await trackingStatus(remaining, platform)).username).toBeNull();
+      expect(remaining).toMatchObject({ telegramId: 101, chatId: 101, status: "active" });
+      expect((await accountForToken(token))?.id).toBe(user.id);
+      expect(
+        (await profileSummary(remaining)).services.filter((entry) => entry.username),
+      ).toHaveLength(2);
+      expect(await ownRows(acceptedActivity, other.id)).toHaveLength(1);
+      expect(
+        await db().select().from(activityGoals).where(eq(activityGoals.accountId, user.id)),
+      ).toHaveLength(2);
+    },
+  );
+  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+    "fences old %s sync results and jobs even after re-registering",
+    async (platform) => {
+      let user = await account();
+      if (platform === "leetcode") await registerUsername(user, "user_101");
+      else if (platform === "gfg") await registerGfg(user, "gfg_101");
+      else await registerHackerRank(user, "hr_101");
+      user = await freshAccount(user.id);
+      const service = await trackingStatus(user, platform);
+      const later = new Date(now.getTime() + 6 * 60_000);
+      const claim =
+        platform === "leetcode"
+          ? claimActivitySync
+          : platform === "gfg"
+            ? claimGfgSync
+            : claimHackerRankSync;
+      expect(await claim(user.id, "old-sync", later, service.registrationId!)).toBe(true);
+      await prepareDeliveries(now);
+      const job = (await claimCollection("2026-10-12", now))!;
+      await revokeService(user.id, platform, service.registrationId!);
+      const revoked = await freshAccount(user.id);
+      if (platform === "leetcode") await registerUsername(revoked, "user_101");
+      else if (platform === "gfg") await registerGfg(revoked, "gfg_101");
+      else await registerHackerRank(revoked, "hr_101");
+      const current = await trackingStatus(await freshAccount(user.id), platform);
+      expect(current.registrationId).not.toBe(service.registrationId);
+      await expect(
+        setServicePaused(user.id, platform, service.registrationId!, true),
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(revokeService(user.id, platform, service.registrationId!)).rejects.toMatchObject(
+        { status: 409 },
+      );
+      await expect(
+        claim(user.id, "stale-claim", later, service.registrationId!),
+      ).rejects.toMatchObject({ status: 409 });
+      if (platform === "leetcode")
+        await expect(
+          saveActivitySync(
+            user.id,
+            "old-sync",
+            observeAcceptedHistory([accepted("stale", "2026-10-12T02:00:00Z")], later),
+          ),
+        ).rejects.toThrow();
+      else if (platform === "gfg")
+        await expect(
+          saveGfgSync(user.id, "old-sync", gfgProfile("gfg_101", ["stale"], later)),
+        ).rejects.toThrow();
+      else
+        await expect(
+          saveHackerRankSync(user.id, "old-sync", hrProfile("hr_101", ["stale"], later)),
+        ).rejects.toThrow();
+      await expect(
+        completeCollection(job, ["stale-report"], leetcodeReport("user_101", ["stale"])),
+      ).rejects.toMatchObject({ status: 409 });
+      const tables =
+        platform === "leetcode"
+          ? acceptedActivity
+          : platform === "gfg"
+            ? gfgProblems
+            : hackerRankProblems;
+      const saved = await ownRows(tables, user.id);
+      expect(JSON.stringify(saved)).not.toContain("stale");
+    },
+  );
+  it("rejects another account's registration ID and permits removal of the last service", async () => {
+    const user = await activeAccount();
+    const other = await activeAccount(102);
+    const service = await trackingStatus(user);
+    await expect(
+      revokeService(other.id, "leetcode", service.registrationId!),
+    ).rejects.toMatchObject({ status: 409 });
+    await revokeService(user.id, "leetcode", service.registrationId!);
+    expect(await freshAccount(user.id)).toMatchObject({
+      status: "active",
+      chatId: 101,
+      leetcodeUsername: null,
+      registeredAt: null,
+    });
+    expect((await trackingStatus(other)).username).toBe("user_102");
+    await registerUsername(await freshAccount(user.id), "new_profile");
+    expect((await trackingStatus(await freshAccount(user.id))).username).toBe("new_profile");
+  });
+  it("rolls back the entire deletion if clearing the registration fails", async () => {
+    const user = await activeAccount();
+    await record(user.id, [accepted("retained", "2026-10-12T02:00:00Z")]);
+    await saveWeeklyGoal(user, "leetcode", 5);
+    await prepareDeliveries(now);
+    const service = await trackingStatus(user);
+    await admin.unsafe(
+      `CREATE FUNCTION ${namespace}.reject_test_revoke() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.leetcode_username IS NULL THEN RAISE EXCEPTION 'test failure'; END IF; RETURN NEW; END; $$; CREATE TRIGGER reject_test_revoke BEFORE UPDATE ON ${namespace}.accounts FOR EACH ROW EXECUTE FUNCTION ${namespace}.reject_test_revoke()`,
+    );
+    try {
+      await expect(revokeService(user.id, "leetcode", service.registrationId!)).rejects.toThrow();
+      expect(await ownRows(acceptedActivity, user.id)).toHaveLength(1);
+      expect(await db().select().from(activityGoals)).toHaveLength(1);
+      expect(await db().select().from(deliveries)).toHaveLength(1);
+      expect(await db().select().from(dailyCollections)).toHaveLength(1);
+      expect((await trackingStatus(await freshAccount(user.id))).registrationId).toBe(
+        service.registrationId,
+      );
+    } finally {
+      await admin.unsafe(
+        `DROP TRIGGER reject_test_revoke ON ${namespace}.accounts; DROP FUNCTION ${namespace}.reject_test_revoke()`,
+      );
+    }
+  });
+  it("serializes collection completion with revocation without resurrecting data", async () => {
+    const user = await activeAccount();
+    const service = await trackingStatus(user);
+    await prepareDeliveries(now);
+    const job = (await claimCollection("2026-10-12", now))!;
+    const results = await Promise.allSettled([
+      completeCollection(job, ["report"], leetcodeReport("user_101", ["racing-solve"])),
+      revokeService(user.id, "leetcode", service.registrationId!),
+    ]);
+    expect(results[1].status).toBe("fulfilled");
+    expect(await ownRows(acceptedActivity, user.id)).toHaveLength(0);
+    expect(await db().select().from(deliveries)).toHaveLength(0);
+    expect(await db().select().from(dailyCollections)).toHaveLength(0);
+  });
+});
 
 describe("saved problem details and persistent weekly goals", () => {
   it("returns only the selected account's saved day and deduplicates weekly re-solves", async () => {
@@ -1325,12 +1665,27 @@ describe("Telegram account binding", () => {
 });
 
 describe("durable delivery processing", () => {
+  it("preserves the Telegram retry budget after collection failures", async () => {
+    await activeAccount();
+    await prepareDeliveries(now);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const job = (await claimCollection("2026-10-12", now))!;
+      await failCollection(job, "lookup_502", 0);
+    }
+    const job = (await claimCollection("2026-10-12", now))!;
+    expect(job.attempts).toBe(3);
+    await completeCollection(job, ["report"], leetcodeReport("user_101", ["saved"]));
+    const report = (await claimDelivery("2026-10-12", now, true, true, true))!;
+    expect(report.attempts).toBe(1);
+  });
   it("returns the latest report as the same serializable status used by the API and pages", async () => {
     const user = await activeAccount();
     await prepareDeliveries(now);
     await db().update(deliveries).set({ status: "sent", sentAt: now });
     const status = await trackingStatus(user);
     expect(status).toEqual({
+      paused: false,
+      registrationId: expect.any(String),
       username: user.leetcodeUsername,
       connected: true,
       status: "active",

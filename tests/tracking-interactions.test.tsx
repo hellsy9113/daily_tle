@@ -15,6 +15,8 @@ const initial: TrackingStatus = {
   connected: false,
   status: "pending",
   lastDelivery: null,
+  paused: false,
+  registrationId: null,
 };
 let container: HTMLDivElement;
 let root: Root;
@@ -52,14 +54,16 @@ async function enterUsername(value: string) {
   });
 }
 async function acknowledge() {
+  if (!container.querySelector("dialog"))
+    await act(() =>
+      container
+        .querySelector("form")!
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
   await act(() => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
 }
 async function submit() {
-  await act(() =>
-    container
-      .querySelector("form")!
-      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-  );
+  await click("Accept & register");
 }
 
 describe("registration and connection interactions", () => {
@@ -180,7 +184,7 @@ describe("registration and connection interactions", () => {
     expect(container.textContent).toContain("Canonical_User");
     expect(document.activeElement?.id).toBe("setup-title");
     expect(container.querySelector('[role="status"]')!.textContent).toContain(
-      "permanently registered",
+      "fixed until you revoke",
     );
   });
   it("expires a personal link, offers regeneration, and refreshes the connection", async () => {

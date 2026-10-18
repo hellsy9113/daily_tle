@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
+import { ServiceControl } from "@/components/service-control";
+import type { TrackingStatus } from "@/lib/tracking/types";
 import { TrackingPanel } from "@/components/tracking-panel";
 import { serverAccount } from "@/lib/auth/session";
 import type { Account } from "@/lib/db/schema";
@@ -46,10 +48,28 @@ export default async function FeaturePage({
   const available = registrationAvailable();
   let account: Account | null = null;
   let status;
+  const serviceStatuses: Partial<Record<ActivityPlatform, TrackingStatus>> = {};
   let unavailable = false;
   try {
     account = await serverAccount();
-    if (account && selected) status = await trackingStatus(account, selected.platform);
+    if (account) {
+      const currentAccount = account;
+      await Promise.all(
+        services
+          .filter(
+            (service) =>
+              platformUsername(currentAccount, service.platform) ||
+              selected?.platform === service.platform,
+          )
+          .map(async (service) => {
+            serviceStatuses[service.platform] = await trackingStatus(
+              currentAccount,
+              service.platform,
+            );
+          }),
+      );
+      status = selected ? serviceStatuses[selected.platform] : undefined;
+    }
   } catch (error) {
     unstable_rethrow(error);
     unavailable = true;
@@ -74,23 +94,40 @@ export default async function FeaturePage({
           {services.map((service) => {
             const username = platformUsername(account, service.platform);
             return (
-              <Link
-                className="service-card"
-                href={featurePaths[service.platform]}
-                key={service.platform}
-                aria-current={selected?.platform === service.platform ? "page" : undefined}
-              >
-                <span className={`badge ${username ? "badge-active" : ""}`}>
-                  {username ? "Enabled" : "Not enabled"}
-                </span>
-                <h2>{service.name}</h2>
+              <article className="service-card" key={service.platform}>
+                <div className="service-card-toolbar">
+                  <span
+                    className={`badge ${username && !serviceStatuses[service.platform]?.paused ? "badge-active" : ""}`}
+                  >
+                    {username
+                      ? serviceStatuses[service.platform]?.paused
+                        ? "Paused"
+                        : "Enabled"
+                      : "Not enabled"}
+                  </span>
+                  {username && serviceStatuses[service.platform]?.registrationId && (
+                    <ServiceControl
+                      platform={service.platform}
+                      paused={serviceStatuses[service.platform]!.paused}
+                      registrationId={serviceStatuses[service.platform]!.registrationId!}
+                    />
+                  )}
+                </div>
+                <h2>
+                  <Link
+                    href={featurePaths[service.platform]}
+                    aria-current={selected?.platform === service.platform ? "page" : undefined}
+                  >
+                    {service.name}
+                  </Link>
+                </h2>
                 <p>{service.description}</p>
                 {username && <span className="service-username mono">{username}</span>}
-                <span className="service-action">
+                <Link href={featurePaths[service.platform]} className="service-action">
                   {username ? "Manage service" : `Enable ${service.name}`}{" "}
                   <span aria-hidden="true">→</span>
-                </span>
-              </Link>
+                </Link>
+              </article>
             );
           })}
         </nav>
@@ -101,7 +138,11 @@ export default async function FeaturePage({
           <div className="tracking-intro">
             <p className="eyebrow">{selected.name} service</p>
             <h2>
-              {status.username ? "Your service is enabled." : `Enable ${selected.name} tracking.`}
+              {status.username
+                ? status.paused
+                  ? "Your service is paused."
+                  : "Your service is enabled."
+                : `Enable ${selected.name} tracking.`}
             </h2>
             <p className="lead">{selected.description}</p>
             <p className="field-help">{selected.coverage}</p>

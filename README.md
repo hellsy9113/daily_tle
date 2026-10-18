@@ -2,15 +2,15 @@
 
 A Next.js API server that retrieves LeetCode profiles and recent submissions,
 with an existing command bot and an independent daily-tracking bot. The website
-provides Telegram sign-in, permanent username registration, and an Accepted-activity dashboard.
+provides Telegram sign-in, platform username registration, and an Accepted-activity dashboard.
 
 ## Daily tracking setup
 
 Users sign in with Telegram and land on `/feature` to choose LeetCode,
 GeeksforGeeks, or HackerRank. Each service is enabled independently by registering
-one permanent public username. Registration makes that service's dashboard panel
+one public username that stays fixed until revocation. Registration makes that service's dashboard panel
 available immediately; no other service is enabled automatically. The public
-navigation shows **Sign in**; **Feature** and **Dashboard** appear after sign-in.
+navigation shows **Sign in**; **Feature**, **Dashboard**, and **Profile** appear after sign-in. Sign out is on Profile.
 
 Connect Daily Grind once through a personal Telegram link and tap **Start** to
 receive recaps for all enabled services. Yesterday's available problems arrive at
@@ -38,6 +38,60 @@ server-side `TELEGRAM_BOT_USERNAME` to override that public link for another dep
 no bot token is exposed to the browser. This bot answers on demand and is separate
 from the Daily Grind delivery connection.
 
+### Profile, pause, and permanent deletion
+
+Apply `0006_profile_and_services.sql` with `npm run db:migrate` **before deploying this update**.
+It adds the account theme, per-platform registration generations and consent metadata, and a
+separate durable daily-collection queue. Existing registrations start unpaused, with no
+fabricated agreement acceptance. Username replacement is still forbidden; explicit revocation
+clears both the username and its registration timestamp. Removing the last platform keeps
+the Telegram account, bot connection, and sessions.
+
+`/profile` shows account details, Light/Dark controls, service status, Sign out, and one
+**Revoke & delete data** action per registered platform. The theme is saved to the account
+and rendered on the root HTML before hydration; until a choice is saved, device colors apply.
+
+Feature cards and dashboard headers have icon-only Pause/Resume controls. Pausing hides
+that platform's dashboard behind a placeholder and cancels its unsent recaps; daily data
+continues saving. Resume reveals the retained history and restores future scheduled recaps,
+without replaying missed reports. Telegram `/stop` and `/start` remain account-wide delivery
+controls and do not change the individual platform pause choices.
+
+Registration first opens an agreement identifying the platform and username. Acceptance
+covers using only your own profile, private data storage, service providers and Telegram,
+public-history limitations, continued collection while paused, and permanent deletion on
+revocation. No registration request is made until the unchecked acknowledgment is accepted.
+All registration POST routes now require:
+
+```json
+{ "username": "your_username", "agreementVersion": "1", "acceptedAgreement": true }
+```
+
+The revocation dialog separately requires acknowledgment that saved Track.it platform data
+will be permanently deleted. Coding-platform profiles and previously delivered Telegram
+messages are outside this deletion. The server transaction deletes saved problems, coverage,
+snapshots, sync state, goals, deliveries, collection jobs, and platform consent metadata.
+Other platforms remain intact; re-registering creates a fresh generation and requires consent.
+A platform-free account/day reminder ledger prevents repeat shared reminders after a
+platform is paused or revoked. Account-row locks and generation/lease checks fence late
+sync results, report sends, and stale browser mutations. Pausing or revoking waits for any already-started report part to finish.
+
+| Method | Endpoint                            | Behavior                                                                                                   |
+| ------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/profile`                      | Session-owned account details, theme and three platform statuses                                           |
+| PATCH  | `/api/profile`                      | Save `{ "theme": "light" }` or `{ "theme": "dark" }`                                                       |
+| PATCH  | `/api/tracking/services/[platform]` | Set `{ "registrationId": "current UUID", "paused": true }`; use `false` to resume                          |
+| DELETE | `/api/tracking/services/[platform]` | Atomically revoke and delete with `{ "registrationId": "current UUID", "confirmPermanentDeletion": true }` |
+
+Tracking status responses also include `paused` and `registrationId` (null when unregistered).
+Mutations require the signed-in account and same-origin requests; client account selectors
+are rejected. A stale registration ID returns 409. Private responses use `Cache-Control: no-store`.
+
+The existing daily/recovery cron routes prepare one leased collection job per registration
+and IST report day, including pending, paused, and blocked Telegram accounts. Upstream lookup
+failures retry independently of Telegram failures. Only eligible unpaused services prepare
+recaps. Shared empty-day reminders ignore paused platforms and remain silent when all are paused.
+
 ### Accepted-activity calendar
 
 Every day uses Asia/Kolkata boundaries and counts distinct Accepted `titleSlug`s.
@@ -49,8 +103,8 @@ The authenticated `GET /api/tracking/activity` reads only the session account's
 fixed username. It reuses `recentAcSubmissionList(limit: 20)` with public user
 existence information, validates responses through the shared Accepted-history
 service, and persists observations. One refresh per account per minute is enforced
-with a database lease. Daily-report preparation also saves its Accepted problems
-and coverage in the same transaction as its message parts.
+with a database lease. Daily collection also saves its Accepted problems
+and coverage, independently of whether recaps are enabled.
 
 Public history is limited: the live API returns at most 20 entries even when
 asked for 100. Complete historical unique Accepted activity cannot be reconstructed
@@ -206,7 +260,7 @@ reminder per platform. Empty platform status is shown as **No problems found**.
 Incomplete public history adds a coverage warning to reports containing data.
 Platform lookup failures are recorded as failed attempts and prevent the shared
 reminder until recovery, rather than being treated as empty results. Telegram rate limits stop
-new work until recovery; blocked chats are disabled. A crash after Telegram accepts
+recap sends until recovery; daily collection continues. Blocked chats cannot receive recaps. A crash after Telegram accepts
 a message but before progress is saved can still produce a duplicate on retry.
 The first release targets 100 users; monitor runtime and failures before increasing
 that volume or adding a queue.
@@ -216,7 +270,7 @@ that volume or adding a queue.
 | Method | Endpoint                                                       | Behavior                                                                              |
 | ------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | GET    | `/api/tracking`                                                | Signed-in account's username, connection, and latest report status                    |
-| POST   | `/api/tracking`                                                | Permanently register `{ "username": "name" }`                                         |
+| POST   | `/api/tracking`                                                | Register with username and explicit agreement acceptance                              |
 | POST   | `/api/tracking/telegram-link`                                  | Create a personal bot link with its expiry                                            |
 | GET    | `/api/tracking/activity/day?platform=leetcode&date=2026-10-14` | Read the selected platform's saved problems for one IST date                          |
 | GET    | `/api/tracking/goal?platform=leetcode`                         | Read the account's platform-specific weekly target                                    |
@@ -234,7 +288,7 @@ statuses are preserved. Account responses do not expose chat IDs or tokens.
 
 ## Optional GeeksforGeeks feature
 
-Sign in with Telegram, choose **GeeksforGeeks** on `/feature`, and permanently
+Sign in with Telegram, choose **GeeksforGeeks** on `/feature`, and
 register one public GFG username. GFG is a separate opt-in: it works with or without a LeetCode username.
 Connect the existing Daily Grind bot if you have not already connected Telegram.
 The Feature page stays accessible after registration and shows your logged-in
@@ -293,11 +347,11 @@ silent. Retry preparation retains the stored period.
 
 ### GFG API
 
-| Method | Endpoint              | Purpose                                                |
-| ------ | --------------------- | ------------------------------------------------------ |
-| GET    | `/api/tracking/gfg`   | Signed-in account's GFG registration and report status |
-| POST   | `/api/tracking/gfg`   | Register `{ "username": "your_gfg_username" }` once    |
-| GET    | `/api/gfg/[username]` | Registered account's cached GFG progress               |
+| Method | Endpoint              | Purpose                                                  |
+| ------ | --------------------- | -------------------------------------------------------- |
+| GET    | `/api/tracking/gfg`   | Signed-in account's GFG registration and report status   |
+| POST   | `/api/tracking/gfg`   | Register with username and explicit agreement acceptance |
+| GET    | `/api/gfg/[username]` | Registered account's cached GFG progress                 |
 
 The progress endpoint requires sign-in and GFG opt-in for the same username;
 other accounts cannot access stored observations. Registration and connection
@@ -350,7 +404,7 @@ report preparation and recovery.
 ## Optional HackerRank feature
 
 Sign in with Telegram, choose **HackerRank** on `/feature` (or open
-`/feature?platform=hackerrank`), and register one public username permanently. It works independently
+`/feature?platform=hackerrank`), and register one public username until revocation. It works independently
 of LeetCode and GFG. The Feature page remains accessible with a Logged in status;
 use Dashboard in the sticky navigation to view progress. The HackerRank section
 appears only after registration, with its own 365-day calendar and saved problem
@@ -396,12 +450,12 @@ Public-profile ownership is unverified; usernames are reserved case-insensitivel
 
 ### HackerRank API
 
-| Method | Endpoint                                                         | Purpose                                                |
-| ------ | ---------------------------------------------------------------- | ------------------------------------------------------ |
-| GET    | `/api/tracking/hackerrank`                                       | Own registration and report status                     |
-| POST   | `/api/tracking/hackerrank`                                       | Permanently register `{ "username": "your_username" }` |
-| GET    | `/api/hackerrank/[username]`                                     | Own cached calendar and saved counts                   |
-| GET    | `/api/tracking/activity/day?platform=hackerrank&date=YYYY-MM-DD` | Own saved problem links for an IST day                 |
+| Method | Endpoint                                                         | Purpose                                                  |
+| ------ | ---------------------------------------------------------------- | -------------------------------------------------------- |
+| GET    | `/api/tracking/hackerrank`                                       | Own registration and report status                       |
+| POST   | `/api/tracking/hackerrank`                                       | Register with username and explicit agreement acceptance |
+| GET    | `/api/hackerrank/[username]`                                     | Own cached calendar and saved counts                     |
+| GET    | `/api/tracking/activity/day?platform=hackerrank&date=YYYY-MM-DD` | Own saved problem links for an IST day                   |
 
 All endpoints require sign-in; progress and day details require the matching opt-in.
 Responses disable caching, and registration requires a matching Origin. Saved day

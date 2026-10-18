@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ServiceControl } from "./service-control";
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
 import type { TrackingStatus } from "@/lib/tracking/types";
@@ -163,6 +164,15 @@ export function ActivityDashboard({
         >
           <ActivityPanelHeader
             titleId="activity-title"
+            controls={
+              initialStatus.registrationId && statusPlatform === "leetcode" ? (
+                <ServiceControl
+                  platform="leetcode"
+                  paused={initialStatus.paused}
+                  registrationId={initialStatus.registrationId}
+                />
+              ) : undefined
+            }
             platform="LeetCode"
             username={activity?.username ?? initialStatus.username}
             busy={busy}

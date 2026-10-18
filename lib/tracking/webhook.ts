@@ -115,7 +115,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         .update(deliveries)
         .set({ status: "cancelled", leaseToken: null, leaseUntil: null })
         .where(and(eq(deliveries.accountId, account.id), ne(deliveries.status, "sent")));
-      return "Daily tracking is paused. Send /start to resume.";
+      return "Daily recaps are paused for all services. Daily data is still saved. Send /start to resume recaps.";
     }
     const token = command[3];
     if (token) {
@@ -151,7 +151,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
     ]
       .filter(Boolean)
       .join(" and ");
-    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause.`;
+    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
   });
 }
 

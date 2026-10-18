@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, eq, gt } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { ApiError } from "@/lib/http/api-error";
@@ -41,9 +42,9 @@ export async function requireAccount(request: Request) {
   return account;
 }
 
-export async function serverAccount() {
+export const serverAccount = cache(async () => {
   return accountForToken((await cookies()).get(SESSION_COOKIE)?.value);
-}
+});
 
 export async function createSession(accountId: string) {
   const token = randomToken();

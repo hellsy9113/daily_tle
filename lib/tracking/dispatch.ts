@@ -1,4 +1,10 @@
 import "server-only";
+import {
+  claimCollection,
+  completeCollection,
+  failCollection,
+  type ClaimedCollection,
+} from "./collection-store";
 import { getHackerRankProfile } from "@/lib/hackerrank/client";
 import { readHackerRankProblems, HACKERRANK_REFRESH_MS } from "@/lib/hackerrank/store";
 import { formatHackerRankDailyReport } from "@/lib/hackerrank/format-report";
@@ -10,6 +16,7 @@ import {
   claimDelivery,
   cleanExpiredData,
   deliveryIsActive,
+  sendDeliveryPart,
   failDelivery,
   prepareDeliveries,
   prepareEmptyDayReports,
@@ -96,9 +103,12 @@ export async function dispatchTracking({
               "rate_limit",
               Math.ceil((rateLimitedUntil - Date.now()) / 1000),
             );
-          if (!(await deliveryIsActive(delivery))) return;
-          await sendTrackingMessage(delivery.chatId, messages[index]);
-          await updateDelivery(delivery, { sentParts: index + 1 });
+          if (
+            !(await sendDeliveryPart(delivery, index, () =>
+              sendTrackingMessage(delivery.chatId, messages[index]),
+            ))
+          )
+            return;
         }
         await updateDelivery(delivery, {
           status: "sent",
@@ -137,23 +147,77 @@ export async function dispatchTracking({
           );
       }
     };
+    const processCollection = async (job: ClaimedCollection) => {
+      try {
+        ensureTime(job.platform === "leetcode" ? 12_000 : 24_000);
+        if (job.platform === "gfg") {
+          const saved = await readGfgProblems(job.accountId);
+          const result = await getGfgProfile(job.username);
+          await completeCollection(
+            job,
+            formatGfgDailyReport(result, saved, new Date(job.end)),
+            result,
+          );
+        } else if (job.platform === "hackerrank") {
+          const saved = await readHackerRankProblems(job.accountId);
+          const result = await getHackerRankProfile(job.username);
+          await completeCollection(
+            job,
+            formatHackerRankDailyReport(result, saved, new Date(job.end)),
+            result,
+          );
+        } else {
+          const result = await getLastDaySolvedQuestions(job.username, new Date(job.end));
+          await completeCollection(job, formatDailyReport(result), result);
+        }
+      } catch (error) {
+        stats.failed++;
+        if (error instanceof ApiError && error.status === 429) {
+          if (job.platform === "gfg") gfgRateLimitedUntil = Date.now() + GFG_REFRESH_MS;
+          if (job.platform === "hackerrank")
+            hackerRankRateLimitedUntil = Date.now() + HACKERRANK_REFRESH_MS;
+        }
+        await failCollection(
+          job,
+          error instanceof ApiError ? `lookup_${error.status}` : "collection_interrupted",
+          error instanceof ApiError && error.status === 429 ? GFG_REFRESH_MS / 1000 : 60,
+        );
+      }
+    };
     const runWorkers = async () => {
       const workers = await Promise.allSettled(
         Array.from({ length: 10 }, async () => {
-          while (performance.now() + 12_000 < deadline && Date.now() >= rateLimitedUntil) {
-            const delivery = await claimDelivery(
+          while (performance.now() + 12_000 < deadline) {
+            const delivery =
+              Date.now() >= rateLimitedUntil
+                ? await claimDelivery(
+                    reportDate,
+                    new Date(),
+                    Date.now() >= gfgRateLimitedUntil,
+                    Date.now() >= hackerRankRateLimitedUntil,
+                    true,
+                  )
+                : null;
+            if (delivery) {
+              await processDelivery(delivery);
+              continue;
+            }
+            const job = await claimCollection(
               reportDate,
               new Date(),
               Date.now() >= gfgRateLimitedUntil,
               Date.now() >= hackerRankRateLimitedUntil,
             );
-            if (!delivery) return;
-            await processDelivery(delivery);
+            if (!job) return;
+            await processCollection(job);
           }
         }),
       );
-      if (workers.some((worker) => worker.status === "rejected"))
-        throw new ApiError(503, "Daily tracking will retry during recovery.");
+      const failedWorker = workers.find((worker) => worker.status === "rejected");
+      if (failedWorker?.status === "rejected")
+        throw Object.assign(new ApiError(503, "Daily tracking will retry during recovery."), {
+          cause: failedWorker.reason,
+        });
     };
     await runWorkers();
     if (

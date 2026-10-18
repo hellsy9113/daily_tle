@@ -1,6 +1,6 @@
 import { requireAccount } from "@/lib/auth/session";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
-import { isRecord } from "@/lib/http/validation";
+import { parseRegistration } from "@/lib/tracking/agreement";
 import { registerGfg } from "@/lib/gfg/service";
 import { trackingStatus } from "@/lib/tracking/registration";
 import { requireSameOrigin } from "@/lib/tracking/security";
@@ -25,9 +25,7 @@ export async function POST(request: Request) {
     } catch {
       throw new ApiError(400, "Invalid JSON");
     }
-    if (!isRecord(body) || Object.keys(body).some((key) => key !== "username"))
-      throw new ApiError(400, "Provide only your GFG username.");
-    return Response.json(await registerGfg(account, body.username), {
+    return Response.json(await registerGfg(account, parseRegistration(body)), {
       status: 201,
       headers: { "Cache-Control": "no-store" },
     });
