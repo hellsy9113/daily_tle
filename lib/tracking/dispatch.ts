@@ -5,11 +5,7 @@ import {
   failCollection,
   type ClaimedCollection,
 } from "./collection-store";
-import { getHackerRankProfile } from "@/lib/hackerrank/client";
-import { readHackerRankProblems, HACKERRANK_REFRESH_MS } from "@/lib/hackerrank/store";
-import { formatHackerRankDailyReport } from "@/lib/hackerrank/format-report";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
-import { getLastDaySolvedQuestions } from "@/lib/leetcode/last-day-solved";
 import {
   acquireDispatchLock,
   blockAccount,
@@ -25,13 +21,11 @@ import {
   updateDelivery,
   type ClaimedDelivery,
 } from "./delivery-store";
-import { formatDailyReport } from "./format-report";
 import { requireCron } from "./security";
 import { trackingBot } from "./config";
 import { sendTrackingMessage, TrackingTelegramError } from "./telegram-client";
-import { getGfgProfile } from "@/lib/gfg/client";
-import { GFG_REFRESH_MS, readGfgProblems } from "@/lib/gfg/store";
-import { formatGfgDailyReport } from "@/lib/gfg/format-report";
+
+import { reportCollectors } from "./reports";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -71,27 +65,11 @@ export async function dispatchTracking({
         ensureTime();
         let messages = delivery.messages;
         if (!messages) {
-          // Retry against the stored calendar period, even if the wall clock changes.
-          if (delivery.platform === "hackerrank") {
-            ensureTime(24_000);
-            const saved = await readHackerRankProblems(delivery.accountId);
-            const result = await getHackerRankProfile(delivery.username);
-            messages = formatHackerRankDailyReport(result, saved, new Date(delivery.end));
-            await prepareDeliveryReport(delivery, messages, result);
-          } else if (delivery.platform === "gfg") {
-            ensureTime(24_000);
-            const saved = await readGfgProblems(delivery.accountId);
-            const result = await getGfgProfile(delivery.username);
-            messages = formatGfgDailyReport(result, saved, new Date(delivery.end));
-            await prepareDeliveryReport(delivery, messages, result);
-          } else {
-            const result = await getLastDaySolvedQuestions(
-              delivery.username,
-              new Date(delivery.end),
-            );
-            messages = formatDailyReport(result);
-            await prepareDeliveryReport(delivery, messages, result);
-          }
+          const collector = reportCollectors[delivery.platform];
+          ensureTime(collector.reserveMs);
+          const report = await collector.collect(delivery);
+          messages = report.messages;
+          await prepareDeliveryReport(delivery, messages, report.result);
         }
         for (let index = delivery.sentParts; index < messages.length; index++) {
           ensureTime();
@@ -123,10 +101,13 @@ export async function dispatchTracking({
         if (delivery.platform === "hackerrank" && error instanceof ApiError && error.status === 429)
           hackerRankRateLimitedUntil = Math.max(
             hackerRankRateLimitedUntil,
-            Date.now() + HACKERRANK_REFRESH_MS,
+            Date.now() + reportCollectors.hackerrank.retryMs,
           );
         if (delivery.platform === "gfg" && error instanceof ApiError && error.status === 429)
-          gfgRateLimitedUntil = Math.max(gfgRateLimitedUntil, Date.now() + GFG_REFRESH_MS);
+          gfgRateLimitedUntil = Math.max(
+            gfgRateLimitedUntil,
+            Date.now() + reportCollectors.gfg.retryMs,
+          );
         if (error instanceof TrackingTelegramError && error.kind === "rate_limit")
           rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + error.retryAfter * 1000);
         if (error instanceof TrackingTelegramError && error.kind === "blocked")
@@ -142,45 +123,31 @@ export async function dispatchTracking({
             error instanceof TrackingTelegramError
               ? error.retryAfter
               : error instanceof ApiError && error.status === 429
-                ? GFG_REFRESH_MS / 1000
+                ? reportCollectors[delivery.platform].retryMs / 1000
                 : 60,
           );
       }
     };
     const processCollection = async (job: ClaimedCollection) => {
       try {
-        ensureTime(job.platform === "leetcode" ? 12_000 : 24_000);
-        if (job.platform === "gfg") {
-          const saved = await readGfgProblems(job.accountId);
-          const result = await getGfgProfile(job.username);
-          await completeCollection(
-            job,
-            formatGfgDailyReport(result, saved, new Date(job.end)),
-            result,
-          );
-        } else if (job.platform === "hackerrank") {
-          const saved = await readHackerRankProblems(job.accountId);
-          const result = await getHackerRankProfile(job.username);
-          await completeCollection(
-            job,
-            formatHackerRankDailyReport(result, saved, new Date(job.end)),
-            result,
-          );
-        } else {
-          const result = await getLastDaySolvedQuestions(job.username, new Date(job.end));
-          await completeCollection(job, formatDailyReport(result), result);
-        }
+        const collector = reportCollectors[job.platform];
+        ensureTime(collector.reserveMs);
+        const { result, messages } = await collector.collect(job);
+        await completeCollection(job, messages, result);
       } catch (error) {
         stats.failed++;
         if (error instanceof ApiError && error.status === 429) {
-          if (job.platform === "gfg") gfgRateLimitedUntil = Date.now() + GFG_REFRESH_MS;
+          if (job.platform === "gfg")
+            gfgRateLimitedUntil = Date.now() + reportCollectors.gfg.retryMs;
           if (job.platform === "hackerrank")
-            hackerRankRateLimitedUntil = Date.now() + HACKERRANK_REFRESH_MS;
+            hackerRankRateLimitedUntil = Date.now() + reportCollectors.hackerrank.retryMs;
         }
         await failCollection(
           job,
           error instanceof ApiError ? `lookup_${error.status}` : "collection_interrupted",
-          error instanceof ApiError && error.status === 429 ? GFG_REFRESH_MS / 1000 : 60,
+          error instanceof ApiError && error.status === 429
+            ? reportCollectors[job.platform].retryMs / 1000
+            : 60,
         );
       }
     };

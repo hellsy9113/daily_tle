@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { serverAccount } from "@/lib/auth/session";
-import { trackingStatus } from "@/lib/tracking/registration";
+import { trackingStatuses } from "@/lib/tracking/registration";
 import TrackingPage from "@/app/tracking/page";
 import DashboardPage from "@/app/dashboard/page";
 import Home from "@/app/page";
@@ -16,7 +16,7 @@ vi.mock("next/navigation", async () => ({
   useRouter: () => ({ replace: vi.fn() }),
 }));
 vi.mock("@/lib/auth/session", () => ({ serverAccount: vi.fn() }));
-vi.mock("@/lib/tracking/registration", () => ({ trackingStatus: vi.fn() }));
+vi.mock("@/lib/tracking/registration", () => ({ trackingStatuses: vi.fn() }));
 vi.mock("@/lib/tracking/config", () => ({
   registrationAvailable: () => true,
   trackingBot: () => ({ username: "test_bot" }),
@@ -25,13 +25,15 @@ const account = { leetcodeUsername: "fixed-user", chatId: 101, status: "active" 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(serverAccount).mockResolvedValue(account);
-  vi.mocked(trackingStatus).mockResolvedValue({
-    username: "fixed-user",
-    connected: true,
-    status: "active",
-    lastDelivery: null,
-    paused: false,
-    registrationId: null,
+  vi.mocked(trackingStatuses).mockResolvedValue({
+    leetcode: {
+      username: "fixed-user",
+      connected: true,
+      status: "active",
+      lastDelivery: null,
+      paused: false,
+      registrationId: null,
+    },
   });
 });
 describe("connected dashboard navigation", () => {
@@ -44,19 +46,24 @@ describe("connected dashboard navigation", () => {
         hackerRankUsername: "hr_user",
       };
       vi.mocked(serverAccount).mockResolvedValue({ ...account, ...usernames });
-      vi.mocked(trackingStatus).mockImplementation(async (_account, selected = "leetcode") => ({
-        username: selected === "leetcode" ? "lc_user" : selected === "gfg" ? "gfg_user" : "hr_user",
-        connected: true,
-        status: "active",
-        lastDelivery: null,
-        paused: selected === platform,
-        registrationId: "10000000-0000-4000-8000-000000000001",
-      }));
+      vi.mocked(trackingStatuses).mockImplementation(async (_account, ids = []) =>
+        Object.fromEntries(
+          ids.map((id) => [
+            id,
+            {
+              username: id === "leetcode" ? "lc_user" : id === "gfg" ? "gfg_user" : "hr_user",
+              connected: true,
+              status: "active",
+              lastDelivery: null,
+              paused: id === platform,
+              registrationId: "10000000-0000-4000-8000-000000000001",
+            },
+          ]),
+        ),
+      );
       const html = renderToStaticMarkup(await DashboardPage());
       expect(html).toContain("Your daily data is still saved");
-      expect(html).toContain(
-        `aria-label="Resume ${platform === "leetcode" ? "LeetCode" : platform === "gfg" ? "GFG" : "HackerRank"}"`,
-      );
+      expect(html).toContain(`href="/feature?platform=${platform}"`);
       expect(html).not.toContain(
         `id="${platform === "leetcode" ? "activity-title" : `${platform}-activity-title`}"`,
       );
@@ -67,7 +74,7 @@ describe("connected dashboard navigation", () => {
     async (user) => {
       vi.mocked(serverAccount).mockResolvedValue(user);
       await expect(Home()).rejects.toThrow("redirect:/dashboard");
-      expect(trackingStatus).not.toHaveBeenCalled();
+      expect(trackingStatuses).not.toHaveBeenCalled();
     },
   );
   it("keeps the public homepage available without a session", async () => {
@@ -116,12 +123,12 @@ describe("connected dashboard navigation", () => {
     async (user) => {
       vi.mocked(serverAccount).mockResolvedValue(user);
       await expect(DashboardPage()).rejects.toThrow("redirect:/feature");
-      expect(trackingStatus).not.toHaveBeenCalled();
+      expect(trackingStatuses).not.toHaveBeenCalled();
     },
   );
   it("loads only the current account's status and public bot link", async () => {
     const page = await DashboardPage();
-    expect(trackingStatus).toHaveBeenCalledExactlyOnceWith(account);
+    expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["leetcode"]);
     expect(page.props.children.props.botUrl).toBe("https://t.me/test_bot");
   });
   it.each(["leetcode", "gfg", "hackerrank"] as const)(
@@ -137,20 +144,19 @@ describe("connected dashboard navigation", () => {
         [platform === "hackerrank" ? "hackerRankUsername" : `${platform}Username`]: "fixed-user",
       } as Account;
       vi.mocked(serverAccount).mockResolvedValue(user);
-      vi.mocked(trackingStatus).mockResolvedValue({
-        username: "fixed-user",
-        connected: false,
-        status: "pending",
-        lastDelivery: null,
-        paused: false,
-        registrationId: null,
+      vi.mocked(trackingStatuses).mockResolvedValue({
+        [platform]: {
+          username: "fixed-user",
+          connected: false,
+          status: "pending",
+          lastDelivery: null,
+          paused: false,
+          registrationId: null,
+        },
       });
       const page = await DashboardPage();
-      expect(page.props.children.props.leetcodeEnabled).toBe(platform === "leetcode");
       expect(page.props.children.props.statusPlatform).toBe(platform);
-      expect(trackingStatus).toHaveBeenCalledWith(
-        ...(platform === "leetcode" ? [user] : [user, platform]),
-      );
+      expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(user, [platform]);
       const html = renderToStaticMarkup(page);
       expect(html).toContain(`href="/feature?platform=${platform}"`);
       expect(html).toContain("Connect Daily Grind");

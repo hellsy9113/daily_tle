@@ -1,42 +1,16 @@
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
-import { ServiceControl } from "@/components/service-control";
 import type { TrackingStatus } from "@/lib/tracking/types";
-import { TrackingPanel } from "@/components/tracking-panel";
+import { featureViews } from "@/components/feature-views";
 import { serverAccount } from "@/lib/auth/session";
 import type { Account } from "@/lib/db/schema";
 import { registrationAvailable } from "@/lib/tracking/config";
-import { trackingStatus } from "@/lib/tracking/registration";
-import { featurePaths, platformUsername } from "@/lib/tracking/platforms";
-import type { ActivityPlatform } from "@/lib/activity/types";
+import { trackingStatuses } from "@/lib/tracking/registration";
+import { platformUsername } from "@/lib/tracking/platforms";
+import { features as services, featurePaths, type FeatureId } from "@/lib/features/catalog";
 
 export const metadata = { title: "Choose your services · Track.it" };
-
-const services = [
-  {
-    platform: "leetcode",
-    name: "LeetCode",
-    description:
-      "Revisit Accepted problems with a daily calendar, saved links, and Telegram recaps.",
-    coverage:
-      "LeetCode exposes recent Accepted history only. Saved activity builds over time; older solves may be missing.",
-  },
-  {
-    platform: "gfg",
-    name: "GeeksforGeeks",
-    description: "Follow your solved inventory and newly observed practice in a separate calendar.",
-    coverage:
-      "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable.",
-  },
-  {
-    platform: "hackerrank",
-    name: "HackerRank",
-    description: "Keep public solved challenges, problem links, and daily recaps together.",
-    coverage:
-      "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed.",
-  },
-] satisfies { platform: ActivityPlatform; name: string; description: string; coverage: string }[];
 
 export default async function FeaturePage({
   searchParams,
@@ -44,36 +18,30 @@ export default async function FeaturePage({
   searchParams: Promise<{ error?: string; platform?: string }>;
 }) {
   const params = await searchParams;
-  const selected = services.find((service) => service.platform === params.platform);
+  const selected = services.find((service) => service.id === params.platform);
   const available = registrationAvailable();
   let account: Account | null = null;
   let status;
-  const serviceStatuses: Partial<Record<ActivityPlatform, TrackingStatus>> = {};
+  let serviceStatuses: Partial<Record<FeatureId, TrackingStatus>> = {};
   let unavailable = false;
   try {
     account = await serverAccount();
     if (account) {
       const currentAccount = account;
-      await Promise.all(
-        services
-          .filter(
-            (service) =>
-              platformUsername(currentAccount, service.platform) ||
-              selected?.platform === service.platform,
-          )
-          .map(async (service) => {
-            serviceStatuses[service.platform] = await trackingStatus(
-              currentAccount,
-              service.platform,
-            );
-          }),
-      );
-      status = selected ? serviceStatuses[selected.platform] : undefined;
+      const ids = services
+        .filter(
+          (service) => platformUsername(currentAccount, service.id) || selected?.id === service.id,
+        )
+        .map((service) => service.id);
+      if (ids.length) serviceStatuses = await trackingStatuses(currentAccount, ids);
+      status = selected ? serviceStatuses[selected.id] : undefined;
     }
   } catch (error) {
     unstable_rethrow(error);
     unavailable = true;
   }
+
+  const Setup = selected ? featureViews[selected.id].Setup : null;
 
   return (
     <SiteShell signedIn={Boolean(account)}>
@@ -81,49 +49,42 @@ export default async function FeaturePage({
         <p className="eyebrow">
           {account ? <span className="badge badge-active">Logged in</span> : "Your daily practice"}
         </p>
-        <h1>{account ? "Choose what you track." : "Your progress starts with sign-in."}</h1>
+        <h1>{account ? "Choose your services." : "Your progress starts with sign-in."}</h1>
         <p className="lead">
           {account
-            ? "Enable LeetCode, GeeksforGeeks, or HackerRank independently. Register each public username once to add its activity to your dashboard."
-            : "Sign in with Telegram, then choose the services you want to track. No coding-platform password is needed."}
+            ? "Enable services independently. Register once to use each service and manage it here."
+            : "Sign in with Telegram, then choose the services you want to use."}
         </p>
       </div>
 
       {account && (
         <nav className="service-grid" aria-label="Tracking services">
           {services.map((service) => {
-            const username = platformUsername(account, service.platform);
+            const username = platformUsername(account, service.id);
             return (
-              <article className="service-card" key={service.platform}>
+              <article className="service-card" key={service.id}>
                 <div className="service-card-toolbar">
                   <span
-                    className={`badge ${username && !serviceStatuses[service.platform]?.paused ? "badge-active" : ""}`}
+                    className={`badge ${username && !serviceStatuses[service.id]?.paused ? "badge-active" : ""}`}
                   >
                     {username
-                      ? serviceStatuses[service.platform]?.paused
+                      ? serviceStatuses[service.id]?.paused
                         ? "Paused"
                         : "Enabled"
                       : "Not enabled"}
                   </span>
-                  {username && serviceStatuses[service.platform]?.registrationId && (
-                    <ServiceControl
-                      platform={service.platform}
-                      paused={serviceStatuses[service.platform]!.paused}
-                      registrationId={serviceStatuses[service.platform]!.registrationId!}
-                    />
-                  )}
                 </div>
                 <h2>
                   <Link
-                    href={featurePaths[service.platform]}
-                    aria-current={selected?.platform === service.platform ? "page" : undefined}
+                    href={featurePaths[service.id]}
+                    aria-current={selected?.id === service.id ? "page" : undefined}
                   >
                     {service.name}
                   </Link>
                 </h2>
                 <p>{service.description}</p>
                 {username && <span className="service-username mono">{username}</span>}
-                <Link href={featurePaths[service.platform]} className="service-action">
+                <Link href={featurePaths[service.id]} className="service-action">
                   {username ? "Manage service" : `Enable ${service.name}`}{" "}
                   <span aria-hidden="true">→</span>
                 </Link>
@@ -133,7 +94,7 @@ export default async function FeaturePage({
         </nav>
       )}
 
-      {account && selected && !unavailable && status && (available || status.username) ? (
+      {account && selected && !unavailable && status && Setup && (available || status.username) ? (
         <div className="tracking-layout feature-setup">
           <div className="tracking-intro">
             <p className="eyebrow">{selected.name} service</p>
@@ -151,11 +112,7 @@ export default async function FeaturePage({
               enabled services to receive morning Telegram recaps.
             </p>
           </div>
-          <TrackingPanel
-            key={selected.platform}
-            platform={selected.platform}
-            initialStatus={status}
-          />
+          <Setup key={selected.id} platform={selected.id} initialStatus={status} />
         </div>
       ) : !account || unavailable || (selected && !status?.username && !available) ? (
         <section className="tracking-panel feature-signin" aria-labelledby="feature-signin-title">
@@ -179,7 +136,7 @@ export default async function FeaturePage({
           {available && !unavailable && !account ? (
             <a
               className="button primary full-width"
-              href={`/api/auth/telegram/login?next=${selected?.platform ?? "feature"}`}
+              href={`/api/auth/telegram/login?next=${selected?.id ?? "feature"}`}
             >
               Continue with Telegram <span aria-hidden="true">→</span>
             </a>

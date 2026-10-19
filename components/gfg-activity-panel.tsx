@@ -1,11 +1,10 @@
 "use client";
 
-import { ServiceControl } from "./service-control";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
-import { requestJson } from "@/lib/http/client";
+import { useJsonResource } from "@/lib/http/use-json-resource";
+import { featurePaths } from "@/lib/features/catalog";
 import type { GfgProgress } from "@/lib/gfg/types";
 
 const formatter = new Intl.DateTimeFormat("en-IN", {
@@ -14,50 +13,15 @@ const formatter = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
 });
 
-export function GfgActivityPanel({
-  username,
-  registrationId,
-}: {
-  username: string | null;
-  registrationId?: string;
-}) {
-  const [progress, setProgress] = useState<GfgProgress | null>(null);
-  const [busy, setBusy] = useState(Boolean(username));
-  const [error, setError] = useState("");
-  const request = useRef<AbortController | null>(null);
-  const refresh = useCallback(() => {
-    if (!username) return Promise.resolve();
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    return requestJson<GfgProgress>(`/api/gfg/${encodeURIComponent(username)}`, {
-      signal: controller.signal,
-    })
-      .then((next) => {
-        if (!controller.signal.aborted) {
-          setProgress(next);
-          setError("");
-        }
-      })
-      .catch((failure: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            failure instanceof Error ? failure.message : "Could not refresh GFG. Try again.",
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBusy(false);
-      });
-  }, [username]);
-  useEffect(() => {
-    if (username) void refresh();
-    return () => request.current?.abort();
-  }, [username, refresh]);
-  useEffect(() => {
-    if (!progress?.refreshing) return;
-    const timer = setTimeout(() => void refresh(), 2000);
-    return () => clearTimeout(timer);
-  }, [progress, refresh]);
+export function GfgActivityPanel({ username }: { username: string | null }) {
+  const {
+    data: progress,
+    busy,
+    error,
+    refresh,
+  } = useJsonResource<GfgProgress>(username ? `/api/gfg/${encodeURIComponent(username)}` : null, {
+    poll: true,
+  });
   return (
     <section
       className="activity-panel gfg-panel"
@@ -67,19 +31,15 @@ export function GfgActivityPanel({
       {username ? (
         <ActivityPanelHeader
           controls={
-            registrationId ? (
-              <ServiceControl platform="gfg" paused={false} registrationId={registrationId} />
-            ) : undefined
+            <Link className="text-button" href={featurePaths.gfg}>
+              Manage service
+            </Link>
           }
           titleId="gfg-activity-title"
           platform="GFG"
           username={username}
           busy={busy}
-          onRefresh={() => {
-            setBusy(true);
-            setError("");
-            void refresh();
-          }}
+          onRefresh={() => void refresh()}
         >
           <p>
             {progress?.dateBasis !== "earliest_available_timestamp"

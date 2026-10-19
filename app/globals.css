@@ -1200,20 +1200,6 @@ button:disabled {
     margin: 0;
   }
 }
-.setup-steps {
-  display: grid;
-  gap: 1rem;
-  padding: 0;
-  margin: 2rem 0;
-  list-style: none;
-  font-size: 0.875rem;
-}
-.setup-steps span {
-  margin-right: 1rem;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
 .tracking-panel {
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -10,12 +10,12 @@ import { buildGfgProgress } from "@/lib/gfg/progress";
 import FeaturePage from "@/app/feature/page";
 import DashboardPage from "@/app/dashboard/page";
 import { serverAccount } from "@/lib/auth/session";
-import { trackingStatus } from "@/lib/tracking/registration";
+import { trackingStatuses } from "@/lib/tracking/registration";
 import type { Account } from "@/lib/db/schema";
 import type { TrackingStatus } from "@/lib/tracking/types";
 
 vi.mock("@/lib/auth/session", () => ({ serverAccount: vi.fn() }));
-vi.mock("@/lib/tracking/registration", () => ({ trackingStatus: vi.fn() }));
+vi.mock("@/lib/tracking/registration", () => ({ trackingStatuses: vi.fn() }));
 vi.mock("@/lib/tracking/config", () => ({
   registrationAvailable: () => true,
   trackingBot: () => ({ username: "test_bot" }),
@@ -68,7 +68,7 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   vi.mocked(serverAccount).mockResolvedValue(null);
-  vi.mocked(trackingStatus).mockResolvedValue(status);
+  vi.mocked(trackingStatuses).mockResolvedValue({ leetcode: status, gfg: status });
 });
 afterEach(async () => {
   await act(() => root.unmount());
@@ -87,19 +87,21 @@ describe("GFG feature onboarding and dashboard", () => {
   });
   it("shows the separate permanent GFG registration to a signed-in account", async () => {
     vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: null } as Account);
-    vi.mocked(trackingStatus).mockResolvedValue({ ...status, username: null, connected: false });
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      gfg: { ...status, username: null, connected: false },
+    });
     const html = renderToStaticMarkup(
       await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
     );
     expect(html).toContain('for="gfg-username"');
     expect(html).toContain("stays fixed until you revoke");
-    expect(trackingStatus).toHaveBeenCalledWith(expect.objectContaining({ id: "own" }), "gfg");
+    expect(trackingStatuses).toHaveBeenCalledWith(expect.objectContaining({ id: "own" }), ["gfg"]);
   });
   it.each(["active", "paused", "blocked"] as const)(
     "keeps Feature accessible for a registered %s account and shows login status",
     async (accountStatus) => {
       vi.mocked(serverAccount).mockResolvedValue({ id: "own", gfgUsername: "gfg_user" } as Account);
-      vi.mocked(trackingStatus).mockResolvedValue({ ...status, status: accountStatus });
+      vi.mocked(trackingStatuses).mockResolvedValue({ gfg: { ...status, status: accountStatus } });
       const html = renderToStaticMarkup(
         await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
       );
@@ -119,7 +121,9 @@ describe("GFG feature onboarding and dashboard", () => {
       chatId: 101,
       status: "active",
     } as Account);
-    vi.mocked(trackingStatus).mockResolvedValue({ ...status, username: "leetcode_user" });
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      leetcode: { ...status, username: "leetcode_user" },
+    });
     const html = renderToStaticMarkup(await DashboardPage());
     expect(html).not.toContain("gfg-activity-title");
     expect(html).not.toContain("Enable GFG tracking");

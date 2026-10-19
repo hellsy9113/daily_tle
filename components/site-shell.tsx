@@ -12,7 +12,7 @@ export function SiteShell({
       <header className="site-header">
         <Link className="brand" href="/" aria-label="Track.it home">
           <span className="brand-mark" aria-hidden="true">
-            ▲
+            ⋇
           </span>{" "}
           Track.it
         </Link>

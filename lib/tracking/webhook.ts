@@ -1,5 +1,6 @@
 import "server-only";
-import { accountSetupPath } from "./platforms";
+import { accountSetupPath, registeredFeatures, platformUsername } from "./platforms";
+import { platformLabels } from "@/lib/features/catalog";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, connectionTokens, deliveries, telegramUpdates } from "@/lib/db/schema";
@@ -79,11 +80,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
       .for("update");
     const setupUrl = new URL(accountSetupPath(account), appUrl()).href;
     const setup = `Set up daily tracking at ${setupUrl}`;
-    if (
-      !account ||
-      (!account.leetcodeUsername && !account.gfgUsername && !account.hackerRankUsername)
-    )
-      return "text" in update ? setup : null;
+    if (!account || !registeredFeatures(account).length) return "text" in update ? setup : null;
     if ("blocked" in update) {
       if (account.chatId !== update.chatId) return null;
       // Telegram may deliver the membership event after /start. Joining must
@@ -144,12 +141,12 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         connectedAt: account.connectedAt ?? new Date(),
       })
       .where(eq(accounts.id, account.id));
-    const names = [
-      account.leetcodeUsername,
-      account.gfgUsername ? `GFG ${account.gfgUsername}` : null,
-      account.hackerRankUsername ? `HackerRank ${account.hackerRankUsername}` : null,
-    ]
-      .filter(Boolean)
+    const names = registeredFeatures(account)
+      .map((id) =>
+        id === "leetcode"
+          ? platformUsername(account, id)
+          : `${platformLabels[id]} ${platformUsername(account, id)}`,
+      )
       .join(" and ");
     return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
   });

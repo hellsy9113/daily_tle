@@ -1,11 +1,10 @@
 "use client";
 
-import { ServiceControl } from "./service-control";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
-import { requestJson } from "@/lib/http/client";
+import { useJsonResource } from "@/lib/http/use-json-resource";
+import { featurePaths } from "@/lib/features/catalog";
 import type { HackerRankProgress } from "@/lib/hackerrank/types";
 
 const formatter = new Intl.DateTimeFormat("en-IN", {
@@ -13,47 +12,16 @@ const formatter = new Intl.DateTimeFormat("en-IN", {
   timeStyle: "short",
   timeZone: "Asia/Kolkata",
 });
-export function HackerRankActivityPanel({
-  username,
-  registrationId,
-}: {
-  username: string;
-  registrationId?: string;
-}) {
-  const [progress, setProgress] = useState<HackerRankProgress | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState("");
-  const request = useRef<AbortController | null>(null);
-  const refresh = useCallback(() => {
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    return requestJson<HackerRankProgress>(`/api/hackerrank/${encodeURIComponent(username)}`, {
-      signal: controller.signal,
-    })
-      .then((next) => {
-        if (!controller.signal.aborted) {
-          setProgress(next);
-          setError("");
-        }
-      })
-      .catch((failure: unknown) => {
-        if (!controller.signal.aborted)
-          setError(failure instanceof Error ? failure.message : "Could not refresh HackerRank.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBusy(false);
-      });
-  }, [username]);
-  useEffect(() => {
-    void refresh();
-    return () => request.current?.abort();
-  }, [refresh]);
-  useEffect(() => {
-    if (!progress?.refreshing) return;
-    const timer = setTimeout(() => void refresh(), 2000);
-    return () => clearTimeout(timer);
-  }, [progress, refresh]);
+export function HackerRankActivityPanel({ username }: { username: string }) {
+  const {
+    data: progress,
+    busy,
+    error,
+    refresh,
+  } = useJsonResource<HackerRankProgress>(
+    username ? `/api/hackerrank/${encodeURIComponent(username)}` : null,
+    { poll: true },
+  );
   return (
     <section
       className="activity-panel"
@@ -62,19 +30,15 @@ export function HackerRankActivityPanel({
     >
       <ActivityPanelHeader
         controls={
-          registrationId ? (
-            <ServiceControl platform="hackerrank" paused={false} registrationId={registrationId} />
-          ) : undefined
+          <Link className="text-button" href={featurePaths.hackerrank}>
+            Manage service
+          </Link>
         }
         titleId="hackerrank-activity-title"
         platform="HackerRank"
         username={username}
         busy={busy}
-        onRefresh={() => {
-          setBusy(true);
-          setError("");
-          void refresh();
-        }}
+        onRefresh={() => void refresh()}
       >
         <p>
           Counts use saved public solved-challenge timestamps. Public history may be incomplete and

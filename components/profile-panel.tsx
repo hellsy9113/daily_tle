@@ -4,19 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ProfileSummary } from "@/lib/profile";
-import type { TrackingStatus } from "@/lib/tracking/types";
-import { featurePaths, platformLabels } from "@/lib/tracking/platforms";
+import { featurePaths, platformLabels } from "@/lib/features/catalog";
 import { requestJson } from "@/lib/http/client";
-import { ConsentDialog } from "./consent-dialog";
 
 export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummary }) {
   const router = useRouter();
   const [profile, setProfile] = useState(initialProfile);
-  const [selected, setSelected] = useState<ProfileSummary["services"][number] | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [themeBusy, setThemeBusy] = useState(false);
   const [error, setError] = useState("");
-  const [deleteError, setDeleteError] = useState("");
   const [notice, setNotice] = useState("");
   async function changeTheme(theme: "light" | "dark") {
     if (themeBusy) return;
@@ -39,50 +34,14 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
       setThemeBusy(false);
     }
   }
-  async function revoke() {
-    if (!selected || deleting) return;
-    setDeleting(true);
-    setDeleteError("");
-    setNotice("");
-    try {
-      const status = await requestJson<TrackingStatus>(
-        `/api/tracking/services/${selected.platform}`,
-        {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            registrationId: selected.registrationId,
-            confirmPermanentDeletion: true,
-          }),
-        },
-      );
-      setProfile((current) => ({
-        ...current,
-        services: current.services.map((service) =>
-          service.platform === selected.platform
-            ? { platform: service.platform, ...status }
-            : service,
-        ),
-      }));
-      setNotice(
-        `${platformLabels[selected.platform]} revoked. Its saved Track.it data was permanently deleted.`,
-      );
-      setSelected(null);
-      router.refresh();
-    } catch (failure) {
-      setDeleteError(
-        failure instanceof Error ? failure.message : "Could not revoke this service. Try again.",
-      );
-    } finally {
-      setDeleting(false);
-    }
-  }
   return (
     <div className="profile-layout">
       <div>
         <p className="eyebrow">Your account</p>
         <h1>Profile &amp; settings</h1>
-        <p className="lead">Manage your appearance, connected services, and saved data.</p>
+        <p className="lead">
+          Manage your account and appearance. Open Feature to manage services and saved data.
+        </p>
       </div>
       {error && (
         <p className="inline-error" role="alert">
@@ -158,8 +117,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
       <section className="tracking-panel profile-services" aria-labelledby="profile-services-title">
         <h2 id="profile-services-title">Services &amp; data</h2>
         <p className="field-help">
-          Revoking a service also permanently deletes its saved data. You can register again later
-          and start fresh.
+          Register, pause, resume, or revoke a service on its Feature page.
         </p>
         <table>
           <thead>
@@ -167,7 +125,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
               <th scope="col">Platform</th>
               <th scope="col">Username</th>
               <th scope="col">Status</th>
-              <th scope="col">Revoke &amp; delete data</th>
+              <th scope="col">Manage service</th>
             </tr>
           </thead>
           <tbody>
@@ -185,52 +143,15 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
                   </span>
                 </td>
                 <td data-label="Manage service">
-                  {service.username && service.registrationId ? (
-                    <button
-                      type="button"
-                      className="text-button danger-text"
-                      onClick={() => {
-                        setDeleteError("");
-                        setSelected(service);
-                      }}
-                    >
-                      Revoke &amp; delete data
-                    </button>
-                  ) : (
-                    <Link href={featurePaths[service.platform]}>Enable service →</Link>
-                  )}
+                  <Link className="text-button" href={featurePaths[service.platform]}>
+                    {service.username ? "Manage service" : "Enable service"}
+                  </Link>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
-      {selected && (
-        <ConsentDialog
-          title={`Revoke ${platformLabels[selected.platform]}?`}
-          acknowledgment="I understand this permanently deletes the saved data and cannot be undone."
-          confirmLabel="Revoke & permanently delete"
-          busy={deleting}
-          error={deleteError}
-          destructive
-          onCancel={() => setSelected(null)}
-          onConfirm={() => void revoke()}
-        >
-          <p>
-            Revoke <strong>{platformLabels[selected.platform]}</strong> for{" "}
-            <strong className="mono">{selected.username}</strong> and permanently delete its saved
-            activity, profiles, snapshots, goals, and report history from Track.it.
-          </p>
-          <p>
-            This cannot be undone. Daily collection and recaps stop. Other services and your
-            Track.it account are kept.
-          </p>
-          <p>
-            Your public coding-platform profile and Telegram messages already delivered are not
-            deleted. A later registration starts fresh.
-          </p>
-        </ConsentDialog>
-      )}
     </div>
   );
 }

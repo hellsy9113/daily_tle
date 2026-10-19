@@ -19,7 +19,7 @@ import {
 } from "@/lib/db/schema";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import { ApiError } from "@/lib/http/api-error";
-import { platformUsername } from "./platforms";
+import { platformUsername, platformFields } from "./platforms";
 import { AGREEMENT_VERSION } from "./agreement";
 
 export type Transaction = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
@@ -120,19 +120,14 @@ export async function revokeService(
     await tx
       .delete(activityGoals)
       .where(and(eq(activityGoals.accountId, accountId), eq(activityGoals.platform, platform)));
-    const tables =
-      platform === "leetcode"
-        ? [acceptedActivity, activityDays, activitySync]
-        : platform === "gfg"
-          ? [gfgProblems, gfgSnapshots, gfgSync]
-          : [hackerRankProblems, hackerRankSnapshots, hackerRankSync];
+    const tables = {
+      leetcode: [acceptedActivity, activityDays, activitySync],
+      gfg: [gfgProblems, gfgSnapshots, gfgSync],
+      hackerrank: [hackerRankProblems, hackerRankSnapshots, hackerRankSync],
+    }[platform];
     for (const table of tables) await tx.delete(table).where(eq(table.accountId, accountId));
-    const fields =
-      platform === "leetcode"
-        ? { leetcodeUsername: null, registeredAt: null }
-        : platform === "gfg"
-          ? { gfgUsername: null, gfgRegisteredAt: null }
-          : { hackerRankUsername: null, hackerRankRegisteredAt: null };
+    const columns = platformFields[platform];
+    const fields = { [columns.username]: null, [columns.registeredAt]: null };
     const [account] = await tx
       .update(accounts)
       .set(fields)
