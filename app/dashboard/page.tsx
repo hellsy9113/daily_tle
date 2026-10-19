@@ -23,34 +23,26 @@ export default async function DashboardPage({
   if (!registered.length) redirect("/feature");
   const statuses = await trackingStatuses(account, registered);
   const activity = registered.filter((id) => featureById[id].recaps);
-  const first = activity.find((id) => id === selected) ?? activity[0];
-  const showNotes = selected === "notes" || !first;
+  const selectedActivity = activity.find((id) => id === selected);
+  const first = selectedActivity ?? activity[0];
+  const notesRegistered = registered.includes("notes");
+  const showNotes = notesRegistered && (selected === "notes" || !first);
   return (
     <SiteShell signedIn>
       <nav className="dashboard-service-nav" aria-label="Dashboard services">
         {activity.length > 0 && (
-          <Link href="/dashboard" aria-current={!selected ? "page" : undefined}>
+          <Link href="/dashboard" aria-current={!showNotes ? "page" : undefined}>
             Activity
           </Link>
         )}
-        {registered.map((id) => (
-          <Link
-            key={id}
-            href={`/dashboard?service=${id}`}
-            aria-current={selected === id || (!first && id === "notes") ? "page" : undefined}
-          >
-            {featureById[id].label}
+        {notesRegistered && (
+          <Link href="/dashboard?service=notes" aria-current={showNotes ? "page" : undefined}>
+            Notes
           </Link>
-        ))}
+        )}
       </nav>
       {showNotes ? (
-        registered.includes("notes") ? (
-          <NotesPanel signedIn />
-        ) : (
-          <p>
-            Register Notes on the <Link href="/feature?platform=notes">Feature page</Link>.
-          </p>
-        )
+        <NotesPanel signedIn />
       ) : (
         <ActivityDashboard
           initialStatus={statuses[first]!}
@@ -58,7 +50,7 @@ export default async function DashboardPage({
           botUrl={`https://t.me/${trackingBot().username}`}
         >
           {activity
-            .filter((id) => !selected || id === selected)
+            .filter((id) => !selectedActivity || id === selectedActivity)
             .map((id) => {
               const status = statuses[id]!;
               const username = platformUsername(account, id)!;

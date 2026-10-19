@@ -893,9 +893,6 @@ button:disabled {
   font-size: 0.875rem;
   font-weight: 500;
 }
-.feature-setup {
-  padding-top: 1rem;
-}
 .feature-signin {
   max-width: 30rem;
   margin-block: 2rem;
@@ -1424,6 +1421,27 @@ button:disabled {
 .consent-dialog h2:focus {
   outline: none;
 }
+.feature-dialog {
+  width: min(46rem, calc(100vw - 2rem));
+}
+.feature-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.feature-dialog-heading h2 {
+  margin-bottom: 0;
+}
+.feature-dialog > .tracking-panel {
+  padding: 0;
+  border: 0;
+}
+.feature-dialog .feature-signin {
+  max-width: none;
+  margin: 0;
+}
 .agreement-content {
   font-size: 0.875rem;
 }
@@ -1570,6 +1588,7 @@ button:disabled {
   border-radius: 6px;
   text-decoration: none;
   color: var(--muted);
+  font-size: 0.875rem;
 }
 .dashboard-service-nav a[aria-current="page"] {
   background: var(--foreground);

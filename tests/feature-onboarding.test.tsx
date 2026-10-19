@@ -67,6 +67,7 @@ describe("service selection after Telegram sign-in", () => {
     for (const platform of ["leetcode", "gfg", "hackerrank"])
       expect(html).toContain(`href="/feature?platform=${platform}"`);
     expect(html.match(/Not enabled/g)).toHaveLength(4);
+    expect(html).not.toContain("<dialog");
     expect(html).not.toContain('name="username"');
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -76,6 +77,9 @@ describe("service selection after Telegram sign-in", () => {
     async (platform) => {
       const html = await page(platform);
       expect(html).toContain(`for="${platform}-username"`);
+      const dialog = /<dialog[\s\S]*?<\/dialog>/.exec(html)?.[0];
+      expect(dialog).toContain(`for="${platform}-username"`);
+      expect(html).not.toContain("tracking-layout feature-setup");
       expect(html.match(/name="username"/g)).toHaveLength(1);
       expect(html).toContain('aria-current="page"');
       expect(html).toContain("Logged in");

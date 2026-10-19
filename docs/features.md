@@ -3,6 +3,11 @@
 The shared workflow is sign in → register → use → pause/resume → revoke and delete.
 Keep common behavior here and feature-specific behavior in the feature's domain modules.
 
+Feature cards open registration and management in a modal dialog. Existing
+`/feature?platform=…` links open the same dialog; closing it returns to the catalog.
+Dashboard navigation contains Activity and, for registered notebooks, Notes.
+Coding-platform activity remains together under Activity.
+
 ## Where to change
 
 1. Add browser-safe metadata to `lib/features/catalog.ts`: ID, labels, description,

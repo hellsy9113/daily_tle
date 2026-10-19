@@ -37,6 +37,64 @@ beforeEach(() => {
   });
 });
 describe("connected dashboard navigation", () => {
+  it.each([false, true])(
+    "shows only Activity and registered Notes in dashboard navigation (Notes registered: %s)",
+    async (notesRegistered) => {
+      vi.mocked(serverAccount).mockResolvedValue({
+        ...account,
+        gfgUsername: "gfg_user",
+        hackerRankUsername: "hr_user",
+        notesRegisteredAt: notesRegistered ? new Date() : null,
+      });
+      vi.mocked(trackingStatuses).mockImplementation(async (_account, ids = []) =>
+        Object.fromEntries(
+          ids.map((id) => [
+            id,
+            {
+              username: id === "notes" ? "Private notebook" : "fixed-user",
+              registrationId: id,
+              paused: false,
+              connected: id !== "notes",
+              status: "active",
+              lastDelivery: null,
+            },
+          ]),
+        ),
+      );
+      const html = renderToStaticMarkup(await DashboardPage());
+      const navigation = /<nav[^>]*aria-label="Dashboard services"[^>]*>([\s\S]*?)<\/nav>/.exec(
+        html,
+      )![1];
+      const links = [...navigation.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+      expect(links).toEqual(
+        notesRegistered ? ["/dashboard", "/dashboard?service=notes"] : ["/dashboard"],
+      );
+      expect(html).toContain('id="activity-title"');
+      expect(html).toContain('id="gfg-activity-title"');
+      expect(html).toContain('id="hackerrank-activity-title"');
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it("shows Activity when an unregistered user follows a Notes dashboard link", async () => {
+    const html = renderToStaticMarkup(
+      await DashboardPage({ searchParams: Promise.resolve({ service: "notes" }) }),
+    );
+    expect(html).not.toContain('href="/dashboard?service=notes"');
+    expect(html).not.toContain('aria-label="Private notes"');
+    const current = /<a[^>]*aria-current="page"[^>]*>Activity<\/a>/.exec(html)?.[0];
+    expect(current).toContain('href="/dashboard"');
+    expect(html).toContain('id="activity-title"');
+  });
+  it("marks Notes as active when a registered user opens it", async () => {
+    vi.mocked(serverAccount).mockResolvedValue({ ...account, notesRegisteredAt: new Date() });
+    const html = renderToStaticMarkup(
+      await DashboardPage({ searchParams: Promise.resolve({ service: "notes" }) }),
+    );
+    const current = /<a[^>]*aria-current="page"[^>]*>Notes<\/a>/.exec(html)?.[0];
+    expect(current).toContain('href="/dashboard?service=notes"');
+    expect(html).toContain('aria-label="Private notes"');
+    expect(html).not.toContain('id="activity-title"');
+  });
   it("shows Notes in Dashboard navigation, not the main navigation, without requiring a bot", async () => {
     const user = { ...account, leetcodeUsername: null, notesRegisteredAt: new Date() } as Account;
     vi.mocked(serverAccount).mockResolvedValue(user);
