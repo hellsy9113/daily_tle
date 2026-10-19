@@ -4,6 +4,12 @@ A Next.js app for independent opt-in services. It currently tracks LeetCode,
 GeeksforGeeks, and HackerRank practice, with Telegram sign-in, saved activity,
 and daily recaps. The public demo, lookup APIs, and separate command bot remain available.
 
+## Private notes
+
+Create private notes with up to 100 words and separate links at `/notes`. Signed-in
+users have direct access; a registered secret code unlocks Notes only for 20 minutes
+when signed out. Apply `0007_notes.sql` before deployment. See [Notes](docs/notes.md).
+
 ## Workflow
 
 Sign in → choose a service on `/feature` → register with consent → use its dashboard.
@@ -34,6 +40,7 @@ See [tracking setup](docs/tracking.md) for Telegram credentials and registration
 
 ## Documentation
 
+- [Notes](docs/notes.md): private notes, code registration, and 20-minute guest access.
 - [Add a feature](docs/features.md): extension points, lifecycle rules, storage requirements.
 - [Tracking](docs/tracking.md): setup, consent, pause/deletion, collection and delivery guarantees.
 - [Platforms](docs/platforms.md): GFG/HackerRank APIs and public-history limitations.
@@ -50,4 +57,4 @@ npm run test:db
 
 Database tests create and drop an isolated `tracking_test_*` schema. Set
 `TEST_DATABASE_URL` to a test PostgreSQL database; CI supplies PostgreSQL automatically.
-This refactor requires no new migration or environment variable.
+Notes requires migration `0007_notes.sql`; no new environment variable is needed.

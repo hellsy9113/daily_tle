@@ -11,7 +11,8 @@ export async function GET(request: NextRequest) {
     const canonicalLogin = new URL("/api/auth/telegram/login", appUrl());
     const destination = loginDestination(request.nextUrl.searchParams.get("next"));
     const platform = new URL(destination, canonicalLogin).searchParams.get("platform");
-    if (platform) canonicalLogin.searchParams.set("next", platform);
+    if (destination === "/notes") canonicalLogin.searchParams.set("next", "notes");
+    else if (platform) canonicalLogin.searchParams.set("next", platform);
     else if (request.nextUrl.searchParams.has("next"))
       canonicalLogin.searchParams.set("next", "feature");
     if (request.nextUrl.origin !== canonicalLogin.origin)
