@@ -5,7 +5,9 @@ import { registerGfg } from "@/lib/gfg/service";
 import { registerHackerRank } from "@/lib/hackerrank/service";
 import { revokeService, setServicePaused } from "@/lib/tracking/services";
 import type { TrackingStatus } from "@/lib/tracking/types";
-import { featureIds, type FeatureId } from "./catalog";
+import { activityFeatureIds, type FeatureId, type ActivityFeatureId } from "./catalog";
+import { parseCode } from "@/lib/notes/access";
+import { manageNotes, notesStatus, registerNotes } from "@/lib/notes/service";
 import { parseRegistration } from "@/lib/tracking/agreement";
 
 export interface FeatureAdapter {
@@ -20,10 +22,10 @@ const registrations = {
   leetcode: (account, input) => registerUsername(account, input),
   gfg: (account, input) => registerGfg(account, input),
   hackerrank: (account, input) => registerHackerRank(account, input),
-} satisfies Record<FeatureId, FeatureAdapter["register"]>;
+} satisfies Record<ActivityFeatureId, FeatureAdapter["register"]>;
 
-export const featureAdapters = Object.fromEntries(
-  featureIds.map((id) => [
+const activityAdapters = Object.fromEntries(
+  activityFeatureIds.map((id) => [
     id,
     {
       parseRegistration,
@@ -36,4 +38,15 @@ export const featureAdapters = Object.fromEntries(
         revokeService(accountId, id, registrationId),
     },
   ]),
-) as Record<FeatureId, FeatureAdapter>;
+) as Record<ActivityFeatureId, FeatureAdapter>;
+
+export const featureAdapters: Record<FeatureId, FeatureAdapter> = {
+  ...activityAdapters,
+  notes: {
+    parseRegistration: parseCode,
+    register: registerNotes,
+    status: notesStatus,
+    pause: (accountId, registrationId, paused) => manageNotes(accountId, registrationId, paused),
+    revoke: (accountId, registrationId) => manageNotes(accountId, registrationId, "revoke"),
+  },
+};

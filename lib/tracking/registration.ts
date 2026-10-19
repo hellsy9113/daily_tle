@@ -8,6 +8,7 @@ import { hashToken, randomToken } from "./security";
 import { registerFeature } from "@/lib/features/registration";
 import type { ConnectionLink, TrackingStatus } from "./types";
 import { registeredFeatures } from "./platforms";
+import { featureById } from "@/lib/features/catalog";
 
 export { trackingStatus, trackingStatuses } from "@/lib/features/status";
 
@@ -25,7 +26,7 @@ export function registerUsername(account: Account, value: unknown): Promise<Trac
 }
 
 export async function createConnectionLink(account: Account): Promise<ConnectionLink> {
-  if (!registeredFeatures(account).length)
+  if (!registeredFeatures(account).some((id) => featureById[id].recaps))
     throw new ApiError(409, "Register a LeetCode, GFG, or HackerRank username first.");
   const bot = trackingBot();
   const token = randomToken();

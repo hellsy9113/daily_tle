@@ -52,11 +52,24 @@ export const features = [
     activity: true,
     recaps: true,
   },
+  {
+    id: "notes",
+    name: "Notes",
+    label: "Notes",
+    description: "Keep short thoughts and useful links in a private notebook.",
+    coverage:
+      "100 words per note, with links or search phrases stored separately. A secret code unlocks Notes only for 20 minutes when signed out.",
+    readyMessage: "Your private notebook is ready.",
+    dashboard: true,
+  },
 ] as const satisfies readonly FeatureDefinition[];
 
 export type FeatureId = (typeof features)[number]["id"];
 export type ActivityFeatureId = Extract<(typeof features)[number], { activity: true }>["id"];
 export const featureIds = features.map((feature) => feature.id);
+export const activityFeatureIds = features
+  .filter((feature) => "activity" in feature && feature.activity)
+  .map((feature) => feature.id) as ActivityFeatureId[];
 
 function featureMap<T>(value: (feature: (typeof features)[number]) => T) {
   return Object.fromEntries(features.map((feature) => [feature.id, value(feature)])) as Record<

@@ -1,6 +1,6 @@
 import "server-only";
 import { accountSetupPath, registeredFeatures, platformUsername } from "./platforms";
-import { platformLabels } from "@/lib/features/catalog";
+import { platformLabels, featureById } from "@/lib/features/catalog";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { accounts, connectionTokens, deliveries, telegramUpdates } from "@/lib/db/schema";
@@ -78,9 +78,13 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
       .where(eq(accounts.telegramId, update.userId))
       .limit(1)
       .for("update");
-    const setupUrl = new URL(accountSetupPath(account), appUrl()).href;
+    const recapIds = account
+      ? registeredFeatures(account).filter((id) => featureById[id].recaps)
+      : [];
+    const setupUrl = new URL(recapIds.length ? accountSetupPath(account) : "/feature", appUrl())
+      .href;
     const setup = `Set up daily tracking at ${setupUrl}`;
-    if (!account || !registeredFeatures(account).length) return "text" in update ? setup : null;
+    if (!account || !recapIds.length) return "text" in update ? setup : null;
     if ("blocked" in update) {
       if (account.chatId !== update.chatId) return null;
       // Telegram may deliver the membership event after /start. Joining must
@@ -141,7 +145,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         connectedAt: account.connectedAt ?? new Date(),
       })
       .where(eq(accounts.id, account.id));
-    const names = registeredFeatures(account)
+    const names = recapIds
       .map((id) =>
         id === "leetcode"
           ? platformUsername(account, id)

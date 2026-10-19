@@ -6,9 +6,11 @@ and daily recaps. The public demo, lookup APIs, and separate command bot remain 
 
 ## Private notes
 
-Create private notes with up to 100 words and separate links at `/notes`. Signed-in
-users have direct access; a registered secret code unlocks Notes only for 20 minutes
-when signed out. Apply `0007_notes.sql` before deployment. See [Notes](docs/notes.md).
+Register Notes and a 5–9 character alphanumeric code on Feature. Open the notebook
+from Dashboard's service navigation; use Add for a modal editor. Each note supports
+100 words plus links or search phrases. Signed-out code access lasts 20 minutes.
+Change the code in Manage service. Apply `0009_notes_service.sql` before deployment;
+existing notes are retained. See [Notes](docs/notes.md).
 
 ## Workflow
 
@@ -59,5 +61,5 @@ npm run test:db
 
 Database tests create and drop an isolated `tracking_test_*` schema. Set
 `TEST_DATABASE_URL` to a test PostgreSQL database; CI supplies PostgreSQL automatically.
-Notes requires migration `0007_notes.sql`; weekly recaps require `0008_weekly_recaps.sql`.
+Notes requires migrations `0007_notes.sql` and `0009_notes_service.sql`; weekly recaps require `0008_weekly_recaps.sql`.
 No new environment variable is needed.

@@ -1,13 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   NOTE_LINK_LIMIT,
   NOTE_WORD_LIMIT,
   wordCount,
+  noteLinkTarget,
   type NotesPageData,
   type SavedNote,
 } from "@/lib/notes/validation";
+import { NotesIcon, NotesIconButton } from "./notes-icons";
+import { NotesDialog } from "./notes-dialog";
+import { InfoPopover } from "./info-popover";
 
 class NotesRequestError extends Error {
   constructor(
@@ -17,7 +22,6 @@ class NotesRequestError extends Error {
     super(message);
   }
 }
-
 async function request<T>(
   path: string,
   method = "GET",
@@ -31,17 +35,11 @@ async function request<T>(
     signal,
     ...(body === undefined
       ? {}
-      : {
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
+      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new NotesRequestError(
-      data.error || "Could not save your changes. Please retry.",
-      response.status,
-    );
+    throw new NotesRequestError(data.error || "Please retry your request.", response.status);
   }
   return response.status === 204 ? (undefined as T) : response.json();
 }
@@ -53,15 +51,13 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [locked, setLocked] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const [code, setCode] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [showCode, setShowCode] = useState(false);
-  const [disableConfirm, setDisableConfirm] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [text, setText] = useState("");
   const [linksText, setLinksText] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const editor = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(false);
   const loadingRequest = useRef<AbortController | null>(null);
   const words = wordCount(text);
@@ -69,44 +65,50 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
     .split(/\r?\n/)
     .map((link) => link.trim())
     .filter(Boolean);
-
+  function clearEditor() {
+    setText("");
+    setLinksText("");
+    setEditing(null);
+    setEditorOpen(false);
+  }
   const handleError = useCallback((value: unknown) => {
     if (!mounted.current) return;
-    if (value instanceof NotesRequestError && value.status === 401) {
+    if (value instanceof NotesRequestError && [401, 403, 423].includes(value.status)) {
       setData(null);
-      setLocked(true);
+      setLocked(value.status === 401);
+      setBlocked(value.status !== 401);
+      setEditorOpen(false);
       setText("");
       setLinksText("");
       setEditing(null);
+      setDeleting(null);
     }
     setError(value instanceof Error ? value.message : "Something went wrong. Please retry.");
   }, []);
-
   const load = useCallback(() => {
     loadingRequest.current?.abort();
     const controller = new AbortController();
     loadingRequest.current = controller;
     return request<NotesPageData>("/api/notes", "GET", undefined, controller.signal)
       .then((result) => {
-        if (mounted.current && !controller.signal.aborted) {
-          setData(result);
-          setLocked(false);
-        }
+        if (!mounted.current || controller.signal.aborted) return;
+        setData(result);
+        setLocked(false);
+        setBlocked(false);
       })
-      .catch((error: unknown) => {
+      .catch((failure: unknown) => {
         if (controller.signal.aborted) return;
-        if (error instanceof NotesRequestError && error.status === 401 && !signedIn) {
+        if (failure instanceof NotesRequestError && failure.status === 401 && !signedIn) {
           if (mounted.current) {
             setData(null);
             setLocked(true);
           }
-        } else handleError(error);
+        } else handleError(failure);
       })
       .finally(() => {
         if (mounted.current && !controller.signal.aborted) setLoading(false);
       });
   }, [handleError, signedIn]);
-
   useEffect(() => {
     mounted.current = true;
     void load();
@@ -115,7 +117,6 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
       loadingRequest.current?.abort();
     };
   }, [load]);
-
   useEffect(() => {
     if (!data || data.signedIn || !data.expiresAt) return;
     const expiresAt = Date.parse(data.expiresAt);
@@ -127,6 +128,7 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
       setLinksText("");
       setEditing(null);
       setDeleting(null);
+      setEditorOpen(false);
       setCode("");
       setNotice("Your 20-minute notes session has expired. Enter your code to unlock it again.");
     }
@@ -139,7 +141,6 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
       document.removeEventListener("visibilitychange", checkExpiry);
     };
   }, [data]);
-
   async function act(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -147,19 +148,12 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
     setNotice("");
     try {
       await action();
-    } catch (error) {
-      handleError(error);
+    } catch (failure) {
+      handleError(failure);
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
-
-  function clearEditor() {
-    setText("");
-    setLinksText("");
-    setEditing(null);
-  }
-
   function saveNote(event: FormEvent) {
     event.preventDefault();
     void act(async () => {
@@ -181,45 +175,72 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
       );
       setNotice(editing ? "Note updated." : "Note saved.");
       clearEditor();
-      editor.current?.focus();
     });
   }
-
-  function submitCode(event: FormEvent) {
-    event.preventDefault();
-    if (data?.signedIn && code !== confirmation) {
-      setError("The codes do not match.");
-      return;
-    }
-    void act(async () => {
-      if (data?.signedIn) {
-        await request("/api/notes/access", "POST", { code });
-        setData({ ...data, codeEnabled: true });
-        setNotice(
-          "Code saved. Previous code sessions have been locked. Keep your code somewhere safe.",
-        );
-      } else {
-        await request("/api/notes/session", "POST", { code });
-        await load();
-      }
-      setCode("");
-      setConfirmation("");
-      setShowCode(false);
-    });
-  }
-
-  function generateCode() {
-    const bytes = crypto.getRandomValues(new Uint8Array(24));
-    const generated = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    setCode(generated);
-    setConfirmation(generated);
-    setShowCode(true);
-    setNotice("Generated a secret code. Save it somewhere safe before registering it.");
-  }
-
   return (
-    <section className="notes-space" aria-label="Private notes" aria-busy={busy || loading}>
-      {error && (
+    <section
+      className="activity-panel notes-space"
+      aria-label="Private notes"
+      aria-busy={busy || loading}
+    >
+      <div className="activity-heading">
+        <h2>Notes</h2>
+        <div className="activity-panel-actions">
+          {data && (
+            <>
+              <NotesIconButton
+                icon="add"
+                label="Add note"
+                disabled={busy}
+                onClick={() => {
+                  clearEditor();
+                  setError("");
+                  setEditorOpen(true);
+                }}
+              />
+              <NotesIconButton
+                icon="refresh"
+                label="Refresh notes"
+                disabled={busy}
+                onClick={() => void act(load)}
+              />
+              {data.signedIn ? (
+                <Link
+                  className="button secondary icon-button"
+                  title="Manage Notes service"
+                  aria-label="Manage Notes service"
+                  href="/feature?platform=notes"
+                >
+                  <NotesIcon name="key" />
+                </Link>
+              ) : (
+                <NotesIconButton
+                  icon="lock"
+                  label="Lock notes"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      await request("/api/notes/session", "DELETE");
+                      setData(null);
+                      setLocked(true);
+                      clearEditor();
+                      setDeleting(null);
+                      setNotice("Notes locked.");
+                    })
+                  }
+                />
+              )}
+            </>
+          )}
+          <InfoPopover label="Notes information">
+            Keep up to 100 words per note and 10 links or search phrases separately. Use Add to
+            write a note. Domains open directly; phrases open a search in a new tab. Register or
+            change your code in Feature → Manage service. Code sessions lock after 20 minutes; save
+            your draft before expiry. Normal sign-in has no Notes timer.
+          </InfoPopover>
+        </div>
+      </div>
+      {error && !editorOpen && !deleting && (
         <p className="inline-error" role="alert">
           {error}
         </p>
@@ -228,88 +249,151 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
         {notice}
       </p>
       {loading && <p role="status">Loading your notes…</p>}
-      {!loading && !data && !locked && (
-        <button
-          className="button"
+      {!loading && !data && !locked && !blocked && (
+        <NotesIconButton
+          icon="refresh"
+          label="Retry loading notes"
           onClick={() => {
             setLoading(true);
             setError("");
             void load();
           }}
-        >
-          Retry loading notes
-        </button>
+        />
+      )}
+      {blocked && (
+        <Link href="/feature?platform=notes" className="button secondary">
+          Manage Notes service
+        </Link>
       )}
       {!loading && locked && (
-        <div className="tracking-panel notes-access">
-          <h2>Unlock your notes</h2>
-          <p>
-            Enter the secret code you registered for Notes. It opens your notes only, for 20
-            minutes.
-          </p>
-          <form className="registration-form notes-form" onSubmit={submitCode}>
-            <label htmlFor="notes-code">Secret access code</label>
+        <form
+          className="registration-form notes-form notes-unlock"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void act(async () => {
+              await request("/api/notes/session", "POST", { code });
+              setCode("");
+              await load();
+            });
+          }}
+        >
+          <label htmlFor="notes-code">Secret code</label>
+          <div className="notes-code-row">
             <input
               id="notes-code"
               type="password"
               autoComplete="current-password"
+              minLength={5}
+              maxLength={9}
+              pattern="[A-Za-z0-9]{5,9}"
               value={code}
               onChange={(event) => setCode(event.target.value)}
-              maxLength={128}
               required
               disabled={busy}
             />
-            <button className="button" disabled={busy || !code}>
-              {busy ? "Unlocking…" : "Unlock notes"}
-            </button>
-          </form>
-          <p className="field-help">
-            First visit or forgotten code?{" "}
-            <a href="/api/auth/telegram/login?next=/notes">Sign in with Telegram</a>, then register
-            or replace your notes code.
-          </p>
-          <p className="muted">
-            Anyone with your code can read, edit, and delete your notes. Do not share it.
-          </p>
-        </div>
+            <NotesIconButton
+              type="submit"
+              icon="lock"
+              label="Unlock notes"
+              disabled={busy || !code}
+            />
+          </div>
+          <Link href="/api/auth/telegram/login?next=notes">
+            Sign in to register or manage Notes
+          </Link>
+        </form>
       )}
       {!loading && data && (
         <>
-          <div className="notes-toolbar">
-            <p>
-              {data.signedIn
-                ? "Your private notebook"
-                : "Unlocked with your notes code · automatically locks after 20 minutes"}
-            </p>
-            {!data.signedIn && (
-              <button
-                className="button"
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    await request("/api/notes/session", "DELETE");
-                    setData(null);
-                    setLocked(true);
-                    clearEditor();
-                    setDeleting(null);
-                    setNotice("Notes locked.");
-                  })
-                }
-              >
-                Lock notes
-              </button>
-            )}
-          </div>
-          {!data.signedIn && (
-            <p className="field-help">
-              Save before your session ends. Unsaved drafts are cleared when Notes locks.
-            </p>
+          {!data.notes.length && (
+            <p className="muted">No notes yet. Use the + button to add your first note.</p>
           )}
-          <form className="tracking-panel registration-form notes-form" onSubmit={saveNote}>
-            <h2>{editing ? "Edit note" : "Write a note"}</h2>
-            <label htmlFor="note-text">Note text</label>
+          <div className="notes-list">
+            {data.notes.map((note, index) => (
+              <article
+                className="note-card tracking-panel"
+                key={note.id}
+                aria-label={`Note ${index + 1}`}
+              >
+                <p className="note-content">{note.text}</p>
+                {note.links.length > 0 && (
+                  <ul className="note-links" aria-label="Saved links">
+                    {note.links.map((link) => (
+                      <li key={link}>
+                        <a
+                          href={noteLinkTarget(link)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          referrerPolicy="no-referrer"
+                        >
+                          {link.replace(/^https?:\/\//i, "")}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="note-card-footer">
+                  <time className="muted" dateTime={note.updatedAt}>
+                    {new Date(note.updatedAt).toLocaleDateString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </time>
+                  <div className="notes-actions">
+                    <NotesIconButton
+                      icon="edit"
+                      label={`Edit note ${index + 1}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setEditing(note.id);
+                        setText(note.text);
+                        setLinksText(note.links.join("\n"));
+                        setError("");
+                        setEditorOpen(true);
+                      }}
+                    />
+                    <NotesIconButton
+                      icon="delete"
+                      label={`Delete note ${index + 1}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setError("");
+                        setDeleting(note.id);
+                      }}
+                    />
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          {data.nextOffset !== null && (
+            <NotesIconButton
+              icon="arrow"
+              label="Load more notes"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  const page = await request<NotesPageData>(`/api/notes?offset=${data.nextOffset}`);
+                  setData({
+                    ...page,
+                    notes: [
+                      ...data.notes,
+                      ...page.notes.filter((note) => !data.notes.some((old) => old.id === note.id)),
+                    ],
+                  });
+                })
+              }
+            />
+          )}
+        </>
+      )}
+      {editorOpen && (
+        <NotesDialog title={editing ? "Edit note" : "Add note"} busy={busy} onClose={clearEditor}>
+          <form className="registration-form notes-form" onSubmit={saveNote}>
+            <label htmlFor="note-text">Note</label>
             <textarea
-              ref={editor}
               id="note-text"
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -324,263 +408,82 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
               className={words > NOTE_WORD_LIMIT ? "inline-error" : "field-help"}
               aria-live="polite"
             >
-              {words} / {NOTE_WORD_LIMIT} words · Links below do not count toward this limit.
+              {words} / {NOTE_WORD_LIMIT} words
             </p>
-            <label htmlFor="note-links">Links (optional)</label>
+            <div className="notes-label-row">
+              <label htmlFor="note-links">Links or searches</label>
+              <InfoPopover label="Link help">
+                Add one entry per line, up to 10. For example: example.com, a full web link, or a
+                search phrase. These do not count toward the word limit.
+              </InfoPopover>
+            </div>
             <textarea
               id="note-links"
               value={linksText}
               onChange={(event) => setLinksText(event.target.value)}
-              rows={3}
+              rows={2}
               maxLength={21000}
-              placeholder="https://example.com"
-              aria-describedby="note-links-help"
+              placeholder="example.com or a search phrase"
               disabled={busy}
             />
-            <p id="note-links-help" className="field-help">
-              One full HTTP or HTTPS link per line. Up to {NOTE_LINK_LIMIT} links.
-            </p>
-            <div className="notes-actions">
-              <button
-                className="button"
+            {error && (
+              <p className="inline-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="dialog-actions">
+              <NotesIconButton
+                type="submit"
+                icon="save"
+                label={editing ? "Update note" : "Save note"}
                 disabled={
                   busy ||
                   words > NOTE_WORD_LIMIT ||
                   links.length > NOTE_LINK_LIMIT ||
                   (!text.trim() && !links.length)
                 }
-              >
-                {busy ? "Saving…" : editing ? "Update note" : "Save note"}
-              </button>
-              {editing && (
-                <button type="button" className="button" disabled={busy} onClick={clearEditor}>
-                  Cancel editing
-                </button>
-              )}
+              />
             </div>
           </form>
-          {data.signedIn && (
-            <details className="tracking-panel notes-access">
-              <summary>Code access {data.codeEnabled ? "· enabled" : "· not registered"}</summary>
-              <p>
-                Register a secret code to open this notebook for 20 minutes without signing in to
-                Telegram. Your normal website sign-in has no notes timer. You can replace a
-                forgotten code here whenever you are signed in.
-              </p>
-              <p className="muted">
-                Anyone with the code can read, edit, or delete your notes. Choose 20–128 characters
-                or generate a code. Replacing or disabling it locks all existing code sessions.
-              </p>
-              <form className="registration-form notes-form" onSubmit={submitCode}>
-                <label htmlFor="new-notes-code">
-                  {data.codeEnabled ? "New secret code" : "Choose a secret code"}
-                </label>
-                <input
-                  id="new-notes-code"
-                  type={showCode ? "text" : "password"}
-                  autoComplete="new-password"
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                  minLength={20}
-                  maxLength={128}
-                  required
-                  disabled={busy}
-                />
-                <div className="notes-actions">
-                  <button type="button" className="button" onClick={generateCode} disabled={busy}>
-                    Generate code
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    aria-pressed={showCode}
-                    onClick={() => setShowCode(!showCode)}
-                  >
-                    {showCode ? "Hide code" : "Show code"}
-                  </button>
-                </div>
-                <label htmlFor="confirm-notes-code">Confirm secret code</label>
-                <input
-                  id="confirm-notes-code"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirmation}
-                  onChange={(event) => setConfirmation(event.target.value)}
-                  minLength={20}
-                  maxLength={128}
-                  required
-                  disabled={busy}
-                />
-                <button
-                  className="button"
-                  disabled={busy || code.length < 20 || code !== confirmation}
-                >
-                  {data.codeEnabled ? "Replace access code" : "Register access code"}
-                </button>
-              </form>
-              {data.codeEnabled && (
-                <div className="notes-actions">
-                  {disableConfirm ? (
-                    <>
-                      <p>
-                        Lock all code sessions and disable code access? Your notes will stay saved.
-                      </p>
-                      <button
-                        className="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void act(async () => {
-                            await request("/api/notes/access", "DELETE");
-                            setData({ ...data, codeEnabled: false });
-                            setDisableConfirm(false);
-                            setNotice(
-                              "Code access disabled. Your notes are still available when signed in.",
-                            );
-                          })
-                        }
-                      >
-                        Confirm disable code
-                      </button>
-                      <button
-                        className="button"
-                        disabled={busy}
-                        onClick={() => setDisableConfirm(false)}
-                      >
-                        Keep code access
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="button"
-                      disabled={busy}
-                      onClick={() => setDisableConfirm(true)}
-                    >
-                      Disable code access
-                    </button>
-                  )}
-                </div>
-              )}
-            </details>
+        </NotesDialog>
+      )}
+      {deleting && (
+        <NotesDialog title="Delete note?" busy={busy} onClose={() => setDeleting(null)}>
+          <p>This permanently deletes this note and its links.</p>
+          {error && (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
           )}
-          <section aria-labelledby="saved-notes-title">
-            <h2 id="saved-notes-title">Saved notes</h2>
-            {!data.notes.length && (
-              <p className="muted">No notes yet. Save your first thought or link above.</p>
-            )}
-            <div className="notes-list">
-              {data.notes.map((note, index) => (
-                <article
-                  className="tracking-panel note-card"
-                  key={note.id}
-                  aria-label={`Note ${index + 1}`}
-                >
-                  <p className="note-content">{note.text}</p>
-                  {note.links.length > 0 && (
-                    <ul aria-label="Saved links">
-                      {note.links.map((link) => (
-                        <li key={link}>
-                          <a
-                            href={link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            referrerPolicy="no-referrer"
-                          >
-                            {link}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <time className="muted" dateTime={note.updatedAt}>
-                    Updated {new Date(note.updatedAt).toLocaleString()}
-                  </time>
-                  <div className="notes-actions">
-                    <button
-                      className="button"
-                      disabled={busy}
-                      onClick={() => {
-                        setEditing(note.id);
-                        setText(note.text);
-                        setLinksText(note.links.join("\n"));
-                        setNotice("");
-                        editor.current?.focus();
-                      }}
-                    >
-                      Edit note {index + 1}
-                    </button>
-                    {deleting === note.id ? (
-                      <>
-                        <span>Delete this note permanently?</span>
-                        <button
-                          className="button danger"
-                          disabled={busy}
-                          onClick={() =>
-                            void act(async () => {
-                              await request(`/api/notes/${note.id}`, "DELETE");
-                              setData(
-                                (current) =>
-                                  current && {
-                                    ...current,
-                                    notes: current.notes.filter((item) => item.id !== note.id),
-                                    nextOffset:
-                                      current.nextOffset === null ? null : current.nextOffset - 1,
-                                  },
-                              );
-                              if (editing === note.id) clearEditor();
-                              setDeleting(null);
-                              setNotice("Note deleted.");
-                            })
-                          }
-                        >
-                          Confirm delete
-                        </button>
-                        <button
-                          className="button"
-                          disabled={busy}
-                          onClick={() => setDeleting(null)}
-                        >
-                          Keep note
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="button"
-                        disabled={busy}
-                        onClick={() => setDeleting(note.id)}
-                      >
-                        Delete note {index + 1}
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-            {data.nextOffset !== null && (
-              <button
-                className="button"
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    const page = await request<NotesPageData>(
-                      `/api/notes?offset=${data.nextOffset}`,
-                    );
-                    setData({
-                      ...page,
-                      notes: [
-                        ...data.notes,
-                        ...page.notes.filter(
-                          (note) => !data.notes.some((old) => old.id === note.id),
-                        ),
-                      ],
-                    });
-                  })
-                }
-              >
-                Load more notes
-              </button>
-            )}
-          </section>
-        </>
+          <div className="dialog-actions">
+            <NotesIconButton
+              icon="close"
+              label="Keep note"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            />
+            <NotesIconButton
+              icon="delete"
+              label="Confirm delete"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  await request(`/api/notes/${deleting}`, "DELETE");
+                  setData(
+                    (current) =>
+                      current && {
+                        ...current,
+                        notes: current.notes.filter((note) => note.id !== deleting),
+                        nextOffset: current.nextOffset === null ? null : current.nextOffset - 1,
+                      },
+                  );
+                  setDeleting(null);
+                  setNotice("Note deleted.");
+                })
+              }
+            />
+          </div>
+        </NotesDialog>
       )}
     </section>
   );
