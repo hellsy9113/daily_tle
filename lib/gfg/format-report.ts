@@ -1,4 +1,7 @@
-import { getPreviousCalendarPeriod } from "@/lib/leetcode/calendar-periods";
+import {
+  getPreviousCalendarPeriod,
+  type CalendarPeriodRange,
+} from "@/lib/leetcode/calendar-periods";
 import { splitMessage } from "@/lib/telegram/format-submissions";
 import type { GfgProblem, GfgProfile, StoredGfgProblem } from "./types";
 
@@ -9,8 +12,9 @@ export function formatGfgDailyReport(
   profile: GfgProfile,
   saved: StoredGfgProblem[],
   periodEnd: Date,
+  weeklyRange?: CalendarPeriodRange,
 ) {
-  const range = getPreviousCalendarPeriod("lastday", periodEnd);
+  const range = weeklyRange ?? getPreviousCalendarPeriod("lastday", periodEnd);
   const known = new Map<string, GfgProblem>(saved.map((problem) => [problem.id, problem]));
   for (const problem of profile.problems) {
     const previous = known.get(problem.id)?.acceptedAt;
@@ -34,24 +38,40 @@ export function formatGfgDailyReport(
       Date.parse(problem.firstObservedAt) >= range.start.getTime() &&
       Date.parse(problem.firstObservedAt) < range.end.getTime(),
   );
-  if (!dated.length && !observedYesterday.length) return [];
+  if (!weeklyRange && !dated.length && !observedYesterday.length) return [];
   const date = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeZone: "Asia/Kolkata",
   }).format(range.start);
+  const weekEnd = new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  }).format(range.end);
+  const period = weeklyRange ? "this week's period" : "yesterday's period";
   const sections = [
-    `GFG daily recap for ${profile.username}\n${date} (Asia/Kolkata)`,
+    weeklyRange
+      ? `GFG weekly recap for ${profile.username}\n${date} – ${weekEnd} (Asia/Kolkata; Sunday cutoff)`
+      : `GFG daily recap for ${profile.username}\n${date} (Asia/Kolkata)`,
     `Total solved on the public profile: ${profile.totalSolved}.`,
     dated.length
-      ? `${dated.length} unique problems have an available accepted timestamp in yesterday's period. First-ever acceptance and complete history are not guaranteed.`
-      : "Yesterday's exact solved count is unavailable: GFG's reported timestamps do not include a timezone.",
+      ? `${dated.length} unique problems have an available accepted timestamp in ${period}. First-ever acceptance and complete history are not guaranteed.`
+      : `${weeklyRange ? "This week's" : "Yesterday's"} exact solved count is unavailable: GFG's reported timestamps do not include a timezone.`,
   ];
   sections.push(...dated.map(problemLine));
   if (observedYesterday.length) {
-    sections.push("Newly observed during yesterday's checks (solve dates unverified):");
+    sections.push(
+      weeklyRange
+        ? "Newly observed during this week's checks (solve dates unverified):"
+        : "Newly observed during yesterday's checks (solve dates unverified):",
+    );
     sections.push(...observedYesterday.map(problemLine));
   }
   if (!profile.historyComplete)
     sections.push("Coverage warning: the available solved inventory is incomplete.");
+  if (weeklyRange && !dated.length && !observedYesterday.length)
+    sections.push(
+      "No matching problems were found in saved activity for this period; this does not prove zero solves.",
+    );
   return splitMessage(sections.join("\n\n"));
 }

@@ -3,6 +3,8 @@
   "fluid": true,
   "crons": [
     { "path": "/api/cron/tracking/daily", "schedule": "0 3 * * *" },
-    { "path": "/api/cron/tracking/retry", "schedule": "0 4 * * *" }
+    { "path": "/api/cron/tracking/retry", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/tracking/weekly", "schedule": "30 17 * * 0" },
+    { "path": "/api/cron/tracking/weekly-retry", "schedule": "0 18 * * 0" }
   ]
 }
