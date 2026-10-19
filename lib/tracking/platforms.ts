@@ -1,34 +1,20 @@
 import type { Account } from "@/lib/db/schema";
-import type { ActivityPlatform } from "@/lib/activity/types";
+import { featureIds, featurePaths, type FeatureId } from "@/lib/features/catalog";
 
-export const platformLabels: Record<ActivityPlatform, string> = {
-  leetcode: "LeetCode",
-  gfg: "GFG",
-  hackerrank: "HackerRank",
-};
-export const statusPaths: Record<ActivityPlatform, string> = {
-  leetcode: "/api/tracking",
-  gfg: "/api/tracking/gfg",
-  hackerrank: "/api/tracking/hackerrank",
-};
-export const featurePaths = {
-  leetcode: "/feature?platform=leetcode",
-  gfg: "/feature?platform=gfg",
-  hackerrank: "/feature?platform=hackerrank",
-} as const satisfies Record<ActivityPlatform, string>;
-export function platformUsername(account: Account, platform: ActivityPlatform) {
-  return platform === "hackerrank"
-    ? account.hackerRankUsername
-    : platform === "gfg"
-      ? account.gfgUsername
-      : account.leetcodeUsername;
+/** The existing schema is intentionally isolated here; new storage requires a migration. */
+export const platformFields = {
+  leetcode: { username: "leetcodeUsername", registeredAt: "registeredAt" },
+  gfg: { username: "gfgUsername", registeredAt: "gfgRegisteredAt" },
+  hackerrank: { username: "hackerRankUsername", registeredAt: "hackerRankRegisteredAt" },
+} as const satisfies Record<FeatureId, { username: keyof Account; registeredAt: keyof Account }>;
+
+export function platformUsername(account: Account, platform: FeatureId) {
+  return account[platformFields[platform].username];
+}
+export function registeredFeatures(account: Account) {
+  return featureIds.filter((id) => platformUsername(account, id));
 }
 export function accountSetupPath(account?: Account | null) {
-  return account?.leetcodeUsername
-    ? featurePaths.leetcode
-    : account?.gfgUsername
-      ? featurePaths.gfg
-      : account?.hackerRankUsername
-        ? featurePaths.hackerrank
-        : "/feature";
+  const first = account && registeredFeatures(account)[0];
+  return first ? featurePaths[first] : "/feature";
 }

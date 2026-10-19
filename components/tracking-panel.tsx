@@ -1,14 +1,15 @@
 "use client";
 
 import { ConsentDialog } from "./consent-dialog";
+import { ServiceManagement } from "./service-control";
 import { AGREEMENT_VERSION, agreementClauses } from "@/lib/tracking/agreement";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ConnectionLink, TrackingStatus } from "@/lib/tracking/types";
 import { accountStatusLabels, deliveryStatusLabels } from "@/lib/tracking/presentation";
 import { requestJson } from "@/lib/http/client";
-import type { ActivityPlatform } from "@/lib/activity/types";
-import { platformLabels, statusPaths } from "@/lib/tracking/platforms";
+import type { FeatureId } from "@/lib/features/catalog";
+import { featureById, platformLabels, statusPaths } from "@/lib/features/catalog";
 
 const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -23,7 +24,7 @@ export function TrackingPanel({
   platform = "leetcode",
 }: {
   initialStatus: TrackingStatus;
-  platform?: ActivityPlatform;
+  platform?: FeatureId;
 }) {
   const platformLabel = platformLabels[platform];
   const statusPath = statusPaths[platform];
@@ -37,6 +38,7 @@ export function TrackingPanel({
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [link, setLink] = useState<ConnectionLink | null>(null);
   const [expired, setExpired] = useState(false);
 
@@ -118,6 +120,7 @@ export function TrackingPanel({
       });
       if (!signal?.aborted) {
         setStatus(next);
+        setNotice("");
         setAgreementOpen(false);
         router.refresh();
       }
@@ -163,6 +166,11 @@ export function TrackingPanel({
           {status.username ? `${platformLabel} tracking` : `Add your ${platformLabel} username`}
         </h2>
       </div>
+      {notice && (
+        <p className="profile-notice" role="status">
+          {notice}
+        </p>
+      )}
       <p className="sr-only" role="status" aria-live="polite">
         {status.username
           ? `${platformLabel} tracking is enabled. Username ${status.username} is fixed until you revoke this service. Telegram status: ${status.status}.`
@@ -276,6 +284,21 @@ export function TrackingPanel({
               </dd>
             </div>
           </dl>
+          <ServiceManagement
+            platform={platform}
+            status={status}
+            onChange={(next) => {
+              setStatus(next);
+              if (!next.username) {
+                setUsername("");
+                setLink(null);
+                setError("");
+                setNotice(
+                  `${platformLabel} revoked. Its saved Track.it data was permanently deleted.`,
+                );
+              }
+            }}
+          />
           {!status.connected ? (
             <div className="connect-area">
               <p>
@@ -327,11 +350,7 @@ export function TrackingPanel({
                 {status.paused
                   ? "This service is paused. Daily data is still saved; resume from its service card to restore activity and future recaps."
                   : status.status === "active"
-                    ? platform === "hackerrank"
-                      ? "You’re set. HackerRank recaps will arrive automatically, using available public solved activity."
-                      : platform === "gfg"
-                        ? "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed."
-                        : "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed."
+                    ? featureById[platform].readyMessage
                     : status.status === "blocked"
                       ? "Unblock the bot in Telegram, then send /start to resume your reports."
                       : "Send /start to the bot when you're ready to resume."}

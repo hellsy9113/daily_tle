@@ -8,7 +8,12 @@ import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { registerGfg } from "@/lib/gfg/service";
 import { registerHackerRank } from "@/lib/hackerrank/service";
 import { GET as profile, PATCH as theme } from "@/app/api/profile/route";
-import { PATCH as pause, DELETE as revoke } from "@/app/api/tracking/services/[platform]/route";
+import {
+  GET as serviceStatus,
+  POST as serviceRegister,
+  PATCH as pause,
+  DELETE as revoke,
+} from "@/app/api/tracking/services/[platform]/route";
 import { POST as leetcode } from "@/app/api/tracking/route";
 import { POST as gfg } from "@/app/api/tracking/gfg/route";
 import { POST as hackerrank } from "@/app/api/tracking/hackerrank/route";
@@ -174,5 +179,75 @@ describe.each([
       ).status,
     ).toBe(201);
     expect(save).toHaveBeenCalledExactlyOnceWith(account, "own");
+  });
+});
+
+describe.each([
+  ["leetcode", leetcode, registerUsername],
+  ["gfg", gfg, registerGfg],
+  ["hackerrank", hackerrank, registerHackerRank],
+] as const)("consolidated %s lifecycle routes", (id, legacy, save) => {
+  it("preserves legacy registration responses and keeps both private", async () => {
+    const body = { username: "own", acceptedAgreement: true, agreementVersion: "1" };
+    const old = await legacy(request(body, "POST"));
+    const next = await serviceRegister(request(body, "POST"), context(id));
+    expect(next.status).toBe(201);
+    expect(next.headers.get("cache-control")).toBe("no-store");
+    expect(old.headers.get("cache-control")).toBe("no-store");
+    expect(await next.json()).toEqual(await old.json());
+    expect(save).toHaveBeenLastCalledWith(account, "own");
+  });
+  it("returns session-owned status without permitting an account selector", async () => {
+    const response = await serviceStatus(
+      new Request("http://localhost/api/tracking/services/" + id + "?accountId=other"),
+      context(id),
+    );
+    expect(await response.json()).toEqual(status);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(trackingStatus).toHaveBeenCalledWith(
+      ...(id === "leetcode" ? ([account] as const) : ([account, id] as const)),
+    );
+  });
+  it("treats Next.js automatic HEAD handling as a read", async () => {
+    const response = await serviceStatus(
+      new Request("http://localhost/api/tracking/services/" + id, { method: "HEAD" }),
+      context(id),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(setServicePaused).not.toHaveBeenCalled();
+    expect(revokeService).not.toHaveBeenCalled();
+  });
+  it("rejects malformed JSON, absent agreement, and registration account selectors", async () => {
+    for (const body of [
+      { username: "own" },
+      { username: "own", acceptedAgreement: true, agreementVersion: "1", accountId: "other" },
+    ]) {
+      expect((await serviceRegister(request(body, "POST"), context(id))).status).toBe(400);
+    }
+    const malformed = new Request("http://localhost/api/tracking/services/" + id, {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+      body: "{",
+    });
+    expect((await serviceRegister(malformed, context(id))).status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+  });
+  it("requires sign-in and same-origin registration", async () => {
+    expect(
+      (await serviceRegister(request({}, "POST", "https://attacker.example"), context(id))).status,
+    ).toBe(403);
+    expect(requireAccount).not.toHaveBeenCalled();
+    vi.mocked(requireAccount).mockRejectedValue(new ApiError(401, "Sign in."));
+    expect(
+      (
+        await serviceStatus(
+          new Request("http://localhost/api/tracking/services/" + id),
+          context(id),
+        )
+      ).status,
+    ).toBe(401);
+    expect((await serviceRegister(request({}, "POST"), context(id))).status).toBe(401);
+    expect(save).not.toHaveBeenCalled();
   });
 });

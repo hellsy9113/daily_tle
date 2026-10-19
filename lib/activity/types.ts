@@ -1,5 +1,5 @@
 export type ActivityCoverage = "complete" | "partial" | "unknown";
-export type ActivityPlatform = "leetcode" | "gfg" | "hackerrank";
+export type ActivityPlatform = import("@/lib/features/catalog").ActivityFeatureId;
 export type ActivityBasis = "accepted" | "observed" | "solved";
 
 export interface SavedProblem {

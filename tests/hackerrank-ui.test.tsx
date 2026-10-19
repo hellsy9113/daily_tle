@@ -7,13 +7,13 @@ import FeaturePage from "@/app/feature/page";
 import DashboardPage from "@/app/dashboard/page";
 import { HackerRankActivityPanel } from "@/components/hackerrank-activity-panel";
 import { serverAccount } from "@/lib/auth/session";
-import { trackingStatus } from "@/lib/tracking/registration";
+import { trackingStatuses } from "@/lib/tracking/registration";
 import { buildHackerRankProgress } from "@/lib/hackerrank/progress";
 import type { Account } from "@/lib/db/schema";
 import { hackerRankNow, hackerRankProfile, storedHackerRank } from "./hackerrank-fixtures";
 
 vi.mock("@/lib/auth/session", () => ({ serverAccount: vi.fn() }));
-vi.mock("@/lib/tracking/registration", () => ({ trackingStatus: vi.fn() }));
+vi.mock("@/lib/tracking/registration", () => ({ trackingStatuses: vi.fn() }));
 vi.mock("@/lib/tracking/config", () => ({
   registrationAvailable: () => true,
   trackingBot: () => ({ username: "test_bot" }),
@@ -52,7 +52,7 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   vi.mocked(serverAccount).mockResolvedValue(null);
-  vi.mocked(trackingStatus).mockResolvedValue(status);
+  vi.mocked(trackingStatuses).mockResolvedValue({ leetcode: status, hackerrank: status });
 });
 afterEach(async () => {
   await act(() => root.unmount());
@@ -70,11 +70,13 @@ describe("HackerRank optional tracking", () => {
   });
   it("registers independently and stays accessible after registration", async () => {
     vi.mocked(serverAccount).mockResolvedValue(account);
-    vi.mocked(trackingStatus).mockResolvedValueOnce({ ...status, username: null });
+    vi.mocked(trackingStatuses).mockResolvedValueOnce({
+      hackerrank: { ...status, username: null },
+    });
     let html = renderToStaticMarkup(await feature());
     expect(html).toContain('for="hackerrank-username"');
     expect(html).toContain("stays fixed until you revoke");
-    expect(trackingStatus).toHaveBeenCalledWith(account, "hackerrank");
+    expect(trackingStatuses).toHaveBeenCalledWith(account, ["hackerrank"]);
     html = renderToStaticMarkup(await feature());
     expect(html).toContain("Logged in");
     expect(html).not.toContain('name="username"');
@@ -93,7 +95,9 @@ describe("HackerRank optional tracking", () => {
   });
   it("opens the dashboard for an unconnected HackerRank-only account", async () => {
     vi.mocked(serverAccount).mockResolvedValue({ ...account, chatId: null });
-    vi.mocked(trackingStatus).mockResolvedValue({ ...status, connected: false, status: "pending" });
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      hackerrank: { ...status, connected: false, status: "pending" },
+    });
     const html = renderToStaticMarkup(await DashboardPage());
     expect(html).toContain("Connect Daily Grind");
     expect(html).toContain('href="/feature?platform=hackerrank"');
@@ -104,11 +108,8 @@ describe("HackerRank optional tracking", () => {
       Response.json(String(path).startsWith("/api/hackerrank/") ? progress : status),
     );
     await act(async () => root.render(await DashboardPage()));
-    expect(trackingStatus).toHaveBeenCalledExactlyOnceWith(account, "hackerrank");
-    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
-      "/api/hackerrank/hr_user",
-      "/api/tracking/hackerrank",
-    ]);
+    expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["hackerrank"]);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(["/api/hackerrank/hr_user"]);
     expect(container.querySelector('[aria-label="HackerRank progress by day"]')).not.toBeNull();
     expect(container.textContent).not.toMatch(/Weekly practice|Weekly observations/);
     expect(container.querySelector(".activity-panel form")).toBeNull();

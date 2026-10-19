@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityChart } from "@/components/activity-chart";
 import { ActivityDashboard } from "@/components/activity-dashboard";
+import { LeetcodeActivityPanel } from "@/components/leetcode-activity-panel";
 import type { ActivityResult } from "@/lib/activity/types";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { compareWeeks } from "@/lib/activity/weekly";
@@ -56,10 +57,12 @@ afterEach(async () => {
   delete environment.IS_REACT_ACT_ENVIRONMENT;
   vi.useRealTimers();
 });
-const renderDashboard = async () =>
-  act(() =>
-    root.render(<ActivityDashboard initialStatus={status} botUrl="https://t.me/test_bot" />),
-  );
+const dashboard = (state = status) => (
+  <ActivityDashboard initialStatus={state} botUrl="https://t.me/test_bot" statusPlatform="leetcode">
+    <LeetcodeActivityPanel username="fixed-user" />
+  </ActivityDashboard>
+);
+const renderDashboard = async (state = status) => act(() => root.render(dashboard(state)));
 function responses(result = activity, state = status) {
   vi.mocked(fetch).mockImplementation(async (path) =>
     Response.json(
@@ -111,11 +114,7 @@ describe("activity dashboard", () => {
   it("keeps registered activity available while Daily Grind is disconnected", async () => {
     const disconnected = { ...status, connected: false, status: "pending" as const };
     responses(activity, disconnected);
-    await act(() =>
-      root.render(
-        <ActivityDashboard initialStatus={disconnected} botUrl="https://t.me/test_bot" />,
-      ),
-    );
+    await act(() => root.render(dashboard(disconnected)));
     expect(container.querySelector('a[href="/feature?platform=leetcode"]')?.textContent).toContain(
       "Connect Daily Grind",
     );
@@ -130,15 +129,28 @@ describe("activity dashboard", () => {
         <ActivityDashboard
           initialStatus={status}
           botUrl="https://t.me/test_bot"
-          leetcodeEnabled={false}
           statusPlatform="gfg"
-        />,
+        >
+          {null}
+        </ActivityDashboard>,
       ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    await act(() =>
+      container.querySelector<HTMLButtonElement>(".dashboard-actions button")!.click(),
     );
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "Your session expired",
     );
     expect(container.querySelector('[role="alert"] a')?.getAttribute("href")).toBe("/feature");
+  });
+  it("reuses server status until refresh or return from Telegram", async () => {
+    responses();
+    await renderDashboard();
+    const paths = () => vi.mocked(fetch).mock.calls.map(([path]) => String(path));
+    expect(paths().filter((path) => path.startsWith("/api/tracking/services/"))).toHaveLength(0);
+    await act(() => window.dispatchEvent(new Event("focus")));
+    expect(paths().filter((path) => path === "/api/tracking/services/leetcode")).toHaveLength(1);
   });
   it("starts with an intentional loading state", async () => {
     vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
@@ -175,7 +187,7 @@ describe("activity dashboard", () => {
     await renderDashboard();
     vi.mocked(fetch).mockImplementation(async () => new Response("Sign in", { status: 401 }));
     await act(() =>
-      container.querySelector<HTMLButtonElement>(".dashboard-actions button")!.click(),
+      container.querySelector<HTMLButtonElement>(".activity-panel-actions > button")!.click(),
     );
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "Your session expired",
@@ -187,13 +199,13 @@ describe("activity dashboard", () => {
     await renderDashboard();
     vi.mocked(fetch).mockRejectedValue(new Error("network unavailable"));
     await act(() =>
-      container.querySelector<HTMLButtonElement>(".dashboard-actions button")!.click(),
+      container.querySelector<HTMLButtonElement>(".activity-panel-actions > button")!.click(),
     );
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not refresh");
     expect(container.textContent).toContain("≥ 9");
     responses({ ...activity, refreshFailed: true });
     await act(() =>
-      container.querySelector<HTMLButtonElement>(".dashboard-actions button")!.click(),
+      container.querySelector<HTMLButtonElement>(".activity-panel-actions > button")!.click(),
     );
     expect(container.textContent).toContain("Showing your saved activity");
   });
@@ -201,7 +213,7 @@ describe("activity dashboard", () => {
     "keeps the chart usable when the bot is %s",
     async (state) => {
       responses(activity, { ...status, status: state });
-      await renderDashboard();
+      await renderDashboard({ ...status, status: state });
       expect(container.textContent).toContain(state === "paused" ? "Paused" : "Blocked");
       expect(container.textContent).toContain("/start");
       expect(container.querySelector('[aria-label="Accepted problems by day"]')).not.toBeNull();

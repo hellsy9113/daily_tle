@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { featurePaths } from "@/lib/tracking/platforms";
+import { featurePaths } from "@/lib/features/catalog";
 
 export default async function TrackingPage({
   searchParams,

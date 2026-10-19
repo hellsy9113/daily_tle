@@ -1,73 +1,40 @@
-import { PausedService } from "@/components/service-control";
 import { redirect } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
 import { ActivityDashboard } from "@/components/activity-dashboard";
+import { PausedService } from "@/components/service-control";
+import { featureViews } from "@/components/feature-views";
 import { serverAccount } from "@/lib/auth/session";
-import { trackingStatus } from "@/lib/tracking/registration";
+import { trackingStatuses } from "@/lib/tracking/registration";
+import { registeredFeatures, platformUsername } from "@/lib/tracking/platforms";
+import { featureById } from "@/lib/features/catalog";
 import { trackingBot } from "@/lib/tracking/config";
-import { HackerRankActivityPanel } from "@/components/hackerrank-activity-panel";
-import { GfgActivityPanel } from "@/components/gfg-activity-panel";
 
 export const metadata = { title: "Your activity · LeetCode Tracker" };
 
 export default async function DashboardPage() {
   const account = await serverAccount();
   if (!account) redirect("/feature");
-  if (!account.leetcodeUsername && !account.gfgUsername && !account.hackerRankUsername)
-    redirect("/feature");
-  const platform = account.leetcodeUsername
-    ? "leetcode"
-    : account.gfgUsername
-      ? "gfg"
-      : "hackerrank";
-  const [leetcodeStatus, gfgStatus, hackerRankStatus] = await Promise.all([
-    account.leetcodeUsername ? trackingStatus(account) : null,
-    account.gfgUsername ? trackingStatus(account, "gfg") : null,
-    account.hackerRankUsername ? trackingStatus(account, "hackerrank") : null,
-  ]);
-  const status = (leetcodeStatus ?? gfgStatus ?? hackerRankStatus)!;
-  const botUrl = `https://t.me/${trackingBot().username}`;
+  const registered = registeredFeatures(account);
+  if (!registered.length) redirect("/feature");
+  const statuses = await trackingStatuses(account, registered);
+  const first = registered[0];
   return (
     <SiteShell signedIn>
       <ActivityDashboard
-        botUrl={botUrl}
-        statusPlatform={platform}
-        initialStatus={status}
-        leetcodeEnabled={Boolean(account.leetcodeUsername) && !status.paused}
+        initialStatus={statuses[first]!}
+        statusPlatform={first}
+        botUrl={`https://t.me/${trackingBot().username}`}
       >
-        {account.leetcodeUsername && status.paused && status.registrationId && (
-          <PausedService
-            platform="leetcode"
-            username={account.leetcodeUsername}
-            registrationId={status.registrationId}
-          />
-        )}
-        {account.gfgUsername &&
-          (gfgStatus?.paused && gfgStatus.registrationId ? (
-            <PausedService
-              platform="gfg"
-              username={account.gfgUsername}
-              registrationId={gfgStatus.registrationId}
-            />
-          ) : (
-            <GfgActivityPanel
-              username={account.gfgUsername}
-              registrationId={gfgStatus?.registrationId ?? undefined}
-            />
-          ))}
-        {account.hackerRankUsername &&
-          (hackerRankStatus?.paused && hackerRankStatus.registrationId ? (
-            <PausedService
-              platform="hackerrank"
-              username={account.hackerRankUsername}
-              registrationId={hackerRankStatus.registrationId}
-            />
-          ) : (
-            <HackerRankActivityPanel
-              username={account.hackerRankUsername}
-              registrationId={hackerRankStatus?.registrationId ?? undefined}
-            />
-          ))}
+        {registered.map((id) => {
+          const status = statuses[id]!;
+          const username = platformUsername(account, id)!;
+          const Panel = featureViews[id].Dashboard;
+          return status.paused ? (
+            <PausedService key={id} platform={id} username={username} />
+          ) : featureById[id].dashboard && Panel ? (
+            <Panel key={`${id}:${status.registrationId}`} username={username} />
+          ) : null;
+        })}
       </ActivityDashboard>
     </SiteShell>
   );

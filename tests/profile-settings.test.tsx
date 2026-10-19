@@ -69,6 +69,8 @@ describe("profile settings and confirmations", () => {
       buttons().filter((button) => button.getAttribute("aria-pressed") === "false"),
     ).toHaveLength(2);
     expect(container.textContent).toContain("Following your device theme");
+    expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(3);
+    expect(container.textContent).not.toContain("Revoke & delete data");
   });
   it.each(["light", "dark"] as const)(
     "saves %s mode and updates the document after success",
@@ -92,7 +94,7 @@ describe("profile settings and confirmations", () => {
     expect(container.querySelector('[role="alert"]')!.textContent).toBe("Please retry.");
   });
   it("requires acknowledgment, permits cancel, and clears only the revoked platform", async () => {
-    await render();
+    await render(<TrackingPanel initialStatus={status} />);
     await click("Revoke & delete data");
     expect(container.querySelector<HTMLDialogElement>("dialog")!.open).toBe(true);
     expect(document.activeElement?.tagName).toBe("H2");
@@ -117,16 +119,16 @@ describe("profile settings and confirmations", () => {
       confirmPermanentDeletion: true,
     });
     expect(container.querySelector("dialog")).toBeNull();
-    expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(1);
+    expect(container.querySelector('input[name="username"]')).not.toBeNull();
     expect(
       buttons().filter((button) => button.textContent === "Revoke & delete data"),
-    ).toHaveLength(2);
+    ).toHaveLength(0);
     expect(container.querySelector('[role="status"]')!.textContent).toContain(
       "permanently deleted",
     );
   });
   it("closes consent with Escape and returns keyboard focus to its trigger", async () => {
-    await render();
+    await render(<TrackingPanel initialStatus={status} />);
     await click("Revoke & delete data");
     const trigger = buttons().find((button) => button.textContent === "Revoke & delete data")!;
     await act(() =>
@@ -137,7 +139,7 @@ describe("profile settings and confirmations", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it("keeps deletion retryable without a false success state", async () => {
-    await render();
+    await render(<TrackingPanel initialStatus={status} />);
     await click("Revoke & delete data");
     await act(() => container.querySelector<HTMLInputElement>("dialog input")!.click());
     vi.mocked(fetch).mockResolvedValue(
@@ -146,7 +148,7 @@ describe("profile settings and confirmations", () => {
     await click("Revoke & permanently delete");
     expect(container.querySelector("dialog")).not.toBeNull();
     expect(container.querySelector('[role="alert"]')!.textContent).toContain("Could not delete");
-    expect(container.querySelectorAll("tbody .mono")).toHaveLength(3);
+    expect(container.querySelector(".account-details .mono")?.textContent).toBe("my_profile");
   });
   it("sends pause/resume with the current generation and offers an accessible icon", async () => {
     await render(<ServiceControl platform="gfg" paused={false} registrationId={registrationId} />);
@@ -160,11 +162,11 @@ describe("profile settings and confirmations", () => {
       paused: true,
     });
     expect(refresh).toHaveBeenCalledOnce();
-    await render(
-      <PausedService platform="gfg" username="my_profile" registrationId={registrationId} />,
-    );
+    await render(<PausedService platform="gfg" username="my_profile" />);
     expect(container.textContent).toContain("Your daily data is still saved");
-    expect(container.querySelector('[aria-label="Resume GFG"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/feature?platform=gfg"]')?.textContent).toBe(
+      "Resume GFG",
+    );
   });
   it("opens registration consent without fetching, preserves username on cancel, and resets acceptance", async () => {
     await render(

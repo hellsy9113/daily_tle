@@ -1,11 +1,8 @@
 import "server-only";
-import { currentRegistration, recordAgreement } from "@/lib/tracking/services";
-import { and, eq, isNull } from "drizzle-orm";
-import { accounts, hackerRankSync, type Account } from "@/lib/db/schema";
-import { db } from "@/lib/db/client";
+import { currentRegistration } from "@/lib/tracking/services";
+import { hackerRankSync, type Account } from "@/lib/db/schema";
 import { ApiError } from "@/lib/http/api-error";
-import { trackingStatus } from "@/lib/tracking/registration";
-import { requireRegistrationAvailable } from "@/lib/tracking/config";
+import { registerFeature } from "@/lib/features/registration";
 import { randomToken } from "@/lib/tracking/security";
 import { getHackerRankProfile } from "./client";
 import { buildHackerRankProgress } from "./progress";
@@ -20,31 +17,18 @@ import {
   writeHackerRankProfile,
 } from "./store";
 
-export async function registerHackerRank(account: Account, value: unknown) {
-  requireRegistrationAvailable();
-  if (account.hackerRankUsername)
-    throw new ApiError(
-      409,
-      "Your HackerRank username is already registered. Revoke this service in Profile before registering a different username.",
-    );
-  const profile = await getHackerRankProfile(value);
-  try {
-    const registered = await db().transaction(async (transaction) => {
-      const [updated] = await transaction
-        .update(accounts)
-        .set({ hackerRankUsername: profile.username, hackerRankRegisteredAt: new Date() })
-        .where(and(eq(accounts.id, account.id), isNull(accounts.hackerRankUsername)))
-        .returning();
-      if (!updated)
-        throw new ApiError(
-          409,
-          "Your HackerRank username is already registered. Revoke this service in Profile before registering a different username.",
-        );
-      await writeHackerRankProfile(transaction, account.id, profile);
-      await transaction
+export function registerHackerRank(account: Account, value: unknown) {
+  return registerFeature(
+    account,
+    "hackerrank",
+    () => getHackerRankProfile(value),
+    (profile) => profile.username,
+    async (tx, accountId, profile) => {
+      await writeHackerRankProfile(tx, accountId, profile);
+      await tx
         .insert(hackerRankSync)
         .values({
-          accountId: account.id,
+          accountId,
           profile: hackerRankSummary(profile),
           refreshedAt: new Date(profile.checkedAt),
         })
@@ -56,19 +40,8 @@ export async function registerHackerRank(account: Account, value: unknown) {
             lastError: null,
           },
         });
-      await recordAgreement(transaction, account.id, "hackerrank");
-      return updated;
-    });
-    return trackingStatus(registered, "hackerrank");
-  } catch (error) {
-    let cause: unknown = error;
-    for (let depth = 0; depth < 4 && cause && typeof cause === "object"; depth++) {
-      if ("code" in cause && cause.code === "23505")
-        throw new ApiError(409, "This HackerRank username is already registered.");
-      cause = "cause" in cause ? cause.cause : null;
-    }
-    throw error;
-  }
+    },
+  );
 }
 
 export async function getHackerRankProgress(account: Account, now = new Date()) {

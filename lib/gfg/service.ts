@@ -1,11 +1,8 @@
 import "server-only";
-import { currentRegistration, recordAgreement } from "@/lib/tracking/services";
-import { and, eq, isNull } from "drizzle-orm";
-import { accounts, gfgSync, type Account } from "@/lib/db/schema";
-import { db } from "@/lib/db/client";
+import { currentRegistration } from "@/lib/tracking/services";
+import { gfgSync, type Account } from "@/lib/db/schema";
 import { ApiError } from "@/lib/http/api-error";
-import { trackingStatus } from "@/lib/tracking/registration";
-import { requireRegistrationAvailable } from "@/lib/tracking/config";
+import { registerFeature } from "@/lib/features/registration";
 import { randomToken } from "@/lib/tracking/security";
 import { getGfgProfile } from "./client";
 import { buildGfgProgress } from "./progress";
@@ -21,31 +18,18 @@ import {
 } from "./store";
 import type { GfgQuery } from "./types";
 
-export async function registerGfg(account: Account, value: unknown) {
-  requireRegistrationAvailable();
-  if (account.gfgUsername)
-    throw new ApiError(
-      409,
-      "Your GFG username is already registered. Revoke this service in Profile before registering a different username.",
-    );
-  const profile = await getGfgProfile(value);
-  try {
-    const registered = await db().transaction(async (transaction) => {
-      const [updated] = await transaction
-        .update(accounts)
-        .set({ gfgUsername: profile.username, gfgRegisteredAt: new Date() })
-        .where(and(eq(accounts.id, account.id), isNull(accounts.gfgUsername)))
-        .returning();
-      if (!updated)
-        throw new ApiError(
-          409,
-          "Your GFG username is already registered. Revoke this service in Profile before registering a different username.",
-        );
-      await writeGfgProfile(transaction, account.id, profile);
-      await transaction
+export function registerGfg(account: Account, value: unknown) {
+  return registerFeature(
+    account,
+    "gfg",
+    () => getGfgProfile(value),
+    (profile) => profile.username,
+    async (tx, accountId, profile) => {
+      await writeGfgProfile(tx, accountId, profile);
+      await tx
         .insert(gfgSync)
         .values({
-          accountId: account.id,
+          accountId,
           profile: gfgSummary(profile),
           refreshedAt: new Date(profile.checkedAt),
         })
@@ -57,19 +41,8 @@ export async function registerGfg(account: Account, value: unknown) {
             lastError: null,
           },
         });
-      await recordAgreement(transaction, account.id, "gfg");
-      return updated;
-    });
-    return trackingStatus(registered, "gfg");
-  } catch (error) {
-    let cause: unknown = error;
-    for (let depth = 0; depth < 4 && cause && typeof cause === "object"; depth++) {
-      if ("code" in cause && cause.code === "23505")
-        throw new ApiError(409, "This GFG username is already registered.");
-      cause = "cause" in cause ? cause.cause : null;
-    }
-    throw error;
-  }
+    },
+  );
 }
 
 export async function getGfgProgress(account: Account, query?: GfgQuery, now = new Date()) {

@@ -2,12 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FeaturePage from "@/app/feature/page";
 import { serverAccount } from "@/lib/auth/session";
-import { trackingStatus } from "@/lib/tracking/registration";
+import { trackingStatuses } from "@/lib/tracking/registration";
 import { registrationAvailable } from "@/lib/tracking/config";
 import type { Account } from "@/lib/db/schema";
 
 vi.mock("@/lib/auth/session", () => ({ serverAccount: vi.fn() }));
-vi.mock("@/lib/tracking/registration", () => ({ trackingStatus: vi.fn() }));
+vi.mock("@/lib/tracking/registration", () => ({ trackingStatuses: vi.fn() }));
 vi.mock("@/lib/tracking/config", () => ({ registrationAvailable: vi.fn() }));
 vi.mock("next/navigation", async () => ({
   ...(await vi.importActual<typeof import("next/navigation")>("next/navigation")),
@@ -35,7 +35,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(serverAccount).mockResolvedValue(account);
   vi.mocked(registrationAvailable).mockReturnValue(true);
-  vi.mocked(trackingStatus).mockResolvedValue(initial);
+  vi.mocked(trackingStatuses).mockResolvedValue({
+    leetcode: initial,
+    gfg: initial,
+    hackerrank: initial,
+  });
 });
 describe("service selection after Telegram sign-in", () => {
   it("asks visitors to sign in before showing service selection or registration", async () => {
@@ -45,7 +49,7 @@ describe("service selection after Telegram sign-in", () => {
     expect(html).toContain('href="/api/auth/telegram/login?next=feature"');
     expect(html).not.toContain('aria-label="Tracking services"');
     expect(html).not.toContain('name="username"');
-    expect(trackingStatus).not.toHaveBeenCalled();
+    expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
   it("offers all three services without enabling one automatically", async () => {
@@ -54,7 +58,7 @@ describe("service selection after Telegram sign-in", () => {
       expect(html).toContain(`href="/feature?platform=${platform}"`);
     expect(html.match(/Not enabled/g)).toHaveLength(3);
     expect(html).not.toContain('name="username"');
-    expect(trackingStatus).not.toHaveBeenCalled();
+    expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each(["leetcode", "gfg", "hackerrank"] as const)(
@@ -65,7 +69,7 @@ describe("service selection after Telegram sign-in", () => {
       expect(html.match(/name="username"/g)).toHaveLength(1);
       expect(html).toContain('aria-current="page"');
       expect(html).toContain("Logged in");
-      expect(trackingStatus).toHaveBeenCalledExactlyOnceWith(account, platform);
+      expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, [platform]);
       expect(fetch).not.toHaveBeenCalled();
     },
   );
@@ -81,7 +85,9 @@ describe("service selection after Telegram sign-in", () => {
   it("retains a registered service when new registrations are closed", async () => {
     vi.mocked(registrationAvailable).mockReturnValue(false);
     vi.mocked(serverAccount).mockResolvedValue({ ...account, leetcodeUsername: "lc_user" });
-    vi.mocked(trackingStatus).mockResolvedValue({ ...initial, username: "lc_user" });
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      leetcode: { ...initial, username: "lc_user" },
+    });
     const html = await page("leetcode");
     expect(html).toContain("Service enabled");
     expect(html).toContain("Connect Telegram");
@@ -91,10 +97,10 @@ describe("service selection after Telegram sign-in", () => {
     const html = await page("unknown");
     expect(html).toContain('aria-label="Tracking services"');
     expect(html).not.toContain('name="username"');
-    expect(trackingStatus).not.toHaveBeenCalled();
+    expect(trackingStatuses).not.toHaveBeenCalled();
   });
   it("handles setup failures without exposing registration or private errors", async () => {
-    vi.mocked(trackingStatus).mockRejectedValue(new Error("private database error"));
+    vi.mocked(trackingStatuses).mockRejectedValue(new Error("private database error"));
     const html = await page("leetcode");
     expect(html).toContain("Tracking is temporarily unavailable");
     expect(html).not.toContain("private database error");
