@@ -85,13 +85,7 @@ export default async function FeaturePage({
                     {service.name}
                   </Link>
                 </h2>
-                {service.id === "notes" ? (
-                  <InfoPopover label="About Notes">
-                    {service.description} {service.coverage}
-                  </InfoPopover>
-                ) : (
-                  <p>{service.description}</p>
-                )}
+                <p>{service.description}</p>
                 {username && <span className="service-username mono">{username}</span>}
                 <Link href={featurePaths[service.id]} className="service-action">
                   {username ? "Manage service" : `Enable ${service.name}`}{" "}
@@ -121,19 +115,13 @@ export default async function FeaturePage({
                   ? "Register your private notebook."
                   : `Enable ${selected.name} tracking.`}
             </h2>
-            {selected.id === "notes" ? (
-              <InfoPopover label="About your private notebook">
-                {selected.description} {selected.coverage}
-              </InfoPopover>
-            ) : (
-              <>
-                <p className="lead">{selected.description}</p>
-                <p className="field-help">{selected.coverage}</p>
-                <p className="field-help">
-                  Your dashboard is available after registration. Connect Daily Grind once for all
-                  enabled services to receive morning Telegram recaps.
-                </p>
-              </>
+            <p className="lead">{selected.description}</p>
+            <p className="field-help">{selected.coverage}</p>
+            {selected.id !== "notes" && (
+              <p className="field-help">
+                Your dashboard is available after registration. Connect Daily Grind once for all
+                enabled services to receive morning Telegram recaps.
+              </p>
             )}
           </div>
           <Setup key={selected.id} platform={selected.id} initialStatus={status} />

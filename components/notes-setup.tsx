@@ -7,8 +7,7 @@ import { requestJson } from "@/lib/http/client";
 import { NOTES_CODE_PATTERN } from "@/lib/notes/validation";
 import { ServiceControl } from "./service-control";
 import { ConsentDialog } from "./consent-dialog";
-import { NotesIconButton, NotesIcon } from "./notes-icons";
-import { InfoPopover } from "./info-popover";
+import { NotesIconButton } from "./notes-icons";
 
 export function NotesSetup({ initialStatus }: { initialStatus: TrackingStatus }) {
   const router = useRouter();
@@ -75,24 +74,80 @@ export function NotesSetup({ initialStatus }: { initialStatus: TrackingStatus })
     }
   }
   return (
-    <section className="tracking-panel" aria-label="Notes service setup">
-      <div className="activity-heading">
-        <h2>{status.registrationId ? "Manage Notes" : "Register Notes"}</h2>
-        <InfoPopover label="Notes service information">
-          Save up to 100 words and 10 links or search phrases per note. Register a case-sensitive
-          code using 5–9 letters or digits. Anyone with it can access this notebook for 20 minutes
-          while signed out. Website sign-in has no Notes timer.
-        </InfoPopover>
+    <section className="tracking-panel" aria-labelledby="notes-setup-title">
+      <div className="panel-heading">
+        <p className="eyebrow">
+          <span className="badge badge-active">Logged in</span>
+        </p>
+        <h2 id="notes-setup-title">{status.registrationId ? "Manage Notes" : "Register Notes"}</h2>
       </div>
+      {notice && (
+        <p className="profile-notice" role="status">
+          {notice}
+        </p>
+      )}
       {error && !deleting && (
         <p className="inline-error" role="alert">
           {error}
         </p>
       )}
-      <p className="notes-notice" role="status">
-        {notice}
-      </p>
-      <form className="registration-form notes-form" onSubmit={save}>
+      {status.registrationId ? (
+        <>
+          <p className="tracking-note">
+            <span className={`badge ${status.paused ? "" : "badge-active"}`}>
+              {status.paused ? "Service paused" : "Service enabled"}
+            </span>{" "}
+            {status.paused
+              ? "Your saved notes are kept. Resume Notes to open your notebook."
+              : "Open Dashboard to view your private notebook."}
+          </p>
+          <dl className="account-details">
+            <div>
+              <dt>Notebook</dt>
+              <dd>{status.username}</dd>
+            </div>
+            <div>
+              <dt>Note limits</dt>
+              <dd>100 words and 10 links or search phrases per note</dd>
+            </div>
+            <div>
+              <dt>Code access</dt>
+              <dd>20-minute sessions when signed out</dd>
+            </div>
+          </dl>
+          <div className="service-management">
+            <div className="dashboard-actions">
+              <ServiceControl
+                platform="notes"
+                paused={status.paused}
+                registrationId={status.registrationId}
+                onChange={setStatus}
+              />
+              <button
+                type="button"
+                className="text-button danger-text"
+                disabled={busy}
+                onClick={() => {
+                  setError("");
+                  setDeleting(true);
+                }}
+              >
+                Revoke &amp; delete data
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="muted">
+          Save short thoughts and useful links in a private notebook. Choose a secret code to
+          register Notes and unlock it while signed out.
+        </p>
+      )}
+      <form
+        className={`registration-form notes-form${status.registrationId ? " connect-area" : ""}`}
+        onSubmit={save}
+        aria-busy={busy}
+      >
         <label htmlFor="notes-service-code">
           {status.registrationId ? "New secret code" : "Secret code"}
         </label>
@@ -118,40 +173,24 @@ export function NotesSetup({ initialStatus }: { initialStatus: TrackingStatus })
           />
         </div>
         <p id="notes-service-code-help" className="field-help">
-          5–9 letters or digits.
+          Use 5–9 case-sensitive letters or digits. Anyone with this code can access your notebook
+          for 20 minutes while signed out.
+          {status.registrationId && " Changing it locks all previous code sessions."}
         </p>
-        <NotesIconButton
+        <button
           type="submit"
-          icon="save"
-          label={status.registrationId ? "Change secret code" : "Register Notes"}
+          className="button primary full-width"
           disabled={busy || !NOTES_CODE_PATTERN.test(code)}
-        />
+        >
+          {busy ? "Saving…" : status.registrationId ? "Change secret code" : "Register Notes"}
+        </button>
       </form>
       {status.registrationId && (
-        <div className="notes-actions">
-          <ServiceControl
-            platform="notes"
-            paused={status.paused}
-            registrationId={status.registrationId}
-            onChange={setStatus}
-          />
-          <Link
-            className="button secondary icon-button"
-            href="/dashboard?service=notes"
-            aria-label="Open Notes on Dashboard"
-            title="Open Notes on Dashboard"
-          >
-            <NotesIcon name="notes" />
+        <div className="tracking-note">
+          <Link className="button secondary full-width" href="/dashboard?service=notes">
+            Open Notes on Dashboard <span aria-hidden="true">→</span>
           </Link>
-          <NotesIconButton
-            icon="delete"
-            label="Revoke Notes and delete data"
-            disabled={busy}
-            onClick={() => {
-              setError("");
-              setDeleting(true);
-            }}
-          />
+          <p className="field-help">Website sign-in has no Notes timer.</p>
         </div>
       )}
       {deleting && (
