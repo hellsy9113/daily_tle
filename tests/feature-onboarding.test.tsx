@@ -42,6 +42,16 @@ beforeEach(() => {
   });
 });
 describe("service selection after Telegram sign-in", () => {
+  it("registers Notes on Feature even when coding-platform registration is closed", async () => {
+    vi.mocked(registrationAvailable).mockReturnValue(false);
+    vi.mocked(trackingStatuses).mockResolvedValue({ notes: initial });
+    const html = await page("notes");
+    expect(html).toContain('id="notes-service-code"');
+    expect(html).toContain('pattern="[A-Za-z0-9]{5,9}"');
+    expect(html).toContain("Register Notes");
+    expect(html).not.toContain("Connect Daily Grind once");
+    expect(html).not.toContain('href="/notes"');
+  });
   it("asks visitors to sign in before showing service selection or registration", async () => {
     vi.mocked(serverAccount).mockResolvedValue(null);
     const html = await page();
@@ -52,11 +62,11 @@ describe("service selection after Telegram sign-in", () => {
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("offers all three services without enabling one automatically", async () => {
+  it("offers all four services without enabling one automatically", async () => {
     const html = await page();
     for (const platform of ["leetcode", "gfg", "hackerrank"])
       expect(html).toContain(`href="/feature?platform=${platform}"`);
-    expect(html.match(/Not enabled/g)).toHaveLength(3);
+    expect(html.match(/Not enabled/g)).toHaveLength(4);
     expect(html).not.toContain('name="username"');
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -78,7 +88,7 @@ describe("service selection after Telegram sign-in", () => {
     const html = await page("gfg");
     expect(html).toContain("lc_user");
     expect(html).toContain("Manage service");
-    expect(html.match(/Not enabled/g)).toHaveLength(2);
+    expect(html.match(/Not enabled/g)).toHaveLength(3);
     expect(html).toContain('for="gfg-username"');
     expect(html).not.toContain('for="leetcode-username"');
   });

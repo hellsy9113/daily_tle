@@ -4,12 +4,14 @@ import { db } from "@/lib/db/client";
 import { deliveries, platformServices, type Account } from "@/lib/db/schema";
 import { platformUsername } from "@/lib/tracking/platforms";
 import type { TrackingStatus } from "@/lib/tracking/types";
-import { featureIds, type FeatureId } from "./catalog";
+import { featureIds, isActivityFeatureId, type FeatureId } from "./catalog";
+import { notesStatus } from "@/lib/notes/service";
 
-/** Two queries regardless of feature count; never cache private data across requests. */
+/** Two batched activity queries plus the account-owned Notes status when registered. */
 export async function trackingStatuses(account: Account, ids: readonly FeatureId[] = featureIds) {
   const statuses: Partial<Record<FeatureId, TrackingStatus>> = {};
   if (!ids.length) return statuses;
+  const activityIds = ids.filter(isActivityFeatureId);
   const [services, latest] = await Promise.all([
     db()
       .select()
@@ -17,7 +19,7 @@ export async function trackingStatuses(account: Account, ids: readonly FeatureId
       .where(
         and(
           eq(platformServices.accountId, account.id),
-          inArray(platformServices.platform, [...ids]),
+          inArray(platformServices.platform, activityIds),
         ),
       ),
     db()
@@ -33,12 +35,16 @@ export async function trackingStatuses(account: Account, ids: readonly FeatureId
         and(
           eq(deliveries.accountId, account.id),
           eq(deliveries.cadence, "daily"),
-          inArray(deliveries.platform, [...ids]),
+          inArray(deliveries.platform, activityIds),
         ),
       )
       .orderBy(deliveries.platform, desc(deliveries.reportDate)),
   ]);
   for (const id of ids) {
+    if (id === "notes") {
+      statuses.notes = await notesStatus(account);
+      continue;
+    }
     const service = services.find((row) => row.platform === id);
     const delivery = latest.find((row) => row.platform === id);
     statuses[id] = {

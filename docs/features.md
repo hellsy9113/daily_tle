@@ -34,6 +34,14 @@ The catalog does not create database storage. A service with different data need
 must define its own storage and account-owned status. Extend the shared status/form
 interfaces when that service is implemented; do not add speculative nullable fields now.
 
+Notes is a non-activity feature: its notebook ID is its registration generation,
+registration timestamps live on the account, and pause state lives on the notebook.
+It supplies its own adapter, code form, status, and transactional revocation. It does
+not join `platform_services`, daily collection, recaps, or activity clients. Use
+`ActivityFeatureId`/`activityFeatureIds` where activity storage is required; use
+`FeatureId` for feature navigation. Notes registration uses `{ code }` rather than
+the coding-platform username/consent body. See [Notes](notes.md).
+
 ## HTTP contract
 
 `/api/tracking/services/[platform]` supports GET status, POST registration, PATCH

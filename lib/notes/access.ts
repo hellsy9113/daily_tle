@@ -3,7 +3,8 @@ import { scrypt } from "node:crypto";
 import { and, eq, gt, lt, sql } from "drizzle-orm";
 import { accountForToken, requestSessionToken } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
-import { notebooks, notesLoginLimits, notesSessions } from "@/lib/db/schema";
+import { accounts, notebooks, notesLoginLimits, notesSessions } from "@/lib/db/schema";
+import { NOTES_CODE_PATTERN } from "./validation";
 import { ApiError } from "@/lib/http/api-error";
 import { isRecord } from "@/lib/http/validation";
 import { hashToken, randomToken, validToken } from "@/lib/tracking/security";
@@ -25,19 +26,15 @@ export function parseCode(body: unknown) {
     !isRecord(body) ||
     Object.keys(body).some((key) => key !== "code") ||
     typeof body.code !== "string" ||
-    body.code.length < 20 ||
-    body.code.length > 128 ||
-    body.code.trim() !== body.code ||
-    /[\p{Cc}\p{Cf}]/u.test(body.code) ||
-    new Set(body.code).size < 6
+    !NOTES_CODE_PATTERN.test(body.code)
   )
-    throw new ApiError(400, "Choose a secret code of 20–128 characters, or generate one.");
+    throw new ApiError(400, "Use 5–9 letters or digits for your secret code.");
   return body.code;
 }
 
 // A deterministic, expensive derivation allows lookup by a single secret without storing
 // it or a fast digest. The fixed domain salt is deliberate: identical codes must be unique.
-// This is a bearer credential; prefer the randomly generated 192-bit code in the UI.
+// The code is a bearer credential; online attempts are throttled separately.
 export function deriveCode(code: string): Promise<string> {
   return new Promise((resolve, reject) => {
     scrypt(
@@ -63,16 +60,31 @@ export async function notebookForAccount(accountId: string) {
 export async function requireNotebook(request: Request) {
   // A website account always takes priority over a code session left in this browser.
   const account = await accountForToken(requestSessionToken(request));
-  if (account)
-    return { notebook: await notebookForAccount(account.id), signedIn: true, expiresAt: null };
+  if (account) {
+    if (!account.notesRegisteredAt)
+      throw new ApiError(403, "Register Notes on the Feature page first.");
+    const [notebook] = await db()
+      .select()
+      .from(notebooks)
+      .where(eq(notebooks.accountId, account.id));
+    if (!notebook?.codeHash) throw new ApiError(403, "Register Notes on the Feature page first.");
+    if (notebook.paused) throw new ApiError(423, "Notes is paused. Resume it in Manage service.");
+    return { notebook, signedIn: true, expiresAt: null };
+  }
   const token = notesSessionToken(request);
   if (token && validToken(token)) {
     const [found] = await db()
       .select({ notebook: notebooks, expiresAt: notesSessions.expiresAt })
       .from(notesSessions)
       .innerJoin(notebooks, eq(notesSessions.notebookId, notebooks.id))
+      .innerJoin(accounts, eq(notebooks.accountId, accounts.id))
       .where(
-        and(eq(notesSessions.tokenHash, hashToken(token)), gt(notesSessions.expiresAt, new Date())),
+        and(
+          eq(notesSessions.tokenHash, hashToken(token)),
+          gt(notesSessions.expiresAt, new Date()),
+          eq(notebooks.paused, false),
+          sql`${accounts.notesRegisteredAt} IS NOT NULL`,
+        ),
       )
       .limit(1);
     if (found)
@@ -111,13 +123,23 @@ function databaseCode(error: unknown): string | undefined {
   if ("cause" in error) return databaseCode(error.cause);
 }
 
-export async function setNotesCode(accountId: string, code: string | null) {
-  const codeHash = code === null ? null : await deriveCode(code);
-  const notebook = await notebookForAccount(accountId);
+export async function setNotesCode(accountId: string, code: string, registrationId: string) {
+  const codeHash = await deriveCode(parseCode({ code }));
   try {
     await db().transaction(async (tx) => {
       // Row locking serializes code rotation with login, including session creation.
-      await tx.select().from(notebooks).where(eq(notebooks.id, notebook.id)).for("update");
+      const [account] = await tx
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .for("update");
+      const [notebook] = await tx
+        .select()
+        .from(notebooks)
+        .where(eq(notebooks.accountId, accountId))
+        .for("update");
+      if (!account?.notesRegisteredAt || !notebook || notebook.id !== registrationId)
+        throw new ApiError(409, "This Notes registration has changed. Refresh and try again.");
       await tx.update(notebooks).set({ codeHash }).where(eq(notebooks.id, notebook.id));
       await tx.delete(notesSessions).where(eq(notesSessions.notebookId, notebook.id));
     });
@@ -132,12 +154,23 @@ export async function unlockNotes(code: string) {
   const codeHash = await deriveCode(code);
   const token = randomToken();
   await db().transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({ accountId: notebooks.accountId })
+      .from(notebooks)
+      .where(eq(notebooks.codeHash, codeHash));
+    if (!candidate) throw new ApiError(401, "The secret code is incorrect or no longer active.");
+    const [account] = await tx
+      .select()
+      .from(accounts)
+      .where(eq(accounts.id, candidate.accountId))
+      .for("update");
     const [notebook] = await tx
       .select()
       .from(notebooks)
-      .where(eq(notebooks.codeHash, codeHash))
+      .where(and(eq(notebooks.codeHash, codeHash), eq(notebooks.accountId, candidate.accountId)))
       .for("update");
-    if (!notebook) throw new ApiError(401, "The secret code is incorrect or no longer active.");
+    if (!notebook || !account?.notesRegisteredAt || notebook.paused)
+      throw new ApiError(401, "The secret code is incorrect or no longer active.");
     await tx.delete(notesSessions).where(lt(notesSessions.expiresAt, new Date()));
     await tx.insert(notesSessions).values({
       tokenHash: hashToken(token),

@@ -2,8 +2,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotesSetup } from "@/components/notes-setup";
 import { NotesPanel } from "@/components/notes-panel";
 import type { NotesPageData } from "@/lib/notes/validation";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -39,7 +42,7 @@ const render = (signedIn = true) => act(() => root.render(<NotesPanel signedIn={
 async function click(text: string) {
   await act(() => {
     const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === text,
+      (button) => button.textContent === text || button.getAttribute("aria-label") === text,
     )!;
     expect(button).toBeDefined();
     button.click();
@@ -67,12 +70,10 @@ describe("notes interface", () => {
   it("lets a visitor unlock only notes and clears the code after success", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Locked" }, { status: 401 }));
     await render(false);
-    expect(container.textContent).toContain("Unlock your notes");
+    expect(container.querySelector('button[aria-label="Unlock notes"]')).not.toBeNull();
     expect(container.querySelector("#note-text")).toBeNull();
-    expect(
-      container.querySelector('a[href="/api/auth/telegram/login?next=/notes"]'),
-    ).not.toBeNull();
-    await fill("notes-code", "my-private-notebook-access-2026");
+    expect(container.querySelector('a[href="/api/auth/telegram/login?next=notes"]')).not.toBeNull();
+    await fill("notes-code", "Note123");
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ unlocked: true }))
       .mockResolvedValueOnce(Response.json(page(false)));
@@ -82,11 +83,11 @@ describe("notes interface", () => {
       "/api/notes/session",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ code: "my-private-notebook-access-2026" }),
+        body: JSON.stringify({ code: "Note123" }),
       }),
     );
     expect(container.textContent).toContain(note.text);
-    expect(container.textContent).toContain("Lock notes");
+    expect(container.querySelector('button[aria-label="Lock notes"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Register access code");
     expect(container.querySelector("#notes-code")).toBeNull();
   });
@@ -95,12 +96,13 @@ describe("notes interface", () => {
     vi.setSystemTime(new Date("2026-10-19T10:00:00Z"));
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(page(false)));
     await render(false);
+    await click("Add note");
     await fill("note-text", "An unsaved draft");
     await act(() => vi.advanceTimersByTimeAsync(1199999));
     expect(container.textContent).toContain(note.text);
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(container.textContent).toContain("20-minute notes session has expired");
-    expect(container.textContent).toContain("Unlock your notes");
+    expect(container.querySelector('button[aria-label="Unlock notes"]')).not.toBeNull();
     expect(container.textContent).not.toContain(note.text);
     expect(container.querySelector("#note-text")).toBeNull();
     expect(fetch).toHaveBeenCalledOnce();
@@ -111,17 +113,20 @@ describe("notes interface", () => {
     await render();
     await act(() => vi.advanceTimersByTimeAsync(21 * 60 * 1000));
     expect(container.textContent).toContain(note.text);
-    expect(container.textContent).toContain("Your normal website sign-in has no notes timer");
+    expect(container.textContent).toContain("Normal sign-in has no Notes timer");
     expect(container.querySelector("#notes-code")).toBeNull();
-    expect(container.querySelector("#note-text")).not.toBeNull();
+    expect(container.querySelector("#note-text")).toBeNull();
+    await click("Add note");
+    expect(container.querySelector("dialog #note-text")).not.toBeNull();
   });
   it("shows a live word limit and submits text and links separately", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...page(), notes: [] }));
     await render();
+    await click("Add note");
     await fill("note-text", Array(101).fill("word").join(" "));
     const save = () =>
       [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "Save note",
+        (button) => button.getAttribute("aria-label") === "Save note",
       )!;
     expect(save().disabled).toBe(true);
     expect(container.querySelector("#note-text")!.getAttribute("aria-invalid")).toBe("true");
@@ -140,7 +145,7 @@ describe("notes interface", () => {
         }),
       }),
     );
-    expect(container.querySelector<HTMLTextAreaElement>("#note-text")!.value).toBe("");
+    expect(container.querySelector("dialog")).toBeNull();
     expect(container.textContent).toContain("Note saved.");
   });
   it("keeps the draft on recoverable errors and requires confirmation before deletion", async () => {
@@ -156,6 +161,7 @@ describe("notes interface", () => {
       "Updated thought",
     );
     expect(container.querySelector('[role="alert"]')!.textContent).toBe("Retry saving");
+    await click("Close dialog");
     await click("Delete note 1");
     expect(fetch).toHaveBeenCalledTimes(2);
     await click("Keep note");
@@ -170,21 +176,66 @@ describe("notes interface", () => {
     expect(container.textContent).not.toContain(note.text);
     expect(container.textContent).toContain("No notes yet");
   });
-  it("generates a secret code and registers it without exposing account identifiers", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...page(), codeEnabled: false }));
-    await render();
-    await click("Generate code");
-    const generated = container.querySelector<HTMLInputElement>("#new-notes-code")!.value;
-    expect(generated).toMatch(/^[a-f0-9]{48}$/);
-    expect(container.querySelector<HTMLInputElement>("#confirm-notes-code")!.value).toBe(generated);
+  it("registers a simple code from Feature setup and changes it through management", async () => {
+    const status = {
+      username: null,
+      registrationId: null,
+      paused: false,
+      connected: false,
+      status: "pending" as const,
+      lastDelivery: null,
+    };
+    await act(() => root.render(<NotesSetup initialStatus={status} />));
+    expect(fetch).not.toHaveBeenCalled();
+    await fill("notes-service-code", "Note123");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ ...status, username: "Private notebook", registrationId: "notebook-id" }),
+    );
+    await submit("notes-service-code");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/tracking/services/notes",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: "Note123" }) }),
+    );
+    expect(container.querySelector<HTMLInputElement>("#notes-service-code")!.value).toBe("");
+    await fill("notes-service-code", "New456");
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ codeEnabled: true }));
-    await submit("new-notes-code");
+    await submit("notes-service-code");
     expect(fetch).toHaveBeenLastCalledWith(
       "/api/notes/access",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: generated }) }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ code: "New456", registrationId: "notebook-id" }),
+      }),
     );
-    expect(container.querySelector<HTMLInputElement>("#new-notes-code")!.value).toBe("");
-    expect(container.textContent).toContain("Previous code sessions have been locked");
+    expect(container.textContent).toContain("Secret code changed");
+  });
+  it("keeps help hidden until clicked or focused and renders icons with accessible names", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(page()));
+    await render();
+    const tooltip = container.querySelector<HTMLElement>('[role="tooltip"]')!;
+    expect(tooltip.hidden).toBe(true);
+    await click("Notes information");
+    expect(tooltip.hidden).toBe(false);
+    const add = container.querySelector('button[aria-label="Add note"]')!;
+    expect(add.querySelector("svg")).not.toBeNull();
+    expect(add.textContent).toBe("");
+  });
+  it("opens domains and search phrases in a new tab without requiring a scheme", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...page(),
+        notes: [{ ...note, links: ["example.com/path", "binary search trees"] }],
+      }),
+    );
+    await render();
+    const links = [...container.querySelectorAll<HTMLAnchorElement>(".note-links a")];
+    expect(links.map((link) => link.href)).toEqual([
+      "https://example.com/path",
+      "https://www.google.com/search?q=binary%20search%20trees",
+    ]);
+    expect(
+      links.every((link) => link.target === "_blank" && link.rel === "noopener noreferrer"),
+    ).toBe(true);
   });
   it("supports retry after loading fails without treating an outage as a code login", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -207,6 +258,6 @@ describe("notes interface", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(container.textContent).not.toContain(note.text);
-    expect(container.textContent).toContain("Unlock your notes");
+    expect(container.querySelector('button[aria-label="Unlock notes"]')).not.toBeNull();
   });
 });

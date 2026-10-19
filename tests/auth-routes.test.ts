@@ -27,6 +27,7 @@ const loginToken = "l".repeat(43);
 const sessionToken = "s".repeat(43);
 const account: Account = {
   theme: null,
+  notesRegisteredAt: null,
   id: "account-id",
   telegramId: 123,
   leetcodeUsername: null,
@@ -66,21 +67,21 @@ beforeEach(() => {
 });
 
 describe("Telegram authentication routes", () => {
-  it("returns notes registration to Notes through canonical login and callback", async () => {
+  it("returns notes registration to Feature through canonical login and callback", async () => {
     const alias = await login(
       new NextRequest("https://preview.example/api/auth/telegram/login?next=/notes"),
     );
     expect(alias.headers.get("location")).toBe(`${origin}/api/auth/telegram/login?next=notes`);
     const started = await login(new NextRequest(`${origin}/api/auth/telegram/login?next=/notes`));
     expect(decodeURIComponent(started.headers.get("set-cookie")!)).toContain(
-      "tracking_login_destination=/notes",
+      "tracking_login_destination=/feature?platform=notes",
     );
     const response = await callback(
       new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
         headers: { cookie: `tracking_login=${loginToken}; tracking_login_destination=/notes` },
       }),
     );
-    expect(response.headers.get("location")).toBe(`${origin}/notes`);
+    expect(response.headers.get("location")).toBe(`${origin}/feature?platform=notes`);
   });
   it.each(["leetcode", "gfg"])("preserves the %s service through sign-in", async (platform) => {
     const alias = await login(

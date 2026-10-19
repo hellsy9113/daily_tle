@@ -6,6 +6,7 @@ import { isRecord } from "@/lib/http/validation";
 import { requireSameOrigin } from "@/lib/tracking/security";
 import { isFeatureId, type FeatureId } from "./catalog";
 import { featureAdapters } from "./server";
+import { limitNotesAccess } from "@/lib/notes/access";
 
 export async function handleFeature(request: Request, id: unknown, method = request.method) {
   try {
@@ -13,6 +14,7 @@ export async function handleFeature(request: Request, id: unknown, method = requ
     const account = await requireAccount(request);
     if (!isFeatureId(id)) throw new ApiError(400, "Choose a supported service.");
     const adapter = featureAdapters[id];
+    if (id === "notes" && method === "POST") await limitNotesAccess(request);
     if (method === "GET") return privateJson(await adapter.status(account));
     const body = await readJson(request);
     if (method === "POST")

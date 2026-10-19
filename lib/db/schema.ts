@@ -28,6 +28,7 @@ export const accounts = tracking.table(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     theme: text("theme").$type<"light" | "dark">(),
+    notesRegisteredAt: time("notes_registered_at"),
     telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
     leetcodeUsername: text("leetcode_username"),
     gfgUsername: text("gfg_username"),
@@ -347,6 +348,7 @@ export const notebooks = tracking.table("notebooks", {
     .unique()
     .references(() => accounts.id, { onDelete: "cascade" }),
   codeHash: text("code_hash").unique(),
+  paused: boolean("paused").notNull().default(false),
   createdAt: time("created_at").notNull().defaultNow(),
 });
 

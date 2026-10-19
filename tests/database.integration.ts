@@ -95,6 +95,9 @@ import {
   DELETE as disableNotesCode,
 } from "@/app/api/notes/access/route";
 import { POST as loginNotes, DELETE as logoutNotes } from "@/app/api/notes/session/route";
+import { registerNotes, manageNotes, notesStatus } from "@/lib/notes/service";
+import { notes as savedNotes } from "@/lib/db/schema";
+import { handleFeature } from "@/lib/features/handlers";
 import { POST as websiteLogout } from "@/app/api/auth/logout/route";
 
 vi.mock("@/lib/leetcode/user-identity", () => ({
@@ -1897,8 +1900,8 @@ describe("durable delivery processing", () => {
 });
 
 describe("private notes and code access", () => {
-  const secret = "my-private-notebook-access-2026";
-  const replacement = "replacement-private-notes-code-2026";
+  const secret = "Note123";
+  const replacement = "New456";
   function request(
     path = "/api/notes",
     method = "GET",
@@ -1919,10 +1922,11 @@ describe("private notes and code access", () => {
   }
   async function signedIn() {
     const owner = await account();
+    await registerNotes(owner, secret);
     return { owner, cookie: `tracking_session=${await createSession(owner.id)}` };
   }
   async function codeCookie(ownerId: string) {
-    await setNotesCode(ownerId, secret);
+    await setNotesCode(ownerId, secret, (await notebookForAccount(ownerId)).id);
     return `${NOTES_COOKIE}=${await unlockNotes(secret)}`;
   }
   it("allows signed-in accounts with no tracking services to create, edit and delete notes", async () => {
@@ -1941,7 +1945,7 @@ describe("private notes and code access", () => {
     expect(await result.json()).toMatchObject({
       signedIn: true,
       expiresAt: null,
-      codeEnabled: false,
+      codeEnabled: true,
       notes: [{ id: note.id, text: "Remember binary search" }],
     });
     const context = { params: Promise.resolve({ id: note.id }) };
@@ -1996,7 +2000,7 @@ describe("private notes and code access", () => {
   });
   it("issues a separate 20-minute cookie, never a website session, and enforces fixed expiry", async () => {
     const { owner } = await signedIn();
-    await setNotesCode(owner.id, secret);
+    await setNotesCode(owner.id, secret, (await notebookForAccount(owner.id)).id);
     const result = await loginNotes(request(undefined, "POST", "", { code: secret }));
     expect(result.status).toBe(200);
     const header = result.headers.get("set-cookie")!;
@@ -2027,6 +2031,7 @@ describe("private notes and code access", () => {
     const { owner, cookie } = await signedIn();
     const guest = await codeCookie(owner.id);
     const other = await account(202);
+    await registerNotes(other, "Other789");
     const otherCookie = `tracking_session=${await createSession(other.id)}`;
     const notebook = await notebookForAccount(other.id);
     await createNote(notebook.id, { text: "Other account's private note", links: [] });
@@ -2043,6 +2048,7 @@ describe("private notes and code access", () => {
     const { owner, cookie } = await signedIn();
     const guest = await codeCookie(owner.id);
     const other = await account(202);
+    await registerNotes(other, "Other789");
     const notebook = await notebookForAccount(other.id);
     const note = await createNote(notebook.id, { text: "Private to the other account", links: [] });
     for (const credential of [cookie, guest]) {
@@ -2075,18 +2081,22 @@ describe("private notes and code access", () => {
     }
     expect((await listNotes(notebook.id)).notes[0].text).toBe("Private to the other account");
   });
-  it("revokes old sessions on replacement, rejects old codes, and preserves notes on disable", async () => {
+  it("revokes old sessions on replacement and pause while preserving notes", async () => {
     const { owner, cookie } = await signedIn();
     const guest = await codeCookie(owner.id);
     const notebook = await notebookForAccount(owner.id);
     await createNote(notebook.id, { text: "Keep this note", links: [] });
     expect(
-      (await registerNotesCode(request(undefined, "POST", cookie, { code: replacement }))).status,
+      (
+        await registerNotesCode(
+          request(undefined, "POST", cookie, { code: replacement, registrationId: notebook.id }),
+        )
+      ).status,
     ).toBe(200);
     expect((await getNotes(request(undefined, "GET", guest))).status).toBe(401);
     await expect(unlockNotes(secret)).rejects.toMatchObject({ status: 401 });
     const freshCookie = `${NOTES_COOKIE}=${await unlockNotes(replacement)}`;
-    expect((await disableNotesCode(request(undefined, "DELETE", cookie))).status).toBe(200);
+    await manageNotes(owner.id, notebook.id, true);
     expect((await getNotes(request(undefined, "GET", freshCookie))).status).toBe(401);
     await expect(unlockNotes(replacement)).rejects.toMatchObject({ status: 401 });
     expect((await listNotes(notebook.id)).notes[0].text).toBe("Keep this note");
@@ -2095,7 +2105,10 @@ describe("private notes and code access", () => {
     const { owner } = await signedIn();
     const guest = await codeCookie(owner.id);
     const other = await account(202);
-    await expect(setNotesCode(other.id, secret)).rejects.toMatchObject({ status: 409 });
+    await registerNotes(other, "Other789");
+    await expect(
+      setNotesCode(other.id, secret, (await notebookForAccount(other.id)).id),
+    ).rejects.toMatchObject({ status: 409 });
     expect((await getNotes(request(undefined, "GET", guest))).status).toBe(200);
     const rows = await db().select().from(notebooks);
     expect(rows.find((row) => row.accountId === owner.id)?.codeHash).toMatch(/^[a-f0-9]{64}$/);
@@ -2331,5 +2344,142 @@ describe("Sunday weekly recaps", () => {
     expect(await runWeekly()).toMatchObject({ sent: 3, failed: 0 });
     vi.setSystemTime(new Date("2026-10-18T18:30:00Z"));
     expect((await runWeekly()).skipped).toBe(true);
+  });
+});
+
+describe("Notes opt-in service lifecycle", () => {
+  function request(cookie: string, method = "GET", body?: unknown) {
+    return new Request("http://localhost:3000/api/tracking/services/notes", {
+      method,
+      headers: {
+        cookie,
+        origin: "http://localhost:3000",
+        "Content-Type": "application/json",
+        "x-forwarded-for": "127.0.0.20",
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+  async function owner() {
+    const user = await account();
+    return { user, cookie: `tracking_session=${await createSession(user.id)}` };
+  }
+  it("requires Feature registration and its secret code before accessing Notes", async () => {
+    const { user, cookie } = await owner();
+    expect((await getNotes(request(cookie))).status).toBe(403);
+    expect(
+      (await postNote(request(cookie, "POST", { text: "No registration", links: [] }))).status,
+    ).toBe(403);
+    expect(await db().select().from(notebooks)).toHaveLength(0);
+    for (const code of ["1234", "1234567890", "abc_def"])
+      expect((await handleFeature(request(cookie, "POST", { code }), "notes")).status).toBe(400);
+    const registered = await handleFeature(request(cookie, "POST", { code: "12345" }), "notes");
+    expect(registered.status).toBe(201);
+    expect(await registered.json()).toMatchObject({
+      username: "Private notebook",
+      registrationId: expect.any(String),
+    });
+    expect((await getNotes(request(cookie))).status).toBe(200);
+    expect(
+      (await handleFeature(request(cookie, "POST", { code: "Again123" }), "notes")).status,
+    ).toBe(409);
+    expect(
+      (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].notesRegisteredAt,
+    ).not.toBeNull();
+  });
+  it("preserves previously saved notes when the account registers the new service", async () => {
+    const { user, cookie } = await owner();
+    const legacy = await notebookForAccount(user.id);
+    await db()
+      .insert(savedNotes)
+      .values({ notebookId: legacy.id, text: "An existing note", links: ["https://example.com/"] });
+    expect((await getNotes(request(cookie))).status).toBe(403);
+    expect((await handleFeature(request(cookie, "POST", { code: "Old123" }), "notes")).status).toBe(
+      201,
+    );
+    const result = await (await getNotes(request(cookie))).json();
+    expect(result.notes).toMatchObject([{ text: "An existing note" }]);
+    expect((await notebookForAccount(user.id)).id).toBe(legacy.id);
+  });
+  it("allows code changes only for the current signed-in registration and revokes old tokens", async () => {
+    const { user, cookie } = await owner();
+    const status = await registerNotes(user, "First123");
+    const guest = `notes_session=${await unlockNotes("First123")}`;
+    const body = { registrationId: status.registrationId, code: "Next456" };
+    expect((await registerNotesCode(request(guest, "POST", body))).status).toBe(401);
+    expect((await registerNotesCode(request(cookie, "POST", { code: "Next456" }))).status).toBe(
+      400,
+    );
+    expect((await registerNotesCode(request(cookie, "POST", body))).status).toBe(200);
+    expect((await getNotes(request(guest))).status).toBe(401);
+    await expect(unlockNotes("First123")).rejects.toMatchObject({ status: 401 });
+    expect(await unlockNotes("Next456")).toMatch(/^[a-z0-9_-]{43}$/i);
+    expect((await disableNotesCode(request(cookie, "DELETE"))).status).toBe(405);
+  });
+  it("pauses access and saved writes, revokes guest sessions, and resumes without losing notes", async () => {
+    const { user, cookie } = await owner();
+    const status = await registerNotes(user, "Pause123");
+    const notebookId = status.registrationId!;
+    await createNote(notebookId, { text: "Saved before pause", links: ["binary search"] });
+    const guest = `notes_session=${await unlockNotes("Pause123")}`;
+    const paused = await handleFeature(
+      request(cookie, "PATCH", { registrationId: notebookId, paused: true }),
+      "notes",
+    );
+    expect(paused.status).toBe(200);
+    expect((await paused.json()).paused).toBe(true);
+    expect((await getNotes(request(cookie))).status).toBe(423);
+    expect((await getNotes(request(guest))).status).toBe(401);
+    await expect(createNote(notebookId, { text: "Stale write", links: [] })).rejects.toMatchObject({
+      status: 423,
+    });
+    await expect(unlockNotes("Pause123")).rejects.toMatchObject({ status: 401 });
+    expect(
+      (
+        await handleFeature(
+          request(cookie, "PATCH", { registrationId: notebookId, paused: false }),
+          "notes",
+        )
+      ).status,
+    ).toBe(200);
+    expect((await (await getNotes(request(cookie))).json()).notes[0].text).toBe(
+      "Saved before pause",
+    );
+    expect((await getNotes(request(guest))).status).toBe(401);
+  });
+  it("revokes only Notes, deletes its data, and rejects stale management after re-registration", async () => {
+    const { user, cookie } = await owner();
+    const status = await registerNotes(user, "Delete123");
+    await createNote(status.registrationId!, { text: "Delete me", links: [] });
+    const guest = `notes_session=${await unlockNotes("Delete123")}`;
+    await registerUsername(user, "keep_leetcode");
+    const deleted = await handleFeature(
+      request(cookie, "DELETE", {
+        registrationId: status.registrationId,
+        confirmPermanentDeletion: true,
+      }),
+      "notes",
+    );
+    expect(deleted.status).toBe(200);
+    expect(await db().select().from(savedNotes)).toHaveLength(0);
+    expect((await getNotes(request(guest))).status).toBe(401);
+    const updated = (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+    expect(updated.leetcodeUsername).toBe("keep_leetcode");
+    expect((await notesStatus(updated)).registrationId).toBeNull();
+    const fresh = await registerNotes(updated, "Again123");
+    expect(fresh.registrationId).not.toBe(status.registrationId);
+    expect(
+      (
+        await registerNotesCode(
+          request(cookie, "POST", { code: "Stale123", registrationId: status.registrationId }),
+        )
+      ).status,
+    ).toBe(409);
+    await expect(manageNotes(user.id, status.registrationId!, true)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(
+      createNote(status.registrationId!, { text: "Late write", links: [] }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

@@ -9,6 +9,8 @@ import { registrationAvailable } from "@/lib/tracking/config";
 import { trackingStatuses } from "@/lib/tracking/registration";
 import { platformUsername } from "@/lib/tracking/platforms";
 import { features as services, featurePaths, type FeatureId } from "@/lib/features/catalog";
+import { InfoPopover } from "@/components/info-popover";
+import { NotesIcon } from "@/components/notes-icons";
 
 export const metadata = { title: "Choose your services · Track.it" };
 
@@ -20,6 +22,7 @@ export default async function FeaturePage({
   const params = await searchParams;
   const selected = services.find((service) => service.id === params.platform);
   const available = registrationAvailable();
+  const selectedAvailable = selected?.id === "notes" || available;
   let account: Account | null = null;
   let status;
   let serviceStatuses: Partial<Record<FeatureId, TrackingStatus>> = {};
@@ -82,7 +85,13 @@ export default async function FeaturePage({
                     {service.name}
                   </Link>
                 </h2>
-                <p>{service.description}</p>
+                {service.id === "notes" ? (
+                  <InfoPopover label="About Notes">
+                    {service.description} {service.coverage}
+                  </InfoPopover>
+                ) : (
+                  <p>{service.description}</p>
+                )}
                 {username && <span className="service-username mono">{username}</span>}
                 <Link href={featurePaths[service.id]} className="service-action">
                   {username ? "Manage service" : `Enable ${service.name}`}{" "}
@@ -94,7 +103,12 @@ export default async function FeaturePage({
         </nav>
       )}
 
-      {account && selected && !unavailable && status && Setup && (available || status.username) ? (
+      {account &&
+      selected &&
+      !unavailable &&
+      status &&
+      Setup &&
+      (selectedAvailable || status.username) ? (
         <div className="tracking-layout feature-setup">
           <div className="tracking-intro">
             <p className="eyebrow">{selected.name} service</p>
@@ -103,23 +117,33 @@ export default async function FeaturePage({
                 ? status.paused
                   ? "Your service is paused."
                   : "Your service is enabled."
-                : `Enable ${selected.name} tracking.`}
+                : selected.id === "notes"
+                  ? "Register your private notebook."
+                  : `Enable ${selected.name} tracking.`}
             </h2>
-            <p className="lead">{selected.description}</p>
-            <p className="field-help">{selected.coverage}</p>
-            <p className="field-help">
-              Your dashboard is available after registration. Connect Daily Grind once for all
-              enabled services to receive morning Telegram recaps.
-            </p>
+            {selected.id === "notes" ? (
+              <InfoPopover label="About your private notebook">
+                {selected.description} {selected.coverage}
+              </InfoPopover>
+            ) : (
+              <>
+                <p className="lead">{selected.description}</p>
+                <p className="field-help">{selected.coverage}</p>
+                <p className="field-help">
+                  Your dashboard is available after registration. Connect Daily Grind once for all
+                  enabled services to receive morning Telegram recaps.
+                </p>
+              </>
+            )}
           </div>
           <Setup key={selected.id} platform={selected.id} initialStatus={status} />
         </div>
-      ) : !account || unavailable || (selected && !status?.username && !available) ? (
+      ) : !account || unavailable || (selected && !status?.username && !selectedAvailable) ? (
         <section className="tracking-panel feature-signin" aria-labelledby="feature-signin-title">
           <h2 id="feature-signin-title">
             {unavailable
               ? "Tracking is temporarily unavailable"
-              : !available
+              : !selectedAvailable
                 ? "Service registration is being set up"
                 : "Sign in to choose your services"}
           </h2>
@@ -133,7 +157,7 @@ export default async function FeaturePage({
               Sign-in expired or could not be verified. Please try again.
             </p>
           )}
-          {available && !unavailable && !account ? (
+          {selectedAvailable && !unavailable && !account ? (
             <a
               className="button primary full-width"
               href={`/api/auth/telegram/login?next=${selected?.id ?? "feature"}`}
@@ -144,6 +168,22 @@ export default async function FeaturePage({
             <Link className="button secondary full-width" href="/">
               Return home
             </Link>
+          )}
+          {!account && !unavailable && (
+            <div className="notes-actions">
+              <Link
+                className="button secondary icon-button"
+                href="/notes"
+                title="Unlock Notes with a code"
+                aria-label="Unlock Notes with a code"
+              >
+                <NotesIcon name="lock" />
+              </Link>
+              <InfoPopover label="Notes code access">
+                Already registered Notes? Use your secret code for 20-minute access without website
+                sign-in.
+              </InfoPopover>
+            </div>
           )}
         </section>
       ) : (

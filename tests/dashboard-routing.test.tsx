@@ -37,6 +37,27 @@ beforeEach(() => {
   });
 });
 describe("connected dashboard navigation", () => {
+  it("shows Notes in Dashboard navigation, not the main navigation, without requiring a bot", async () => {
+    const user = { ...account, leetcodeUsername: null, notesRegisteredAt: new Date() } as Account;
+    vi.mocked(serverAccount).mockResolvedValue(user);
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      notes: {
+        username: "Private notebook",
+        registrationId: "notebook",
+        paused: false,
+        connected: false,
+        status: "pending",
+        lastDelivery: null,
+      },
+    });
+    const html = renderToStaticMarkup(await DashboardPage());
+    expect(html).toContain('aria-label="Dashboard services"');
+    expect(html).toContain('href="/dashboard?service=notes"');
+    expect(html).toContain('aria-label="Private notes"');
+    const navigation = /<nav aria-label="Main navigation">([\s\S]*?)<\/nav>/.exec(html)?.[1];
+    expect(navigation).not.toContain("Notes");
+    expect(html).not.toContain("Connect Daily Grind");
+  });
   it.each(["leetcode", "gfg", "hackerrank"] as const)(
     "replaces a paused %s calendar with a resume placeholder",
     async (platform) => {
@@ -129,7 +150,7 @@ describe("connected dashboard navigation", () => {
   it("loads only the current account's status and public bot link", async () => {
     const page = await DashboardPage();
     expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["leetcode"]);
-    expect(page.props.children.props.botUrl).toBe("https://t.me/test_bot");
+    expect(page.props.children[1].props.botUrl).toBe("https://t.me/test_bot");
   });
   it.each(["leetcode", "gfg", "hackerrank"] as const)(
     "opens the dashboard for %s alone before Daily Grind is connected",
@@ -155,7 +176,7 @@ describe("connected dashboard navigation", () => {
         },
       });
       const page = await DashboardPage();
-      expect(page.props.children.props.statusPlatform).toBe(platform);
+      expect(page.props.children[1].props.statusPlatform).toBe(platform);
       expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(user, [platform]);
       const html = renderToStaticMarkup(page);
       expect(html).toContain(`href="/feature?platform=${platform}"`);

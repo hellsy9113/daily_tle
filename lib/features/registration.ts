@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/http/api-error";
 import { requireRegistrationAvailable } from "@/lib/tracking/config";
 import { platformFields, platformUsername } from "@/lib/tracking/platforms";
 import { recordAgreement, type Transaction } from "@/lib/tracking/services";
-import { platformLabels, type FeatureId } from "./catalog";
+import { platformLabels, type ActivityFeatureId } from "./catalog";
 import { trackingStatus } from "./status";
 
 function isUniqueConflict(error: unknown) {
@@ -22,7 +22,7 @@ function isUniqueConflict(error: unknown) {
 /** Platform lookup and initial imports stay local; reservation and consent are atomic. */
 export async function registerFeature<T>(
   account: Account,
-  platform: FeatureId,
+  platform: ActivityFeatureId,
   lookup: () => Promise<T>,
   username: (result: T) => string,
   initialize?: (tx: Transaction, accountId: string, result: T) => Promise<void>,

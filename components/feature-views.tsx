@@ -5,6 +5,7 @@ import { GfgActivityPanel } from "./gfg-activity-panel";
 import { HackerRankActivityPanel } from "./hackerrank-activity-panel";
 import type { FeatureId } from "@/lib/features/catalog";
 import type { TrackingStatus } from "@/lib/tracking/types";
+import { NotesSetup } from "./notes-setup";
 
 /** Setup is a component slot: future services can supply a form other than a username. */
 interface FeatureView {
@@ -13,6 +14,7 @@ interface FeatureView {
 }
 
 export const featureViews: Record<FeatureId, FeatureView> = {
+  notes: { Setup: NotesSetup },
   leetcode: { Setup: TrackingPanel, Dashboard: LeetcodeActivityPanel },
   gfg: { Setup: TrackingPanel, Dashboard: GfgActivityPanel },
   hackerrank: { Setup: TrackingPanel, Dashboard: HackerRankActivityPanel },
