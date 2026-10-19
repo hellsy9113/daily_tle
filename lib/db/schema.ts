@@ -337,38 +337,3 @@ export const activityGoals = tracking.table(
 
 export type Account = typeof accounts.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;
-
-export const notebooks = tracking.table("notebooks", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  accountId: uuid("account_id")
-    .notNull()
-    .unique()
-    .references(() => accounts.id, { onDelete: "cascade" }),
-  codeHash: text("code_hash").unique(),
-  createdAt: time("created_at").notNull().defaultNow(),
-});
-
-export const notes = tracking.table("notes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  notebookId: uuid("notebook_id")
-    .notNull()
-    .references(() => notebooks.id, { onDelete: "cascade" }),
-  text: text("content").notNull(),
-  links: jsonb("links").$type<string[]>().notNull().default([]),
-  createdAt: time("created_at").notNull().defaultNow(),
-  updatedAt: time("updated_at").notNull().defaultNow(),
-});
-
-export const notesSessions = tracking.table("notes_sessions", {
-  tokenHash: text("token_hash").primaryKey(),
-  notebookId: uuid("notebook_id")
-    .notNull()
-    .references(() => notebooks.id, { onDelete: "cascade" }),
-  expiresAt: time("expires_at").notNull(),
-});
-
-export const notesLoginLimits = tracking.table("notes_login_limits", {
-  key: text("key").primaryKey(),
-  attempts: integer("attempts").notNull(),
-  resetAt: time("reset_at").notNull(),
-});

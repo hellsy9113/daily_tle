@@ -17,7 +17,6 @@ export function SiteShell({
           Track.it
         </Link>
         <nav aria-label="Main navigation">
-          <Link href="/notes">Notes</Link>
           {signedIn && <Link href="/feature">Feature</Link>}
           {signedIn ? (
             <Link href="/dashboard">Dashboard</Link>
