@@ -25,6 +25,7 @@ import { lockRegistration } from "./services";
 import { writeCollectedResult } from "./result-store";
 import { prepareCollections } from "./collection-store";
 import { EMPTY_REPORT } from "./format-report";
+import { weeklyReportPeriod } from "./weekly-period";
 
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
@@ -67,21 +68,48 @@ export async function prepareDeliveries(now: Date) {
     FROM ${accounts} WHERE status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'leetcode' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'leetcode' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND registered_at <= ${range.cutoff.toISOString()}::timestamptz
-    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
+    ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
     await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
     SELECT id, 'gfg', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
     FROM ${accounts} WHERE status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'gfg' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'gfg' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
       AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
       AND gfg_registered_at <= ${range.cutoff.toISOString()}::timestamptz
-    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
+    ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
     await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
     SELECT id, 'hackerrank', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
     FROM ${accounts} WHERE status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'hackerrank' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'hackerrank' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND hackerrank_registered_at <= ${range.cutoff.toISOString()}::timestamptz
-    ON CONFLICT (account_id, platform, report_date) DO NOTHING`);
+    ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
     await transaction.execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
-    WHERE report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
+    WHERE cadence = 'daily' AND report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
+  });
+  return range.reportDate;
+}
+
+export async function prepareWeeklyDeliveries(now: Date) {
+  const range = weeklyReportPeriod(now);
+  await db().transaction(async (transaction) => {
+    await transaction.select({ id: accounts.id }).from(accounts).orderBy(accounts.id).for("update");
+    await transaction.execute(sql`
+      INSERT INTO ${deliveries} (account_id, registration_id, platform, cadence, report_date, period_start, period_end, status, next_attempt_at)
+      SELECT a.id, s.registration_id, s.platform, 'weekly', ${range.reportDate}::date,
+        ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
+        CASE WHEN a.status = 'active' AND NOT s.paused THEN 'pending' ELSE 'cancelled' END,
+        ${now.toISOString()}::timestamptz
+      FROM ${accounts} a JOIN ${platformServices} s ON s.account_id = a.id
+      WHERE a.chat_id IS NOT NULL
+        AND CASE s.platform WHEN 'gfg' THEN a.gfg_username WHEN 'hackerrank' THEN a.hackerrank_username ELSE a.leetcode_username END IS NOT NULL
+        AND CASE s.platform WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${range.cutoff.toISOString()}::timestamptz
+        AND a.connected_at <= ${range.cutoff.toISOString()}::timestamptz
+      ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING
+    `);
+    await transaction.execute(sql`
+      UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
+      WHERE cadence = 'weekly' AND report_date < ${range.reportDate}::date
+        AND status IN ('pending', 'sending', 'failed')
+        AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)
+    `);
   });
   return range.reportDate;
 }
@@ -98,15 +126,15 @@ export async function prepareEmptyDayReports(reportDate: string, now: Date) {
     WHERE target.account_id = account.id AND account.status = 'active' AND account.chat_id IS NOT NULL
       AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = target.registration_id AND NOT s.paused)
       AND NOT EXISTS (SELECT 1 FROM ${reportReminders} reminder WHERE reminder.account_id = target.account_id AND reminder.report_date = target.report_date)
-      AND target.report_date = ${reportDate}::date AND target.status = 'sent' AND target.messages = '[]'::jsonb
+      AND target.cadence = 'daily' AND target.report_date = ${reportDate}::date AND target.status = 'sent' AND target.messages = '[]'::jsonb
       AND target.platform = (
         SELECT min(sibling.platform) FROM ${deliveries} AS sibling
-        WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+        WHERE sibling.cadence = 'daily' AND sibling.account_id = target.account_id AND sibling.report_date = target.report_date
           AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = sibling.registration_id AND NOT s.paused)
       )
       AND NOT EXISTS (
         SELECT 1 FROM ${deliveries} AS sibling
-        WHERE sibling.account_id = target.account_id AND sibling.report_date = target.report_date
+        WHERE sibling.cadence = 'daily' AND sibling.account_id = target.account_id AND sibling.report_date = target.report_date
           AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = sibling.registration_id AND NOT s.paused)
           AND (sibling.messages IS NULL OR sibling.messages <> '[]'::jsonb OR sibling.status <> 'sent')
       )
@@ -121,6 +149,7 @@ export async function claimDelivery(
   allowGfg = true,
   allowHackerRank = true,
   preparedOnly = false,
+  cadence: "daily" | "weekly" = "daily",
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
@@ -136,6 +165,7 @@ export async function claimDelivery(
     .where(
       and(
         eq(candidateDelivery.reportDate, reportDate),
+        eq(candidateDelivery.cadence, cadence),
         preparedOnly ? isNotNull(candidateDelivery.messages) : undefined,
         allowGfg ? undefined : ne(candidateDelivery.platform, "gfg"),
         allowHackerRank ? undefined : ne(candidateDelivery.platform, "hackerrank"),
@@ -292,7 +322,9 @@ export async function prepareDeliveryReport(
       delivery.platform,
       delivery.registrationId,
     );
-    await writeCollectedResult(transaction, delivery.accountId, result);
+    // Weekly results deduplicate across days and cannot establish daily coverage.
+    if (delivery.cadence === "daily")
+      await writeCollectedResult(transaction, delivery.accountId, result);
     const rows = await transaction
       .update(deliveries)
       .set({ messages })

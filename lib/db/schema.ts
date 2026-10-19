@@ -160,6 +160,7 @@ export const deliveries = tracking.table(
       .references(() => platformServices.registrationId, { onDelete: "cascade" }),
     reportDate: date("report_date").notNull(),
     platform: text("platform").$type<ActivityPlatform>().notNull().default("leetcode"),
+    cadence: text("cadence").$type<"daily" | "weekly">().notNull().default("daily"),
     start: time("period_start").notNull(),
     end: time("period_end").notNull(),
     status: text("status").$type<DeliveryStatus>().notNull().default("pending"),
@@ -174,10 +175,11 @@ export const deliveries = tracking.table(
     createdAt: time("created_at").notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("deliveries_account_platform_date_unique").on(
+    uniqueIndex("deliveries_account_platform_date_cadence_unique").on(
       table.accountId,
       table.platform,
       table.reportDate,
+      table.cadence,
     ),
     check(
       "deliveries_status_check",

@@ -30,7 +30,7 @@ export async function prepareCollections(tx: Transaction, now: Date) {
     FROM ${deliveries} d
     WHERE c.registration_id = d.registration_id AND c.report_date = d.report_date
       AND c.report_date = ${reportDate}::date AND c.status IN ('pending', 'failed')
-      AND d.messages IS NOT NULL
+      AND d.cadence = 'daily' AND d.messages IS NOT NULL
   `);
 }
 
@@ -120,7 +120,12 @@ export async function completeCollection(
           messages,
         })
         .onConflictDoUpdate({
-          target: [deliveries.accountId, deliveries.platform, deliveries.reportDate],
+          target: [
+            deliveries.accountId,
+            deliveries.platform,
+            deliveries.reportDate,
+            deliveries.cadence,
+          ],
           set: { messages },
           setWhere: and(
             eq(deliveries.registrationId, job.registrationId),
@@ -149,6 +154,7 @@ export async function failCollection(job: ClaimedCollection, error: string, retr
       and(
         eq(deliveries.registrationId, job.registrationId),
         eq(deliveries.reportDate, job.reportDate),
+        eq(deliveries.cadence, "daily"),
         sql`${deliveries.messages} IS NULL`,
         ne(deliveries.status, "cancelled"),
         ne(deliveries.status, "sent"),

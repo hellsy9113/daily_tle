@@ -17,6 +17,8 @@ Manage Pause/Resume and **Revoke & delete data** on the same Feature page.
 Pause hides activity and stops recaps while collection continues; resume retains history.
 Deletion clears only that service's saved data. Profile owns appearance and sign-out.
 Connect Daily Grind once for all enabled services.
+Weekly recaps for all three platforms are scheduled for Sunday at 11:00 p.m. IST,
+covering Monday through that cutoff, with recovery at 11:30 p.m.
 
 ## Local development
 
@@ -57,4 +59,5 @@ npm run test:db
 
 Database tests create and drop an isolated `tracking_test_*` schema. Set
 `TEST_DATABASE_URL` to a test PostgreSQL database; CI supplies PostgreSQL automatically.
-Notes requires migration `0007_notes.sql`; no new environment variable is needed.
+Notes requires migration `0007_notes.sql`; weekly recaps require `0008_weekly_recaps.sql`.
+No new environment variable is needed.

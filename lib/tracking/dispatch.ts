@@ -15,6 +15,7 @@ import {
   sendDeliveryPart,
   failDelivery,
   prepareDeliveries,
+  prepareWeeklyDeliveries,
   prepareEmptyDayReports,
   prepareDeliveryReport,
   releaseDispatchLock,
@@ -25,7 +26,8 @@ import { requireCron } from "./security";
 import { trackingBot } from "./config";
 import { sendTrackingMessage, TrackingTelegramError } from "./telegram-client";
 
-import { reportCollectors } from "./reports";
+import { collectWeeklyReport, reportCollectors } from "./reports";
+import { isSundayInIst, weeklyReportPeriod } from "./weekly-period";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -45,7 +47,10 @@ export async function dispatchTracking({
   now = new Date(),
   budgetMs = 260_000,
   pause = sleep,
-} = {}) {
+  cadence = "daily",
+}: { now?: Date; budgetMs?: number; pause?: typeof sleep; cadence?: "daily" | "weekly" } = {}) {
+  if (cadence === "weekly" && (!isSundayInIst(now) || now < weeklyReportPeriod(now).cutoff))
+    return { skipped: true, sent: 0, failed: 0 };
   trackingBot();
   const lock = await acquireDispatchLock(now);
   if (!lock) return { skipped: true, sent: 0, failed: 0 };
@@ -59,7 +64,8 @@ export async function dispatchTracking({
     if (performance.now() + reserveMs >= deadline) throw new Error("Dispatch budget exhausted.");
   };
   try {
-    const reportDate = await prepareDeliveries(now);
+    const reportDate =
+      cadence === "weekly" ? await prepareWeeklyDeliveries(now) : await prepareDeliveries(now);
     const processDelivery = async (delivery: ClaimedDelivery) => {
       try {
         ensureTime();
@@ -67,7 +73,10 @@ export async function dispatchTracking({
         if (!messages) {
           const collector = reportCollectors[delivery.platform];
           ensureTime(collector.reserveMs);
-          const report = await collector.collect(delivery);
+          const report =
+            delivery.cadence === "weekly"
+              ? await collectWeeklyReport(delivery)
+              : await collector.collect(delivery);
           messages = report.messages;
           await prepareDeliveryReport(delivery, messages, report.result);
         }
@@ -162,13 +171,15 @@ export async function dispatchTracking({
                     new Date(),
                     Date.now() >= gfgRateLimitedUntil,
                     Date.now() >= hackerRankRateLimitedUntil,
-                    true,
+                    cadence === "daily",
+                    cadence,
                   )
                 : null;
             if (delivery) {
               await processDelivery(delivery);
               continue;
             }
+            if (cadence === "weekly") return;
             const job = await claimCollection(
               reportDate,
               new Date(),
@@ -182,12 +193,13 @@ export async function dispatchTracking({
       );
       const failedWorker = workers.find((worker) => worker.status === "rejected");
       if (failedWorker?.status === "rejected")
-        throw Object.assign(new ApiError(503, "Daily tracking will retry during recovery."), {
+        throw Object.assign(new ApiError(503, "Tracking will retry during recovery."), {
           cause: failedWorker.reason,
         });
     };
     await runWorkers();
     if (
+      cadence === "daily" &&
       performance.now() + 12_000 < deadline &&
       Date.now() >= rateLimitedUntil &&
       (await prepareEmptyDayReports(reportDate, new Date()))
@@ -201,10 +213,12 @@ export async function dispatchTracking({
   }
 }
 
-export async function handleTrackingCron(request: Request) {
+export async function handleTrackingCron(request: Request, cadence: "daily" | "weekly" = "daily") {
   try {
     requireCron(request);
-    return Response.json(await dispatchTracking(), { headers: { "Cache-Control": "no-store" } });
+    return Response.json(await dispatchTracking({ cadence }), {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (error) {
     return errorResponse(error);
   }

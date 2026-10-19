@@ -67,10 +67,14 @@ import {
   blockAccount,
   claimDelivery,
   prepareDeliveries,
+  prepareWeeklyDeliveries,
   prepareEmptyDayReports,
   prepareDeliveryReport,
   releaseDispatchLock,
+  sendDeliveryPart,
 } from "@/lib/tracking/delivery-store";
+import { weeklyReportPeriod } from "@/lib/tracking/weekly-period";
+import { trackingStatus as featureTrackingStatus } from "@/lib/features/status";
 import { EMPTY_REPORT } from "@/lib/tracking/format-report";
 import { dispatchTracking } from "@/lib/tracking/dispatch";
 import { sendTrackingMessage, TrackingTelegramError } from "@/lib/tracking/telegram-client";
@@ -2148,5 +2152,184 @@ describe("private notes and code access", () => {
     expect((await db().select().from(notesLoginLimits))[0].attempts).toBe(11);
     vi.setSystemTime(new Date(now.getTime() + 15 * 60 * 1000 + 1));
     expect((await loginNotes(request(undefined, "POST", "", { code: secret }))).status).toBe(401);
+  });
+});
+
+describe("Sunday weekly recaps", () => {
+  const sunday = new Date("2026-10-18T17:30:00Z");
+  const recovery = new Date("2026-10-18T18:00:00Z");
+  const weeklyDate = "2026-10-12";
+  async function weeklyUser() {
+    const user = await activeAccount();
+    await registerGfg(user, "gfg_101");
+    await registerHackerRank(user, "hr_101");
+    vi.setSystemTime(sunday);
+    vi.mocked(sendTrackingMessage).mockClear();
+    return (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0];
+  }
+  const runWeekly = () =>
+    dispatchTracking({ now: new Date(), cadence: "weekly", pause: async () => {} });
+  it("sends all three weekly recaps and never resends completed reports", async () => {
+    await weeklyUser();
+    vi.mocked(getAcceptedHistory).mockResolvedValue({
+      username: "user_101",
+      submissions: [
+        accepted("week-solve", "2026-10-14T12:00:00Z"),
+        accepted("week-solve", "2026-10-15T12:00:00Z"),
+        accepted("too-late", "2026-10-18T17:31:00Z"),
+      ],
+    });
+    expect(await runWeekly()).toMatchObject({ sent: 3, failed: 0 });
+    const messages = vi
+      .mocked(sendTrackingMessage)
+      .mock.calls.map((call) => call[1])
+      .join("\n");
+    expect(messages).toContain("LeetCode weekly recap");
+    expect(messages).toContain("GFG weekly recap");
+    expect(messages).toContain("HackerRank weekly recap");
+    expect(messages).toContain("1 unique Accepted problem");
+    expect(messages).not.toContain("too-late");
+    const rows = await db().select().from(deliveries);
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.cadence === "weekly" && row.status === "sent")).toBe(true);
+    vi.setSystemTime(recovery);
+    expect(await runWeekly()).toMatchObject({ sent: 0, failed: 0 });
+    expect(sendTrackingMessage).toHaveBeenCalledTimes(3);
+    expect(await db().select().from(dailyCollections)).toHaveLength(0);
+    expect(await db().select().from(acceptedActivity)).toHaveLength(0);
+    expect(await db().select().from(activityDays)).toHaveLength(0);
+  });
+  it("keeps daily and weekly delivery identities, claims, failures, and status separate", async () => {
+    const user = await weeklyUser();
+    const [lc] = await db()
+      .select()
+      .from(platformServices)
+      .where(eq(platformServices.platform, "leetcode"));
+    await db()
+      .insert(deliveries)
+      .values({
+        accountId: user.id,
+        registrationId: lc.registrationId,
+        platform: "leetcode",
+        reportDate: weeklyDate,
+        start: new Date("2026-10-11T18:30:00Z"),
+        end: new Date("2026-10-12T18:30:00Z"),
+        messages: ["daily only"],
+      });
+    await prepareWeeklyDeliveries(sunday);
+    const first = await claimDelivery(weeklyDate, sunday);
+    expect(first?.cadence).toBe("daily");
+    expect(first?.messages).toEqual(["daily only"]);
+    expect((await claimDelivery(weeklyDate, sunday, true, true, false, "weekly"))?.cadence).toBe(
+      "weekly",
+    );
+    expect((await featureTrackingStatus(user)).lastDelivery?.reportDate).toBe(weeklyDate);
+    await prepareDeliveries(sunday);
+    expect(
+      (await db().select().from(deliveries).where(eq(deliveries.cadence, "weekly"))).every(
+        (row) => row.lastError !== "delivery_window_closed",
+      ),
+    ).toBe(true);
+  });
+  it("recovers failed lookups with exactly the same Monday–Sunday cutoff", async () => {
+    await weeklyUser();
+    vi.mocked(getAcceptedHistory).mockRejectedValueOnce(
+      new ApiError(502, "Temporary upstream failure"),
+    );
+    expect(await runWeekly()).toMatchObject({ sent: 2, failed: 1 });
+    const before = (
+      await db()
+        .select()
+        .from(deliveries)
+        .where(and(eq(deliveries.cadence, "weekly"), eq(deliveries.platform, "leetcode")))
+    )[0];
+    expect(before.status).toBe("failed");
+    vi.mocked(getAcceptedHistory).mockResolvedValue({
+      username: "user_101",
+      submissions: [accepted("after-cutoff", "2026-10-18T17:45:00Z")],
+    });
+    vi.setSystemTime(recovery);
+    expect(await runWeekly()).toMatchObject({ sent: 1, failed: 0 });
+    const after = (await db().select().from(deliveries).where(eq(deliveries.id, before.id)))[0];
+    expect(after.start).toEqual(before.start);
+    expect(after.end).toEqual(weeklyReportPeriod(sunday).end);
+    expect(after.messages?.join("\n")).not.toContain("after-cutoff");
+    expect(after.attempts).toBe(2);
+  });
+  it("retries prepared message parts without repeating already completed parts or upstream calls", async () => {
+    await weeklyUser();
+    await prepareWeeklyDeliveries(sunday);
+    await db()
+      .update(deliveries)
+      .set({ messages: ["part one", "part two"], sentParts: 1, status: "failed" })
+      .where(and(eq(deliveries.cadence, "weekly"), eq(deliveries.platform, "leetcode")));
+    const [service] = await db()
+      .select()
+      .from(platformServices)
+      .where(eq(platformServices.platform, "gfg"));
+    await setServicePaused(service.accountId, "gfg", service.registrationId, true);
+    const [hr] = await db()
+      .select()
+      .from(platformServices)
+      .where(eq(platformServices.platform, "hackerrank"));
+    await setServicePaused(hr.accountId, "hackerrank", hr.registrationId, true);
+    vi.mocked(getAcceptedHistory).mockClear();
+    expect(await runWeekly()).toMatchObject({ sent: 1, failed: 0 });
+    expect(sendTrackingMessage).toHaveBeenCalledExactlyOnceWith(101, "part two");
+    expect(getAcceptedHistory).not.toHaveBeenCalled();
+  });
+  it("keeps paused services and stopped accounts silent without replaying after resume", async () => {
+    const user = await weeklyUser();
+    const [service] = await db()
+      .select()
+      .from(platformServices)
+      .where(eq(platformServices.platform, "gfg"));
+    await setServicePaused(user.id, "gfg", service.registrationId, true);
+    await db().update(accounts).set({ status: "paused" }).where(eq(accounts.id, user.id));
+    expect(await runWeekly()).toMatchObject({ sent: 0, failed: 0 });
+    await db().update(accounts).set({ status: "active" }).where(eq(accounts.id, user.id));
+    await setServicePaused(user.id, "gfg", service.registrationId, false);
+    vi.setSystemTime(recovery);
+    expect(await runWeekly()).toMatchObject({ sent: 0, failed: 0 });
+    expect(sendTrackingMessage).not.toHaveBeenCalled();
+  });
+  it("fences a leased weekly send after pause or service revocation", async () => {
+    const user = await weeklyUser();
+    await prepareWeeklyDeliveries(sunday);
+    const leased = (await claimDelivery(weeklyDate, sunday, true, true, false, "weekly"))!;
+    const send = vi.fn();
+    await setServicePaused(user.id, leased.platform, leased.registrationId, true);
+    expect(await sendDeliveryPart(leased, 0, send)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    await revokeService(user.id, leased.platform, leased.registrationId);
+    expect(await sendDeliveryPart(leased, 0, send)).toBe(false);
+    expect((await db().select().from(deliveries)).some((row) => row.id === leased.id)).toBe(false);
+  });
+  it("respects Telegram blocking and rate limits for weekly reports", async () => {
+    await weeklyUser();
+    vi.mocked(sendTrackingMessage).mockRejectedValue(new TrackingTelegramError("rate_limit", 120));
+    expect((await runWeekly()).failed).toBeGreaterThan(0);
+    const attempted = await db().select().from(deliveries).where(eq(deliveries.status, "failed"));
+    expect(attempted.length).toBeGreaterThan(0);
+    expect(
+      attempted.every((row) => row.nextAttemptAt.getTime() === sunday.getTime() + 120000),
+    ).toBe(true);
+    vi.setSystemTime(recovery);
+    vi.mocked(sendTrackingMessage).mockRejectedValue(new TrackingTelegramError("blocked"));
+    await runWeekly();
+    expect((await db().select().from(accounts))[0].status).toBe("blocked");
+    expect((await db().select().from(deliveries)).every((row) => row.status === "cancelled")).toBe(
+      true,
+    );
+  });
+  it("reconciles a missed primary run and skips early or non-Sunday invocation", async () => {
+    await weeklyUser();
+    vi.setSystemTime(new Date("2026-10-18T17:29:59Z"));
+    expect((await runWeekly()).skipped).toBe(true);
+    expect(await db().select().from(deliveries)).toHaveLength(0);
+    vi.setSystemTime(recovery);
+    expect(await runWeekly()).toMatchObject({ sent: 3, failed: 0 });
+    vi.setSystemTime(new Date("2026-10-18T18:30:00Z"));
+    expect((await runWeekly()).skipped).toBe(true);
   });
 });

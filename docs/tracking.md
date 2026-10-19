@@ -34,6 +34,45 @@ server-side `TELEGRAM_BOT_USERNAME` to override that public link for another dep
 no bot token is exposed to the browser. This bot answers on demand and is separate
 from the Daily Grind delivery connection.
 
+### Sunday weekly recaps
+
+In addition to daily recaps, registered LeetCode, GeeksforGeeks, and HackerRank
+services receive a weekly Telegram recap scheduled for **Sunday at 11:00 p.m.
+Asia/Kolkata**, with recovery at **11:30 p.m.** The Vercel UTC schedules are
+`30 17 * * 0` and `0 18 * * 0`. Actual invocation precision depends on the hosting
+plan. Weekly handlers skip requests before the cutoff or outside Sunday in IST.
+
+The report covers the **current Monday at 00:00 through Sunday at 23:00 IST**.
+It is a week-to-date recap: Sunday's final hour is excluded because it has not
+finished at send time. Messages identify the cutoff; recovery always reuses the
+same saved boundaries. The public `lastweek` API and query-bot command retain
+their previous completed Monday–Sunday meaning.
+
+Each registered, unpaused platform gets its own weekly report using available
+public/saved history. LeetCode deduplicates Accepted problem slugs across the
+period and warns that its recent public feed can omit earlier solves. HackerRank
+uses saved and current public solve timestamps. GFG distinguishes verified
+timestamps from newly observed problems, excludes the initial import from
+observation counts, and does not invent solve dates. Empty weekly reports describe
+the available evidence; they do not use the daily empty-day reminder.
+
+Weekly delivery shares the existing tracking bot, `CRON_SECRET`, account stop/start,
+platform pause/revocation, message pacing, registration-generation fencing, leases,
+prepared message parts, and retry limits. Paused/stopped registrations are recorded
+as cancelled for that week and do not replay after resume. Connections/registrations
+after the Sunday cutoff start with the following week's recap. A missed primary
+invocation can be prepared by Sunday recovery. Duplicate cron invocations do not
+resend completed reports, subject to the same Telegram-acceptance crash window as
+daily delivery. A shared dispatcher lock prevents concurrent daily/weekly sends.
+
+Apply **`0008_weekly_recaps.sql` with the deployment**, before the updated cron
+handlers execute. It adds a `daily`/`weekly` delivery cadence and extends the unique
+delivery key so the two report types cannot collide. Existing rows remain `daily`.
+Daily collection, empty-day reminders, and dashboard delivery status continue to
+use daily records only. Weekly results do not overwrite daily calendar coverage.
+Weekly retries are confined to Sunday; unfinished older weekly deliveries close
+when the next weekly period is prepared. No additional bot credentials are needed.
+
 ### Service management and permanent deletion
 
 Apply `0006_profile_and_services.sql` with `npm run db:migrate` **before deploying this update**.
@@ -280,6 +319,8 @@ that volume or adding a queue.
 | POST   | `/api/telegram/tracking/webhook`                               | Second bot's private-chat activation and pause/resume                                 |
 | GET    | `/api/cron/tracking/daily`                                     | Prepare and dispatch yesterday's reports                                              |
 | GET    | `/api/cron/tracking/retry`                                     | Reconcile and resume unfinished reports                                               |
+| GET    | `/api/cron/tracking/weekly`                                    | Sunday 23:00 IST: dispatch current-week recaps for enabled platforms                  |
+| GET    | `/api/cron/tracking/weekly-retry`                              | Sunday 23:30 IST: reconcile and recover the same weekly reports                       |
 
 Unauthorized account requests return `401`, cross-origin mutations `403`, and
 registration conflicts `409`. Existing LeetCode validation and upstream error

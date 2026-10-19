@@ -29,7 +29,13 @@ export async function trackingStatuses(account: Account, ids: readonly FeatureId
         empty: sql<boolean>`coalesce(jsonb_array_length(${deliveries.messages}) = 0, false)`,
       })
       .from(deliveries)
-      .where(and(eq(deliveries.accountId, account.id), inArray(deliveries.platform, [...ids])))
+      .where(
+        and(
+          eq(deliveries.accountId, account.id),
+          eq(deliveries.cadence, "daily"),
+          inArray(deliveries.platform, [...ids]),
+        ),
+      )
       .orderBy(deliveries.platform, desc(deliveries.reportDate)),
   ]);
   for (const id of ids) {

@@ -9,6 +9,38 @@ import { formatHackerRankDailyReport } from "@/lib/hackerrank/format-report";
 import { formatDailyReport } from "./format-report";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import type { CollectedResult } from "./result-store";
+import { getSolvedQuestions } from "@/lib/leetcode/solved-questions";
+import { formatSolvedQuestions } from "@/lib/telegram/format-solved-questions";
+import { splitMessage } from "@/lib/telegram/format-submissions";
+
+/** Use the frozen database boundaries on recovery, rather than recalculating the week. */
+export async function collectWeeklyReport(
+  source: ReportSource & { start: Date; platform: ActivityPlatform },
+) {
+  const range = { start: source.start, end: source.end };
+  if (source.platform === "gfg") {
+    const saved = await readGfgProblems(source.accountId);
+    const result = await getGfgProfile(source.username);
+    return { result, messages: formatGfgDailyReport(result, saved, source.end, range) };
+  }
+  if (source.platform === "hackerrank") {
+    const saved = await readHackerRankProblems(source.accountId);
+    const result = await getHackerRankProfile(source.username);
+    return { result, messages: formatHackerRankDailyReport(result, saved, source.end, range) };
+  }
+  const result = await getSolvedQuestions(source.username, "thisweek", range);
+  const cutoff = new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  }).format(source.end);
+  return {
+    result,
+    messages: splitMessage(
+      `LeetCode weekly recap · Sunday cutoff: ${cutoff} (Asia/Kolkata)\n\n${formatSolvedQuestions(result).join("\n\n")}`,
+    ),
+  };
+}
 
 interface ReportSource {
   accountId: string;
