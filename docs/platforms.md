@@ -175,3 +175,75 @@ All endpoints require sign-in; progress and day details require the matching opt
 Responses disable caching, and registration requires a matching Origin. Saved day
 selection never calls HackerRank. Telegram authentication returns to the selected
 HackerRank feature after success or failure.
+
+## Optional Codeforces feature
+
+Sign in with Telegram and choose **Codeforces** on `/feature`, or open
+`/feature?platform=codeforces`. Register your own public handle with the shared
+agreement. The handle is reserved case-insensitively until revocation; public
+lookup checks existence, not ownership. No Codeforces password or API key is used.
+
+Registration immediately makes the Codeforces activity panel available on
+Dashboard. The panel reuses the shared calendar, saved-day problem links,
+loading/error/retry behavior, and service-management controls. It shows saved
+unique problems, today's and this week's unique problems, and current/max rating
+when available. Unrated profiles remain unrated rather than displaying a fabricated
+zero rating. Problem difficulty badges retain Codeforces' numeric ratings.
+
+### Official data and coverage
+
+- `GET https://codeforces.com/api/user.info?handles=HANDLE` checks the canonical
+  handle and retrieves available public ratings.
+- `GET https://codeforces.com/api/user.status?handle=HANDLE&from=1&count=1000`
+  retrieves submission metadata. The importer follows up to five pages per check,
+  so a check scans at most 5,000 submissions, including unsuccessful attempts.
+- Only Accepted submission metadata is saved. Contest/problem identifiers build
+  links on Codeforces' own origin, including Gym and acmsguru problems. Source code,
+  private groups, and problem statements are not imported.
+- Accepted submission IDs preserve repeated solves. Calendar counts deduplicate
+  the same problem within each IST day; weekly recaps and saved-unique totals
+  deduplicate over their own periods. Re-solves on different days remain visible.
+- The calendar distinguishes known coverage, partial days, and unavailable older
+  history. Reaching the page bound does not establish a lifetime total. Delayed
+  judgments, later rejudging, renamed handles, and unavailable upstream data can
+  affect what a subsequent check sees. Saved observations remain available when a
+  refresh fails.
+
+The [official API documentation](https://codeforces.com/apiHelp?locale=en) limits
+calls to one every two seconds. A database-coordinated request gate spaces calls
+across application instances, including registration, dashboards, and cron work.
+Account refreshes are cached for five minutes, with bounded request timeouts and
+retry backoff. Pagination is bounded to keep dashboard and bot work finite.
+
+### Daily Grind and lifecycle
+
+Codeforces uses the existing Daily Grind connection, nightly collection,
+daily/weekly recap schedules, recovery jobs, prepared-message retries, and
+generation fencing. A Codeforces-only registration can connect the bot; adding
+Codeforces to an already connected account needs no new bot credentials.
+
+Pause hides its panel and cancels unsent recaps while collection continues.
+Resume reveals retained history and enables future recaps without replaying missed
+periods. Telegram `/stop` and `/start` control delivery for the whole account.
+**Revoke & delete data** removes Codeforces submissions, snapshots, refresh state,
+goals, deliveries, collection jobs, and consent without removing other services,
+Notes, the Telegram connection, or the shared reminder ledger. Re-registration
+creates a fresh generation and requires consent again.
+
+Apply `0012_codeforces_tracking.sql` before deploying. It adds explicit Codeforces
+storage, immutable account reservation, lifecycle triggers, platform constraints,
+and the shared upstream rate gate. No new environment variable is required.
+
+| Method       | Endpoint                                                         | Behavior                                                          |
+| ------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------- |
+| GET/POST     | `/api/tracking/services/codeforces`                              | Own status / register with current agreement                      |
+| PATCH/DELETE | `/api/tracking/services/codeforces`                              | Pause/resume / revoke using the current registration ID           |
+| GET/POST     | `/api/tracking/codeforces`                                       | Thin aliases of status / registration                             |
+| GET          | `/api/codeforces/[username]`                                     | Own registered handle's saved progress and bounded refresh        |
+| GET          | `/api/tracking/activity/day?platform=codeforces&date=YYYY-MM-DD` | Own saved Accepted problem links for an IST day                   |
+| GET/PUT      | `/api/tracking/goal`                                             | Own Codeforces weekly target, selected with `platform=codeforces` |
+
+Private responses are `no-store`; registration and management require the same
+session/Origin checks as the other services. Day selection reads saved records
+without contacting Codeforces. The public LeetCode lookup API and original query
+bot keep their existing contracts.

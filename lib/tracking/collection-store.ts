@@ -18,7 +18,7 @@ export async function prepareCollections(tx: Transaction, now: Date) {
     SELECT a.id, s.registration_id, s.platform, ${reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
       coalesce((a.status = 'active' AND NOT s.paused AND a.chat_id IS NOT NULL
         AND a.connected_at <= ${cutoff.toISOString()}::timestamptz
-        AND CASE s.platform WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${cutoff.toISOString()}::timestamptz), false),
+        AND CASE s.platform WHEN 'codeforces' THEN a.codeforces_registered_at WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${cutoff.toISOString()}::timestamptz), false),
       ${now.toISOString()}::timestamptz
     FROM ${accounts} a JOIN ${platformServices} s ON s.account_id = a.id
     ON CONFLICT (registration_id, report_date) DO NOTHING
@@ -39,6 +39,7 @@ export async function claimCollection(
   now: Date,
   allowGfg = true,
   allowHackerRank = true,
+  allowCodeforces = true,
 ): Promise<ClaimedCollection | null> {
   // Lock only the job here. Saving always locks the account first and rechecks the lease.
   const candidate = db()
@@ -50,6 +51,7 @@ export async function claimCollection(
         sql`${dailyCollections.attempts} < 3`,
         allowGfg ? undefined : ne(dailyCollections.platform, "gfg"),
         allowHackerRank ? undefined : ne(dailyCollections.platform, "hackerrank"),
+        allowCodeforces ? undefined : ne(dailyCollections.platform, "codeforces"),
         lte(dailyCollections.nextAttemptAt, now),
         or(
           eq(dailyCollections.status, "pending"),
@@ -72,7 +74,7 @@ export async function claimCollection(
     .where(eq(dailyCollections.id, candidate))
     .returning({
       ...getTableColumns(dailyCollections),
-      username: sql<string>`(SELECT CASE ${dailyCollections.platform} WHEN 'gfg' THEN gfg_username WHEN 'hackerrank' THEN hackerrank_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${dailyCollections.accountId})`,
+      username: sql<string>`(SELECT CASE ${dailyCollections.platform} WHEN 'codeforces' THEN codeforces_username WHEN 'gfg' THEN gfg_username WHEN 'hackerrank' THEN hackerrank_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${dailyCollections.accountId})`,
     });
   return row ?? null;
 }

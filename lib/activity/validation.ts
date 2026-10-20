@@ -1,10 +1,14 @@
-import { isActivityFeatureId } from "@/lib/features/catalog";
+import { activityFeatureIds, isActivityFeatureId, platformLabels } from "@/lib/features/catalog";
 import { ApiError } from "@/lib/http/api-error";
 import { isRecord } from "@/lib/http/validation";
 import type { ActivityPlatform, WeeklyGoal } from "./types";
 
 export function parseActivityPlatform(value: unknown): ActivityPlatform {
-  if (!isActivityFeatureId(value)) throw new ApiError(400, "Choose LeetCode, GFG, or HackerRank.");
+  if (!isActivityFeatureId(value))
+    throw new ApiError(
+      400,
+      `Choose a supported platform: ${activityFeatureIds.map((id) => platformLabels[id]).join(", ")}.`,
+    );
   return value;
 }
 

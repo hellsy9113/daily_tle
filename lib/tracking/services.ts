@@ -16,6 +16,9 @@ import {
   hackerRankProblems,
   hackerRankSnapshots,
   hackerRankSync,
+  codeforcesProblems,
+  codeforcesSnapshots,
+  codeforcesSync,
 } from "@/lib/db/schema";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import { ApiError } from "@/lib/http/api-error";
@@ -124,6 +127,7 @@ export async function revokeService(
       leetcode: [acceptedActivity, activityDays, activitySync],
       gfg: [gfgProblems, gfgSnapshots, gfgSync],
       hackerrank: [hackerRankProblems, hackerRankSnapshots, hackerRankSync],
+      codeforces: [codeforcesProblems, codeforcesSnapshots, codeforcesSync],
     }[platform];
     for (const table of tables) await tx.delete(table).where(eq(table.accountId, accountId));
     const columns = platformFields[platform];

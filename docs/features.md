@@ -51,7 +51,8 @@ the coding-platform username/consent body. See [Notes](notes.md).
 
 `/api/tracking/services/[platform]` supports GET status, POST registration, PATCH
 pause/resume, and DELETE revocation. The existing `/api/tracking`,
-`/api/tracking/gfg`, and `/api/tracking/hackerrank` registration URLs are aliases.
+`/api/tracking/gfg`, `/api/tracking/hackerrank`, and `/api/tracking/codeforces`
+registration URLs are aliases.
 Existing POST bodies require `{ username, agreementVersion: "1", acceptedAgreement: true }`.
 PATCH requires `{ registrationId, paused }`; DELETE requires
 `{ registrationId, confirmPermanentDeletion: true }`.

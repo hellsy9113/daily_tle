@@ -5,6 +5,7 @@ import { accounts } from "@/lib/db/schema";
 import { getAccountActivity } from "@/lib/activity/service";
 import { getGfgProgress } from "@/lib/gfg/service";
 import { getHackerRankProgress } from "@/lib/hackerrank/service";
+import { getCodeforcesProgress } from "@/lib/codeforces/service";
 import { errorResponse } from "@/lib/http/api-error";
 import { requireCron } from "./security";
 
@@ -19,6 +20,7 @@ export async function collectNightlyActivity({ budgetMs = 260_000 } = {}) {
         isNotNull(accounts.leetcodeUsername),
         isNotNull(accounts.gfgUsername),
         isNotNull(accounts.hackerRankUsername),
+        isNotNull(accounts.codeforcesUsername),
       ),
     );
   const jobs = registered.flatMap((account) => [
@@ -26,25 +28,37 @@ export async function collectNightlyActivity({ budgetMs = 260_000 } = {}) {
     ...(account.gfgUsername ? [() => getGfgProgress(account)] : []),
     ...(account.hackerRankUsername ? [() => getHackerRankProgress(account)] : []),
   ]);
+  // Keep the strict Codeforces API queue short while other platforms sync in parallel.
+  const codeforcesJobs = registered
+    .filter((account) => account.codeforcesUsername)
+    .map((account) => () => getCodeforcesProgress(account));
   let next = 0;
+  let nextCodeforces = 0;
   const stats = { checked: 0, failed: 0, deferred: 0 };
-  await Promise.all(
-    Array.from({ length: 10 }, async () => {
+  const check = async (job: () => Promise<{ refreshFailed: boolean; refreshing: boolean }>) => {
+    try {
+      const result = await job();
+      if (result.refreshFailed) stats.failed++;
+      else if (result.refreshing) stats.deferred++;
+      else stats.checked++;
+    } catch {
+      // Other registrations must still be checked after a lookup failure or revocation.
+      stats.failed++;
+    }
+  };
+  await Promise.all([
+    ...Array.from({ length: 10 }, async () => {
       while (next < jobs.length && performance.now() + 30_000 < deadline) {
-        const job = jobs[next++];
-        try {
-          const result = await job();
-          if (result.refreshFailed) stats.failed++;
-          else if (result.refreshing) stats.deferred++;
-          else stats.checked++;
-        } catch {
-          // Other registrations must still be checked after a lookup failure or revocation.
-          stats.failed++;
-        }
+        await check(jobs[next++]);
       }
     }),
-  );
-  stats.deferred += jobs.length - next;
+    (async () => {
+      while (nextCodeforces < codeforcesJobs.length && performance.now() + 32_000 < deadline) {
+        await check(codeforcesJobs[nextCodeforces++]);
+      }
+    })(),
+  ]);
+  stats.deferred += jobs.length - next + codeforcesJobs.length - nextCodeforces;
   console.info("tracking_nightly_collection_complete", stats);
   return stats;
 }

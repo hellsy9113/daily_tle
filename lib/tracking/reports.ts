@@ -6,6 +6,9 @@ import { formatGfgDailyReport } from "@/lib/gfg/format-report";
 import { getHackerRankProfile } from "@/lib/hackerrank/client";
 import { HACKERRANK_REFRESH_MS, readHackerRankProblems } from "@/lib/hackerrank/store";
 import { formatHackerRankDailyReport } from "@/lib/hackerrank/format-report";
+import { getCodeforcesProfile } from "@/lib/codeforces/client";
+import { CODEFORCES_REFRESH_MS, readCodeforcesProblems } from "@/lib/codeforces/store";
+import { formatCodeforcesDailyReport } from "@/lib/codeforces/format-report";
 import { formatDailyReport } from "./format-report";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import type { CollectedResult } from "./result-store";
@@ -18,6 +21,11 @@ export async function collectWeeklyReport(
   source: ReportSource & { start: Date; platform: ActivityPlatform },
 ) {
   const range = { start: source.start, end: source.end };
+  if (source.platform === "codeforces") {
+    const saved = await readCodeforcesProblems(source.accountId);
+    const result = await getCodeforcesProfile(source.username);
+    return { result, messages: formatCodeforcesDailyReport(result, saved, source.end, range) };
+  }
   if (source.platform === "gfg") {
     const saved = await readGfgProblems(source.accountId);
     const result = await getGfgProfile(source.username);
@@ -79,6 +87,15 @@ export const reportCollectors: Record<ActivityPlatform, ReportCollector> = {
       const saved = await readHackerRankProblems(accountId);
       const result = await getHackerRankProfile(username);
       return { result, messages: formatHackerRankDailyReport(result, saved, end) };
+    },
+  },
+  codeforces: {
+    reserveMs: 32_000,
+    retryMs: CODEFORCES_REFRESH_MS,
+    async collect({ accountId, username, end }) {
+      const saved = await readCodeforcesProblems(accountId);
+      const result = await getCodeforcesProfile(username);
+      return { result, messages: formatCodeforcesDailyReport(result, saved, end) };
     },
   },
 };

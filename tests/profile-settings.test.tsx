@@ -24,8 +24,8 @@ const profile: ProfileSummary = {
   connected: true,
   status: "active",
   theme: null,
-  services: ["leetcode", "gfg", "hackerrank"].map((platform) => ({
-    platform: platform as "leetcode" | "gfg" | "hackerrank",
+  services: ["leetcode", "gfg", "hackerrank", "codeforces"].map((platform) => ({
+    platform: platform as "leetcode" | "gfg" | "hackerrank" | "codeforces",
     ...status,
   })),
 };
@@ -63,14 +63,15 @@ describe("profile settings and confirmations", () => {
     await render();
     expect(container.textContent).toContain("Telegram ID");
     expect(container.textContent).toContain("101");
-    expect(container.querySelectorAll("tbody tr")).toHaveLength(3);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(4);
     expect(container.querySelector('form[action="/api/auth/logout"]')).not.toBeNull();
     expect(
       buttons().filter((button) => button.getAttribute("aria-pressed") === "false"),
     ).toHaveLength(2);
     expect(container.textContent).toContain("Following your device theme");
     expect(container.querySelector("#profile-timezone")).toBeNull();
-    expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(3);
+    expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(4);
+    expect(container.querySelector('a[href="/feature?platform=codeforces"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Revoke & delete data");
   });
   it.each(["light", "dark"] as const)(

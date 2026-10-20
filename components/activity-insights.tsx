@@ -39,9 +39,11 @@ export function ActivityInsights({
         label={
           platform === "hackerrank"
             ? "HackerRank progress by day"
-            : platform === "gfg"
-              ? "GeeksforGeeks progress by day"
-              : "Accepted problems by day"
+            : platform === "codeforces"
+              ? "Codeforces progress by day"
+              : platform === "gfg"
+                ? "GeeksforGeeks progress by day"
+                : "Accepted problems by day"
         }
         onSelectDay={(day) => setSelectedDate(day.date)}
         detailsId={detailsId}

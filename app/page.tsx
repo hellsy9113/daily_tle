@@ -9,15 +9,15 @@ import { queryBotUrl } from "@/lib/telegram/bot-link";
 export const metadata = {
   title: "Track.it · Your coding practice, together",
   description:
-    "Sign in with Telegram and choose LeetCode, GeeksforGeeks, or HackerRank tracking. Follow your practice with activity calendars and daily recaps.",
+    "Sign in with Telegram and choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Follow your practice with activity calendars and daily recaps.",
 };
 
 const features = [
   {
     number: "01",
-    title: "Three platforms. One dashboard.",
+    title: "Four platforms. One dashboard.",
     description:
-      "Choose LeetCode, GeeksforGeeks, or HackerRank tracking. Each service is enabled independently, with its own calendar and counts.",
+      "Choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Each service is enabled independently, with its own calendar and counts.",
     detail: "Enable each platform separately",
   },
   {
@@ -57,8 +57,9 @@ export default async function Home() {
               <span>See it all together.</span>
             </h1>
             <p className="lead">
-              Your LeetCode, GeeksforGeeks, and HackerRank practice, with separate calendars, saved
-              problem links, and morning Telegram recaps. Less checking. More solving.
+              Your LeetCode, GeeksforGeeks, HackerRank, and Codeforces practice, with separate
+              calendars, saved problem links, and morning Telegram recaps. Less checking. More
+              solving.
             </p>
             <div className="landing-actions">
               <a className="button primary" href="/api/auth/telegram/login">
@@ -72,6 +73,7 @@ export default async function Home() {
               <span>LeetCode</span>
               <span>GeeksforGeeks</span>
               <span>HackerRank</span>
+              <span>Codeforces</span>
             </div>
             <p className="hero-caption">Public profiles. One-time registration. Your own pace.</p>
           </div>
@@ -122,8 +124,8 @@ export default async function Home() {
               <div>
                 <h3>Choose your services on Feature</h3>
                 <p>
-                  Enable LeetCode, GFG, or HackerRank by registering its public username once. Each
-                  service gets its own dashboard panel.
+                  Enable LeetCode, GFG, HackerRank, or Codeforces by registering its public username
+                  once. Each service gets its own dashboard panel.
                 </p>
               </div>
             </li>

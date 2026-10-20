@@ -11,6 +11,7 @@ export const platformFields = {
   leetcode: { username: "leetcodeUsername", registeredAt: "registeredAt" },
   gfg: { username: "gfgUsername", registeredAt: "gfgRegisteredAt" },
   hackerrank: { username: "hackerRankUsername", registeredAt: "hackerRankRegisteredAt" },
+  codeforces: { username: "codeforcesUsername", registeredAt: "codeforcesRegisteredAt" },
 } as const satisfies Record<
   ActivityFeatureId,
   { username: keyof Account; registeredAt: keyof Account }

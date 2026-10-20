@@ -5,17 +5,23 @@ import { writeActivityObservation } from "@/lib/activity/store";
 import { observeSolvedPeriod } from "@/lib/activity/observations";
 import { gfgSummary, writeGfgProfile } from "@/lib/gfg/store";
 import { cacheHackerRankProfile, writeHackerRankProfile } from "@/lib/hackerrank/store";
+import { cacheCodeforcesProfile, writeCodeforcesProfile } from "@/lib/codeforces/store";
 import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
 import type { GfgProfile } from "@/lib/gfg/types";
 import type { HackerRankProfile } from "@/lib/hackerrank/types";
+import type { CodeforcesProfile } from "@/lib/codeforces/types";
 import type { Transaction } from "./services";
-export type CollectedResult = SolvedQuestionsResult | GfgProfile | HackerRankProfile;
+export type CollectedResult =
+  SolvedQuestionsResult | GfgProfile | HackerRankProfile | CodeforcesProfile;
 export async function writeCollectedResult(
   transaction: Transaction,
   accountId: string,
   result: CollectedResult,
 ) {
-  if ("platform" in result && result.platform === "hackerrank") {
+  if ("platform" in result && result.platform === "codeforces") {
+    await writeCodeforcesProfile(transaction, accountId, result);
+    await cacheCodeforcesProfile(transaction, accountId, result);
+  } else if ("platform" in result && result.platform === "hackerrank") {
     await writeHackerRankProfile(transaction, accountId, result);
     await cacheHackerRankProfile(transaction, accountId, result);
   } else if ("platform" in result) {

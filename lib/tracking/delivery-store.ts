@@ -18,11 +18,8 @@ import {
 } from "@/lib/db/schema";
 import { getPreviousCalendarPeriod } from "@/lib/leetcode/calendar-periods";
 import { randomToken } from "./security";
-import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
-import type { GfgProfile } from "@/lib/gfg/types";
-import type { HackerRankProfile } from "@/lib/hackerrank/types";
 import { lockRegistration } from "./services";
-import { writeCollectedResult } from "./result-store";
+import { writeCollectedResult, type CollectedResult } from "./result-store";
 import { prepareCollections } from "./collection-store";
 import { EMPTY_REPORT } from "./format-report";
 import { weeklyReportPeriod } from "./weekly-period";
@@ -81,6 +78,12 @@ export async function prepareDeliveries(now: Date) {
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND hackerrank_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
+    SELECT id, 'codeforces', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE status = 'active' AND codeforces_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'codeforces' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'codeforces' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
+    AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
+    AND codeforces_registered_at <= ${range.cutoff.toISOString()}::timestamptz
+    ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
     await transaction.execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
     WHERE cadence = 'daily' AND report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
   });
@@ -99,8 +102,8 @@ export async function prepareWeeklyDeliveries(now: Date) {
         ${now.toISOString()}::timestamptz
       FROM ${accounts} a JOIN ${platformServices} s ON s.account_id = a.id
       WHERE a.chat_id IS NOT NULL
-        AND CASE s.platform WHEN 'gfg' THEN a.gfg_username WHEN 'hackerrank' THEN a.hackerrank_username ELSE a.leetcode_username END IS NOT NULL
-        AND CASE s.platform WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${range.cutoff.toISOString()}::timestamptz
+        AND CASE s.platform WHEN 'codeforces' THEN a.codeforces_username WHEN 'gfg' THEN a.gfg_username WHEN 'hackerrank' THEN a.hackerrank_username ELSE a.leetcode_username END IS NOT NULL
+        AND CASE s.platform WHEN 'codeforces' THEN a.codeforces_registered_at WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${range.cutoff.toISOString()}::timestamptz
         AND a.connected_at <= ${range.cutoff.toISOString()}::timestamptz
       ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING
     `);
@@ -150,6 +153,7 @@ export async function claimDelivery(
   allowHackerRank = true,
   preparedOnly = false,
   cadence: "daily" | "weekly" = "daily",
+  allowCodeforces = true,
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
@@ -169,10 +173,11 @@ export async function claimDelivery(
         preparedOnly ? isNotNull(candidateDelivery.messages) : undefined,
         allowGfg ? undefined : ne(candidateDelivery.platform, "gfg"),
         allowHackerRank ? undefined : ne(candidateDelivery.platform, "hackerrank"),
+        allowCodeforces ? undefined : ne(candidateDelivery.platform, "codeforces"),
         eq(accounts.status, "active"),
         eq(platformServices.paused, false),
         isNotNull(accounts.chatId),
-        sql`CASE WHEN ${candidateDelivery.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${candidateDelivery.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
+        sql`CASE WHEN ${candidateDelivery.platform} = 'codeforces' THEN ${accounts.codeforcesUsername} WHEN ${candidateDelivery.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${candidateDelivery.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
         sql`${candidateDelivery.attempts} < 3`,
         lte(candidateDelivery.nextAttemptAt, now),
         or(
@@ -196,7 +201,7 @@ export async function claimDelivery(
     .where(eq(deliveries.id, candidate))
     .returning({
       ...getTableColumns(deliveries),
-      username: sql<string>`(SELECT CASE WHEN ${deliveries.platform} = 'hackerrank' THEN hackerrank_username WHEN ${deliveries.platform} = 'gfg' THEN gfg_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${deliveries.accountId})`,
+      username: sql<string>`(SELECT CASE WHEN ${deliveries.platform} = 'codeforces' THEN codeforces_username WHEN ${deliveries.platform} = 'hackerrank' THEN hackerrank_username WHEN ${deliveries.platform} = 'gfg' THEN gfg_username ELSE leetcode_username END FROM ${accounts} WHERE id = ${deliveries.accountId})`,
       chatId:
         sql<number>`(SELECT chat_id FROM ${accounts} WHERE id = ${deliveries.accountId})`.mapWith(
           Number,
@@ -313,7 +318,7 @@ export async function updateDelivery(
 export async function prepareDeliveryReport(
   delivery: ClaimedDelivery,
   messages: string[],
-  result: SolvedQuestionsResult | GfgProfile | HackerRankProfile,
+  result: CollectedResult,
 ) {
   await db().transaction(async (transaction) => {
     await lockRegistration(

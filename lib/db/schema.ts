@@ -3,6 +3,7 @@ import type { AccountStatus, DeliveryStatus } from "@/lib/tracking/types";
 import type { GfgDifficulty, GfgProfileSummary } from "@/lib/gfg/types";
 import type { ActivityPlatform } from "@/lib/activity/types";
 import type { HackerRankSummary } from "@/lib/hackerrank/types";
+import type { CodeforcesSummary } from "@/lib/codeforces/types";
 import {
   bigint,
   boolean,
@@ -40,6 +41,11 @@ export const accounts = tracking.table(
       sql`lower(hackerrank_username)`,
     ),
     hackerRankRegisteredAt: time("hackerrank_registered_at"),
+    codeforcesUsername: text("codeforces_username"),
+    codeforcesUsernameKey: text("codeforces_username_key").generatedAlwaysAs(
+      sql`lower(codeforces_username)`,
+    ),
+    codeforcesRegisteredAt: time("codeforces_registered_at"),
     usernameKey: text("username_key").generatedAlwaysAs(sql`lower(leetcode_username)`),
     chatId: bigint("chat_id", { mode: "number" }).unique(),
     status: text("status").$type<AccountStatus>().notNull().default("pending"),
@@ -51,6 +57,7 @@ export const accounts = tracking.table(
     uniqueIndex("accounts_username_key_unique").on(table.usernameKey),
     uniqueIndex("accounts_gfg_username_key_unique").on(table.gfgUsernameKey),
     uniqueIndex("accounts_hackerrank_username_key_unique").on(table.hackerRankUsernameKey),
+    uniqueIndex("accounts_codeforces_username_key_unique").on(table.codeforcesUsernameKey),
     check(
       "accounts_status_check",
       sql`${table.status} IN ('pending', 'active', 'paused', 'blocked')`,
@@ -339,11 +346,64 @@ export const activityGoals = tracking.table(
     primaryKey({ columns: [table.accountId, table.platform] }),
     check(
       "activity_goals_platform_check",
-      sql`${table.platform} IN ('leetcode', 'gfg', 'hackerrank')`,
+      sql`${table.platform} IN ('leetcode', 'gfg', 'hackerrank', 'codeforces')`,
     ),
     check("activity_goals_target_check", sql`${table.weeklyTarget} BETWEEN 1 AND 1000`),
   ],
 );
+
+/** Accepted submissions retain re-solves; calendar/report readers deduplicate per problem/day. */
+export const codeforcesProblems = tracking.table(
+  "codeforces_problems",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    submissionId: bigint("submission_id", { mode: "number" }).notNull(),
+    id: text("problem_id").notNull(),
+    contestId: integer("contest_id").notNull(),
+    index: text("problem_index").notNull(),
+    title: text("title").notNull(),
+    solvedAt: time("solved_at").notNull(),
+    firstObservedAt: time("first_observed_at").notNull(),
+    baseline: boolean("baseline").notNull(),
+    rating: integer("rating"),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.submissionId] })],
+);
+
+export const codeforcesSync = tracking.table("codeforces_sync", {
+  accountId: uuid("account_id")
+    .primaryKey()
+    .references(() => accounts.id),
+  profile: jsonb("profile").$type<CodeforcesSummary>(),
+  refreshedAt: time("refreshed_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: time("lease_until"),
+  lastError: integer("last_error"),
+});
+
+export const codeforcesSnapshots = tracking.table(
+  "codeforces_snapshots",
+  {
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    date: date("snapshot_date").notNull(),
+    availableSolved: integer("available_solved").notNull(),
+    historyComplete: boolean("history_complete").notNull(),
+    historyStart: time("history_start"),
+    checkedAt: time("checked_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+);
+
+/** One durable row coordinates the upstream request budget across application instances. */
+export const codeforcesApiRate = tracking.table("codeforces_api_rate", {
+  id: integer("id").primaryKey(),
+  nextRequestAt: time("next_request_at").notNull().defaultNow(),
+});
 
 export type Account = typeof accounts.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;
