@@ -1,6 +1,5 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ARTICLE_TOPICS, type ArticleTopic } from "@/lib/articles/topics";
 import type { TrackingStatus } from "@/lib/tracking/types";
@@ -114,7 +113,8 @@ export function ArticlesSetup({ initialStatus }: { initialStatus: TrackingStatus
         </fieldset>
         <p className="field-help">
           Up to 6 articles each day, using Asia/Kolkata boundaries. Source availability may mean
-          fewer articles. Topics change future selections; today&apos;s saved list stays fixed.
+          fewer articles. Topics change future selections. Refresh can fill empty slots today;
+          existing selections stay in place.
         </p>
         <button
           className="button primary"
@@ -124,17 +124,24 @@ export function ArticlesSetup({ initialStatus }: { initialStatus: TrackingStatus
         </button>
       </form>
       {status.registrationId && (
-        <div className="service-management">
-          <div className="dashboard-actions">
+        <div className="service-management articles-management">
+          <div className="articles-service-state">
+            <div>
+              <h3>Reading service</h3>
+              <p className="field-help">
+                {status.paused
+                  ? "Paused · resume to access your reading list."
+                  : "Active · your daily reading list is available on Dashboard."}
+              </p>
+            </div>
             <ServiceControl
               platform="articles"
               paused={status.paused}
               registrationId={status.registrationId}
               onChange={setStatus}
             />
-            <Link className="button secondary" href="/dashboard?service=articles">
-              Open articles
-            </Link>
+          </div>
+          <div className="articles-management-footer">
             <button
               className="text-button danger-text"
               disabled={busy}

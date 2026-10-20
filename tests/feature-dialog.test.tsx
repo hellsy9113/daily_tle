@@ -64,6 +64,9 @@ describe("service management dialog", () => {
     expect(container.querySelector("#notes-service-code")!.closest("dialog")).toBe(dialog);
     expect(document.body.style.overflow).toBe("hidden");
     expect(fetch).not.toHaveBeenCalled();
+    const close = container.querySelector('[aria-label="Close service management"]')!;
+    expect(close.querySelector("svg")).not.toBeNull();
+    expect(close.textContent).not.toContain("Close");
   });
 
   it("closes to the service catalog and returns focus to the triggering card", async () => {

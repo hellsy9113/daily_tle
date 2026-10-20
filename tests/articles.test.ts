@@ -8,7 +8,7 @@ import {
   parseArticleSource,
 } from "@/lib/articles/parse";
 import { articleRobotsPolicy } from "@/lib/articles/robots";
-import { ARTICLE_SOURCES } from "@/lib/articles/sources";
+import { ARTICLE_SOURCES, articleSourcesForTopics } from "@/lib/articles/sources";
 import { GET as cron, maxDuration } from "@/app/api/cron/articles/refresh/route";
 const source = ARTICLE_SOURCES[0];
 const now = new Date("2026-10-20T00:00:00Z");
@@ -149,6 +149,20 @@ describe("source access policy and Hobby scheduling", () => {
       articleRobotsPolicy("User-agent: *\nDisallow: /api/", "https://example.com/api/articles")
         .allowed,
     ).toBe(false);
+  });
+  it("selects relevant publisher sources using saved topics", () => {
+    expect(articleSourcesForTopics(["dsa"]).map((s) => s.id)).toEqual(["freecodecamp"]);
+    expect(articleSourcesForTopics(["web"]).map((s) => s.id)).toEqual([
+      "freecodecamp",
+      "webdev",
+      "aws-dev",
+    ]);
+    expect(articleSourcesForTopics(["ai-ml", "languages"]).map((s) => s.id)).toEqual([
+      "freecodecamp",
+      "google-ai",
+      "realpython",
+      "aws-dev",
+    ]);
   });
   it("adds only one once-daily article cron, within Hobby's job count and duration limits", () => {
     const { crons } = JSON.parse(readFileSync("vercel.json", "utf8"));

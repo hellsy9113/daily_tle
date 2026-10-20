@@ -464,6 +464,7 @@ export const articleSubscriptions = tracking.table("article_subscriptions", {
     .references(() => accounts.id, { onDelete: "cascade" }),
   topics: text("topics").array().$type<import("@/lib/articles/topics").ArticleTopic[]>().notNull(),
   paused: boolean("paused").notNull().default(false),
+  nextRefreshAt: time("next_refresh_at").notNull().default(new Date(0)),
   createdAt: time("created_at").notNull().defaultNow(),
 });
 export const articleFeedDays = tracking.table(

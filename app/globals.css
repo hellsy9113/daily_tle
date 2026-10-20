@@ -1708,3 +1708,25 @@ button:disabled {
   border: 1px dashed var(--border);
   border-radius: 8px;
 }
+
+.articles-management {
+  border-top: 1px solid var(--border);
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+}
+.articles-service-state {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.articles-service-state h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.9375rem;
+}
+.articles-service-state .field-help {
+  margin: 0;
+}
+.articles-management-footer {
+  margin-top: 1rem;
+}

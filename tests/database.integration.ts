@@ -128,11 +128,14 @@ import {
   updateArticleTopics,
   manageArticles,
   dailyArticles,
+  fillDailyArticleSlots,
 } from "@/lib/articles/service";
 import { refreshArticleCatalog, claimArticleSource } from "@/lib/articles/ingest";
 import { ARTICLE_SOURCES } from "@/lib/articles/sources";
 import { GET as articlesFeed } from "@/app/api/articles/route";
 import { PATCH as articlesTopics } from "@/app/api/articles/preferences/route";
+import { POST as refreshArticles } from "@/app/api/articles/refresh/route";
+import { refreshAccountArticles } from "@/lib/articles/refresh";
 
 vi.mock("@/lib/leetcode/user-identity", () => ({
   getLeetCodeIdentity: vi.fn(async (username: string) => username),
@@ -3373,5 +3376,273 @@ describe("central article ingestion", () => {
     expect(await claimArticleSource(source.id, now)).toBeUndefined();
     const after = new Date(now.getTime() + 121000);
     expect((await claimArticleSource(source.id, after))?.leaseToken).not.toBe(first?.leaseToken);
+  });
+});
+
+describe("account-triggered article catalog refresh", () => {
+  beforeEach(async () => {
+    await admin.unsafe(
+      `TRUNCATE ${namespace}.article_catalog, ${namespace}.article_source_state CASCADE`,
+    );
+  });
+  async function subscriber(id = 101, topics = ["web"]) {
+    const user = await account(id);
+    const status = await registerArticles(user, topics);
+    const cookie = `tracking_session=${await createSession(user.id)}`;
+    return { user, status, cookie };
+  }
+  function manual(
+    cookie = "",
+    registrationId = "00000000-0000-0000-0000-000000000000",
+    extra = {},
+    origin = "http://localhost:3000",
+  ) {
+    return new Request("http://localhost:3000/api/articles/refresh", {
+      method: "POST",
+      headers: { cookie, origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ registrationId, ...extra }),
+    });
+  }
+  function publisher(url: string | URL | Request): Promise<Response> {
+    const href = String(url);
+    if (href.endsWith("/robots.txt"))
+      return Promise.resolve(new Response("User-agent: *\nAllow: /"));
+    const source = ARTICLE_SOURCES.find((s) => s.url === href)!;
+    const link = `https://${source.articleHosts[0]}/manual-${source.id}`;
+    return Promise.resolve(
+      new Response(
+        source.kind === "api"
+          ? JSON.stringify([
+              {
+                canonical_url: link,
+                title: "Web tutorial",
+                published_at: "2026-10-12T00:00:00Z",
+                description: "Accessible web basics",
+              },
+            ])
+          : `<rss><channel><item><title>Web tutorial</title><link>${link}</link><pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate><description>Accessible web basics</description></item></channel></rss>`,
+      ),
+    );
+  }
+  it("authenticates refresh, validates origin/generation and rejects client topic or account overrides", async () => {
+    const fetcher = vi.fn(publisher);
+    vi.stubGlobal("fetch", fetcher);
+    expect((await refreshArticles(manual())).status).toBe(401);
+    const { cookie, status, user } = await subscriber();
+    expect(
+      (
+        await refreshArticles(
+          manual(cookie, status.registrationId!, {}, "https://attacker.example"),
+        )
+      ).status,
+    ).toBe(403);
+    for (const extra of [
+      { topics: ["ai-ml"] },
+      { accountId: "other" },
+      { sources: ["https://attacker.example"] },
+    ])
+      expect((await refreshArticles(manual(cookie, status.registrationId!, extra))).status).toBe(
+        400,
+      );
+    expect((await refreshArticles(manual(cookie))).status).toBe(409);
+    const other = await subscriber(102);
+    expect((await refreshArticles(manual(cookie, other.status.registrationId!))).status).toBe(409);
+    await manageArticles(user.id, status.registrationId!, true);
+    expect((await refreshArticles(manual(cookie, status.registrationId!))).status).toBe(423);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("fetches sources for saved topics, stores them and fills today's empty slots", async () => {
+    const { cookie, user, status } = await subscriber();
+    const before = await dailyArticles(user.id, now);
+    const fetcher = vi.fn(publisher);
+    vi.stubGlobal("fetch", fetcher);
+    const response = await refreshArticles(manual(cookie, status.registrationId!));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      inserted: 3,
+      sources: 3,
+      failed: 0,
+      nextRefreshAt: new Date(now.getTime() + 900000).toISOString(),
+    });
+    const calls = fetcher.mock.calls.map(([url]) => String(url));
+    expect(calls).toContain(ARTICLE_SOURCES.find((s) => s.id === "webdev")!.url);
+    expect(
+      calls.some(
+        (url) =>
+          url.includes("blog.google") || url.includes("realpython") || url.includes("martinfowler"),
+      ),
+    ).toBe(false);
+    expect(await db().select().from(articleCatalog)).toHaveLength(3);
+    const updated = await dailyArticles(user.id, now);
+    expect(before.articles).toHaveLength(0);
+    expect(updated.articles).toHaveLength(3);
+    expect(await db().select().from(articleFeedDays)).toHaveLength(1);
+    const next = new Date(now.getTime() + 86400000);
+    vi.setSystemTime(next);
+    expect((await dailyArticles(user.id, next)).articles).toHaveLength(0);
+  });
+  it("fills remaining slots without replacing selections or exceeding six under concurrent reads", async () => {
+    const { user, status } = await subscriber();
+    await db()
+      .insert(articleCatalog)
+      .values(
+        Array.from({ length: 2 }, (_, i) => ({
+          canonicalUrl: `https://example.com/original-${i}`,
+          title: `Original ${i}`,
+          source: "Original",
+          publishedAt: now,
+          topics: ["web"] as "web"[],
+          summary: "Short",
+        })),
+      );
+    const before = await dailyArticles(user.id, now);
+    await db()
+      .insert(articleCatalog)
+      .values(
+        Array.from({ length: 10 }, (_, i) => ({
+          canonicalUrl: `https://example.com/new-${i}`,
+          title: `New ${i}`,
+          source: "New",
+          publishedAt: now,
+          topics: ["web"] as "web"[],
+          summary: "Short",
+        })),
+      );
+    // Cron/catalog insertion alone never changes the list.
+    expect((await dailyArticles(user.id, now)).articles).toEqual(before.articles);
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => fillDailyArticleSlots(user.id, status.registrationId!, now)),
+    );
+    for (const result of results) {
+      expect(result.articles).toHaveLength(6);
+      expect(result.articles.slice(0, 2)).toEqual(before.articles);
+      expect(result.articles.map((a) => a.id)).toEqual(results[0].articles.map((a) => a.id));
+    }
+    expect(await db().select().from(articleFeedItems)).toHaveLength(6);
+    expect(await db().select().from(articleSeen)).toHaveLength(6);
+  });
+  it("uses the saved daily topics while topic changes wait until tomorrow", async () => {
+    const { user, status } = await subscriber();
+    await dailyArticles(user.id, now);
+    await updateArticleTopics(user.id, status.registrationId!, ["ai-ml"]);
+    await db()
+      .insert(articleCatalog)
+      .values({
+        canonicalUrl: "https://example.com/ai-only",
+        title: "AI",
+        source: "AI",
+        publishedAt: now,
+        topics: ["ai-ml"],
+        summary: "Short",
+      });
+    const filled = await fillDailyArticleSlots(user.id, status.registrationId!, now);
+    expect(filled.selectedTopics).toEqual(["web"]);
+    expect(filled.topics).toEqual(["ai-ml"]);
+    expect(filled.articles).toHaveLength(0);
+    const next = new Date(now.getTime() + 86400000);
+    vi.setSystemTime(next);
+    expect((await dailyArticles(user.id, next)).articles).toHaveLength(1);
+  });
+  it("reserves the account cooldown atomically under concurrent clicks", async () => {
+    const { cookie, status } = await subscriber();
+    const fetcher = vi.fn(publisher);
+    vi.stubGlobal("fetch", fetcher);
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => refreshArticles(manual(cookie, status.registrationId!))),
+    );
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(7);
+    expect(results.find((r) => r.status === 429)!.headers.get("retry-after")).toBe("900");
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).endsWith("robots.txt"))).toHaveLength(
+      3,
+    );
+  });
+  it("keeps account cooldowns private and shares publisher cooldowns with other accounts and cron", async () => {
+    const first = await subscriber(),
+      second = await subscriber(102);
+    const fetcher = vi.fn(publisher);
+    vi.stubGlobal("fetch", fetcher);
+    expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
+      200,
+    );
+    fetcher.mockClear();
+    expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
+      429,
+    );
+    const other = await refreshArticles(manual(second.cookie, second.status.registrationId!));
+    expect(other.status).toBe(200);
+    expect(await other.json()).toMatchObject({ inserted: 0, skipped: 3 });
+    expect(fetcher).not.toHaveBeenCalled();
+    await refreshArticleCatalog({
+      now,
+      fetcher,
+      sources: ARTICLE_SOURCES.filter((s) => ["webdev", "freecodecamp", "aws-dev"].includes(s.id)),
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    const later = new Date(now.getTime() + 900000);
+    vi.setSystemTime(later);
+    expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
+      200,
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    const due = new Date(now.getTime() + 7 * 3600000);
+    vi.setSystemTime(due);
+    expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
+      200,
+    );
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).endsWith("robots.txt"))).toHaveLength(
+      3,
+    );
+    expect(await db().select().from(articleCatalog)).toHaveLength(3);
+  });
+  it("coordinates source leases between a simultaneous cron and manual request", async () => {
+    const { user, status } = await subscriber();
+    const fetcher = vi.fn(publisher);
+    await Promise.all([
+      refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+      refreshArticleCatalog({ now, fetcher }),
+    ]);
+    for (const source of ARTICLE_SOURCES)
+      expect(fetcher.mock.calls.filter(([url]) => String(url) === source.url)).toHaveLength(1);
+    expect(await db().select().from(articleCatalog)).toHaveLength(6);
+  });
+  it("does not let a late manual request modify a newly registered generation", async () => {
+    const { user, status } = await subscriber();
+    let replacement = "";
+    let revoked = false;
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (!revoked) {
+        revoked = true;
+        await manageArticles(user.id, status.registrationId!, "revoke");
+        replacement = (await registerArticles(user, ["ai-ml"])).registrationId!;
+      }
+      return publisher(url);
+    });
+    await expect(
+      refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).rejects.toMatchObject({ status: 409 });
+    const [subscription] = await db().select().from(articleSubscriptions);
+    expect(subscription.id).toBe(replacement);
+    expect(subscription.nextRefreshAt.getTime()).toBe(0);
+    expect(subscription.topics).toEqual(["ai-ml"]);
+    expect(await db().select().from(articleFeedDays)).toHaveLength(0);
+    expect(await db().select().from(articleCatalog)).toHaveLength(3);
+  });
+  it("keeps existing data on upstream failure and reports the source failures", async () => {
+    const { user, status } = await subscriber();
+    const fetcher = vi.fn(
+      async () => new Response(null, { status: 503, headers: { "Retry-After": "3600" } }),
+    );
+    const result = await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher });
+    expect(result).toMatchObject({ failed: 3, inserted: 0 });
+    expect(
+      (await db().select().from(articleSourceState)).every(
+        (s) => s.nextFetchAt.getTime() >= now.getTime() + 3600000,
+      ),
+    ).toBe(true);
+    await expect(
+      refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).rejects.toMatchObject({ status: 429 });
   });
 });

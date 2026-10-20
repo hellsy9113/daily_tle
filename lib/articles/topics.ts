@@ -36,7 +36,17 @@ export interface ArticleCard {
   summary: string;
   url: string;
 }
+export interface ArticleRefreshResult {
+  inserted: number;
+  sources: number;
+  failed: number;
+  skipped: number;
+  deferred: number;
+  nextRefreshAt: string;
+}
 export interface DailyArticleFeed {
+  registrationId: string;
+  nextRefreshAt: string;
   date: string;
   timezone: "Asia/Kolkata";
   topics: ArticleTopic[];
