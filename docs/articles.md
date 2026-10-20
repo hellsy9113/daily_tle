@@ -20,14 +20,49 @@ headers and six numbered slots prevent duplicate selections and excess items.
 Selection prefers matching unseen articles published within the last 30 days,
 then unseen evergreen content. Future publications and old non-evergreen news are
 excluded. Previously selected articles are never repeated: exhaustion produces
-fewer than six, or an empty list. The saved list, including an empty list, stays
-fixed until midnight IST; topic changes apply to the next selection. Each account
+fewer than six, or an empty list. Ordinary reads preserve the saved list until
+midnight IST. An explicit user refresh can fill empty slots up to six total while
+keeping existing selections. Topic changes apply to the next day's selection. Each account
 has independent preferences and seen history. Ordinary reads only query PostgreSQL.
 
 Revocation deletes preferences, daily selections and seen history transactionally.
 It preserves the shared catalog, account, and other services. Re-registration creates
 a new generation and a fresh history. Pause blocks feed access without deleting
 history; resume can reveal the same day's saved selection.
+
+## User-triggered refresh
+
+The Dashboard's **Refresh articles** button also refreshes the shared catalog.
+`POST /api/articles/refresh` requires the account session, matching Origin and current
+`{ registrationId }`. Topics are read from the subscription on the server; callers
+cannot provide topics, source URLs, or another account ID. Dedicated publisher feeds
+are chosen by saved topics; broad feeds such as freeCodeCamp remain relevant across
+several topics. Complete metadata batches from these feeds are retained in the
+shared catalog so ETag/304 caching never loses articles for other topic subscribers.
+Daily selections still use each reader's own topic preferences.
+
+An atomic 15-minute cooldown per registration prevents repeated clicks from starting
+more upstream work. Rejected attempts return 429 with `Retry-After`. Cron and manual
+refresh share publisher leases, six-hour successful-poll cooldowns, conditional
+headers, robots policy and Retry-After/backoff. Another account can refresh independently
+but cannot bypass a publisher's shared cooldown. Concurrent cron/manual work only
+fetches an eligible source once. No account locks are held during network requests;
+completion rechecks the registration generation and pause state. Revocation deletes
+the account's cooldown along with its subscription and history.
+
+The manual route has the same 60-second maximum and 40-second work budget as cron.
+It runs on Daily TLE's server and consumes the application's hosting/network/database
+allowance. It does not charge users directly or transfer hosting usage to their
+browser. No additional cron jobs are configured.
+
+The result reports catalog additions, cached/cooling sources, and partial source
+failures. The UI then immediately displays the saved list with empty slots filled from the
+updated catalog. Existing articles are never replaced and at most six articles are
+selected per account per IST day. Cron only ingests shared metadata; it never fills
+or modifies an existing user's list. Manual refresh is a separate authenticated POST
+and does not invoke the cron endpoint. Both can independently execute; shared source
+leases and cooldowns prevent duplicate publisher requests if they happen to overlap.
+Today's original topic snapshot still applies; edited topics take effect tomorrow. **Retry reading list** only rereads PostgreSQL and starts no upstream work.
 
 ## Sources and access
 
@@ -86,10 +121,12 @@ against provider quotas. No hosting plan change is required by this feature.
 
 ## Configuration and migration
 
-Apply `0013_daily_articles.sql` through the existing `npm run db:migrate` workflow
+Apply `0013_daily_articles.sql` and `0014_article_manual_refresh.sql` through the existing `npm run db:migrate` workflow
 after the preceding migrations, using the intended environment's database URL.
 No new environment variables are needed beyond the existing database/session
-configuration and `CRON_SECRET`. No production migration is run as part of development.
+configuration and `CRON_SECRET`. No production migration is run as part of development. Migration `0014` adds the
+subscription cooldown timestamp with an epoch default, leaving existing registrations
+ready for their first manual refresh.
 
 The migration adds account registration state, catalog, subscriptions, daily headers,
 feed items, seen history, and source state. Catalog topic GIN/publication/evergreen
@@ -106,7 +143,8 @@ If upstream access fails or the budget expires, existing catalog entries remain
 available and unseen evergreen matches fill gaps. No fabricated articles or full
 article copies are generated. Loading, empty, error and retry states use the shared
 resource hook; retrying a read does not trigger upstream requests or change today's
-saved selection.
+saved selection. Explicit catalog refresh is separate: it fetches metadata and
+atomically fills remaining slots. A full six-article list stays unchanged.
 
 ## Verification
 
@@ -114,4 +152,5 @@ Run `npm run check`, `npm run build`, and `npm run test:db` with
 `TEST_DATABASE_URL` pointing to a disposable PostgreSQL database. Database tests apply
 migrations in an isolated schema and cover limits, IST rollover, stable/empty
 selections, account isolation, concurrent reads/jobs, canonical deduplication,
-source leases/backoff, pause/resume/revoke and stale generations.
+source leases/backoff, manual refresh cooldowns and saved-topic scoping, concurrent
+cron/manual refreshes, pause/resume/revoke and stale generations.

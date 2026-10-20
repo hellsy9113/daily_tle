@@ -10,6 +10,8 @@ let container: HTMLDivElement;
 let root: Root;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const feed: DailyArticleFeed = {
+  registrationId: "aabbccdd-1111-2222-3333-aabbccddeeff",
+  nextRefreshAt: "1970-01-01T00:00:00.000Z",
   date: "2026-10-20",
   timezone: "Asia/Kolkata",
   topics: ["web"],
@@ -40,9 +42,11 @@ afterEach(async () => {
 });
 async function retry() {
   await act(() =>
-    [...container.querySelectorAll("button")]
-      .find((b) => b.textContent === "Retry / refresh")!
-      .click(),
+    (container.querySelector<HTMLButtonElement>(".inline-error + button") ??
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "Retry reading list",
+      ) ??
+      container.querySelector<HTMLButtonElement>('[aria-label="Refresh articles"]'))!.click(),
   );
 }
 describe("Daily Articles interface", () => {
@@ -89,6 +93,69 @@ describe("Daily Articles interface", () => {
     await retry();
     expect(container.textContent).toContain("Access unavailable");
     expect(container.textContent).not.toContain("A web tutorial");
+  });
+  it("posts a manual refresh, displays filled slots and reports catalog additions", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));
+    await act(() => root.render(<ArticlesPanel />));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          sources: 2,
+          inserted: 4,
+          failed: 0,
+          deferred: 0,
+          skipped: 0,
+          nextRefreshAt: "2026-10-20T01:15:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          ...feed,
+          articles: [
+            ...feed.articles,
+            { ...feed.articles[0], id: "new", title: "A freshly fetched article" },
+          ],
+        }),
+      );
+    await retry();
+    expect(container.textContent).toContain("A freshly fetched article");
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/articles/refresh",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ registrationId: feed.registrationId }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(3, "/api/articles", expect.any(Object));
+    expect(container.textContent).toContain("4 new articles saved");
+    expect(container.textContent).toContain("A web tutorial");
+    expect(container.textContent).toContain("up to six articles");
+  });
+  it("retains the list and explains cooldowns without another upstream attempt", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));
+    await act(() => root.render(<ArticlesPanel />));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Please wait 15 minutes" }, { status: 429 }),
+    );
+    await retry();
+    expect(container.textContent).toContain("Please wait 15 minutes");
+    expect(container.textContent).toContain("A web tutorial");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("disables refresh during ingestion and aborts client work when the panel unmounts", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));
+    await act(() => root.render(<ArticlesPanel />));
+    vi.mocked(fetch).mockReturnValueOnce(new Promise(() => {}));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Refresh articles"]')!.click(),
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label="Refresh articles"]')!.disabled,
+    ).toBe(true);
+    const signal = vi.mocked(fetch).mock.calls[1][1]!.signal!;
+    await act(() => root.render(null));
+    expect(signal.aborted).toBe(true);
   });
   it("requires at least one topic, disables a third, and posts selected preferences", async () => {
     await act(() =>
@@ -138,5 +205,9 @@ describe("Daily Articles interface", () => {
     );
     expect(container.textContent).toContain("Manage Daily Articles");
     expect(container.textContent).toContain("Topics saved");
+    expect(container.textContent).not.toContain("Open articles");
+    expect(
+      container.querySelector('.articles-service-state button[aria-label="Pause Daily Articles"]'),
+    ).not.toBeNull();
   });
 });

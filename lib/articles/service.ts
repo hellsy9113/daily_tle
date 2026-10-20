@@ -45,7 +45,7 @@ export async function articlesStatus(account: Account): Promise<TrackingStatus> 
     lastDelivery: null,
   };
 }
-async function lockArticles(tx: Transaction, accountId: string, registrationId?: string) {
+export async function lockArticles(tx: Transaction, accountId: string, registrationId?: string) {
   const [account] = await tx
     .select()
     .from(accounts)
@@ -128,13 +128,23 @@ export async function manageArticles(
 }
 
 /** No upstream I/O. Account-first locks serialize selection, topic changes, pause and revoke. */
-export async function dailyArticles(
+export function dailyArticles(accountId: string, now = new Date()): Promise<DailyArticleFeed> {
+  return readDailyArticles(accountId, now);
+}
+
+/** Explicit manual refresh may append unseen articles, never replace the day's saved items. */
+export function fillDailyArticleSlots(accountId: string, registrationId: string, now = new Date()) {
+  return readDailyArticles(accountId, now, { fill: true, registrationId });
+}
+
+async function readDailyArticles(
   accountId: string,
-  now = new Date(),
+  now: Date,
+  { fill = false, registrationId }: { fill?: boolean; registrationId?: string } = {},
 ): Promise<DailyArticleFeed> {
   const date = localClock(now).date;
   return db().transaction(async (tx) => {
-    const { subscription } = await lockArticles(tx, accountId);
+    const { subscription } = await lockArticles(tx, accountId, registrationId);
     if (subscription.paused)
       throw new ApiError(423, "Daily Articles is paused. Resume it on Feature.");
     let [day] = await tx
@@ -143,6 +153,7 @@ export async function dailyArticles(
       .where(
         and(eq(articleFeedDays.subscriptionId, subscription.id), eq(articleFeedDays.date, date)),
       );
+    const creating = !day;
     if (!day) {
       [day] = await tx
         .insert(articleFeedDays)
@@ -153,9 +164,22 @@ export async function dailyArticles(
           generatedAt: now,
         })
         .returning();
-      const topicsArray = `{${subscription.topics.join(",")}}`;
+    }
+    if (creating || fill) {
+      const existing = fill
+        ? await tx
+            .select({ position: articleFeedItems.position })
+            .from(articleFeedItems)
+            .where(eq(articleFeedItems.dayId, day.id))
+        : [];
+      const emptySlots = Array.from(
+        { length: DAILY_ARTICLE_LIMIT },
+        (_, index) => index + 1,
+      ).filter((position) => !existing.some((item) => item.position === position));
+      const topicsArray = `{${day.topics.join(",")}}`;
       const recentCutoff = new Date(localDayStart(date).getTime() - 30 * 86_400_000);
-      const choices = await tx.execute<{ id: string; topic: ArticleTopic }>(sql`
+      const choices = emptySlots.length
+        ? await tx.execute<{ id: string; topic: ArticleTopic }>(sql`
         SELECT c.id,
           (SELECT t FROM unnest(c.topics) t WHERE t = ANY(${topicsArray}::text[])
             ORDER BY array_position(${topicsArray}::text[], t) LIMIT 1) AS topic
@@ -166,15 +190,16 @@ export async function dailyArticles(
           AND NOT EXISTS (SELECT 1 FROM ${articleSeen} h WHERE h.subscription_id = ${subscription.id} AND h.article_id = c.id)
         ORDER BY CASE WHEN c.published_at >= ${recentCutoff.toISOString()}::timestamptz THEN 0 ELSE 1 END,
           c.published_at DESC NULLS LAST, c.canonical_url ASC
-        LIMIT ${DAILY_ARTICLE_LIMIT}
-      `);
+        LIMIT ${emptySlots.length}
+      `)
+        : [];
       if (choices.length) {
         await tx.insert(articleFeedItems).values(
           choices.map((choice, index) => ({
             dayId: day.id,
             subscriptionId: subscription.id,
             articleId: choice.id,
-            position: index + 1,
+            position: emptySlots[index],
             topic: choice.topic,
           })),
         );
@@ -204,6 +229,8 @@ export async function dailyArticles(
       .limit(DAILY_ARTICLE_LIMIT);
     return {
       date,
+      registrationId: subscription.id,
+      nextRefreshAt: subscription.nextRefreshAt.toISOString(),
       timezone: "Asia/Kolkata",
       topics: subscription.topics,
       selectedTopics: day.topics,

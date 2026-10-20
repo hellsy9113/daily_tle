@@ -82,7 +82,7 @@ export const features = [
     label: "Daily Articles",
     description: "A small daily reading list for the topics you care about.",
     coverage:
-      "Choose 1–2 topics. Up to 6 unseen articles each day, from a shared catalog of publisher feeds and public APIs. Selection stays fixed for the IST day; availability may mean fewer articles.",
+      "Choose 1–2 topics. Up to 6 unseen articles each day, from a shared catalog of publisher feeds and public APIs. Existing selections stay in place; Refresh fills empty slots up to six. Availability may mean fewer articles.",
     readyMessage: "Your daily reading is ready on Dashboard.",
     dashboard: true,
   },

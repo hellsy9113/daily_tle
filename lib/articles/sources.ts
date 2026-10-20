@@ -1,4 +1,4 @@
-import type { ArticleTopic } from "./topics";
+import { ARTICLE_TOPICS, type ArticleTopic } from "./topics";
 export interface ArticleSource {
   id: string;
   name: string;
@@ -6,6 +6,7 @@ export interface ArticleSource {
   kind: "rss" | "api";
   articleHosts: string[];
   defaultTopics?: ArticleTopic[];
+  coverage?: ArticleTopic[];
   evergreen?: boolean;
 }
 /** Publisher-owned feeds/API accounts only. No user-supplied fetch URLs. */
@@ -53,8 +54,18 @@ export const ARTICLE_SOURCES: ArticleSource[] = [
   {
     id: "aws-dev",
     name: "AWS on DEV",
+    coverage: ["web", "system-design", "ai-ml", "languages"],
     url: "https://dev.to/api/articles?username=aws&per_page=30",
     kind: "api",
     articleHosts: ["dev.to", "aws.amazon.com", "community.aws", "builder.aws"],
   },
 ];
+
+/** Mixed publisher feeds are ingested whole so conditional caches remain valid for every topic. */
+export function articleSourcesForTopics(topics: ArticleTopic[]) {
+  return ARTICLE_SOURCES.filter((source) =>
+    (source.coverage ?? source.defaultTopics ?? ARTICLE_TOPICS.map((topic) => topic.id)).some(
+      (topic) => topics.includes(topic),
+    ),
+  );
+}
