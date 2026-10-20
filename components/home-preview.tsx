@@ -76,7 +76,7 @@ export function HomePreview() {
           </span>
           <div>
             <h3>Your daily recap</h3>
-            <p>Daily Grind · Telegram</p>
+            <p>Daily Grind · Optional Telegram recaps</p>
           </div>
           <span className="preview-time">Morning</span>
         </div>
@@ -95,8 +95,18 @@ export function HomePreview() {
           <p className="preview-message-note">A little more progress. Keep it going.</p>
         </div>
       </div>
+      <div className="preview-tools">
+        <div>
+          <span className="eyebrow">Notes</span>
+          <p>Keep the idea. Save the link.</p>
+        </div>
+        <div>
+          <span className="eyebrow">Daily Articles</span>
+          <p>Your topics. A fresh perspective.</p>
+        </div>
+      </div>
       <figcaption id="home-preview-caption">
-        Illustrative preview · sample activity and recap
+        Illustrative preview · sample activity, recap, notes and reading
       </figcaption>
     </figure>
   );

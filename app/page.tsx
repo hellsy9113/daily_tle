@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+import { siteTitle, siteDescription, siteOrigin } from "@/lib/site-metadata";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { HomePreview } from "@/components/home-preview";
 import { SiteShell } from "@/components/site-shell";
@@ -6,33 +8,58 @@ import { LeetCodeDemo } from "@/components/leetcode-demo";
 import { serverAccount } from "@/lib/auth/session";
 import { queryBotUrl } from "@/lib/telegram/bot-link";
 
-export const metadata = {
-  title: "Track.it · Your coding practice, together",
-  description:
-    "Sign in with Google or Telegram and choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Follow your practice with activity calendars and daily recaps.",
+export const metadata: Metadata = {
+  title: { absolute: siteTitle },
+  description: siteDescription,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: siteTitle,
+    description: siteDescription,
+    url: "/",
+    type: "website",
+    siteName: "Track.it",
+    locale: "en_IN",
+  },
+  twitter: { card: "summary_large_image", title: siteTitle, description: siteDescription },
 };
-
 const features = [
   {
     number: "01",
-    title: "Four platforms. One dashboard.",
+    title: "Your practice, in perspective.",
     description:
-      "Choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Each service is enabled independently, with its own calendar and counts.",
-    detail: "Enable each platform separately",
+      "Track available activity from LeetCode, GeeksforGeeks, HackerRank and Codeforces. Explore calendars and revisit saved problem links.",
+    detail: "Four coding platforms · Independent registration",
   },
   {
     number: "02",
-    title: "A calendar you can explore.",
+    title: "Keep the useful bits.",
     description:
-      "See 365 days of available activity. Select a day to revisit saved problems and open their links. Missing public history stays clearly marked.",
-    detail: "Your saved practice, day by day",
+      "Save short thoughts, useful links and study reminders in a private notebook. Come back to the ideas you want to remember.",
+    detail: "Private Notes · Optional secret-code access",
   },
   {
     number: "03",
-    title: "Your morning, already organised.",
+    title: "Make room for discovery.",
     description:
-      "Enable the optional Daily Grind feature to send yesterday's available problems to Telegram. When every enabled platform has no matches, you receive one shared reminder.",
-    detail: "Daily recaps · Pause or resume in the bot",
+      "Choose your topics for Daily Articles. Read relevant publisher excerpts and open the originals, with different unseen catalog matches on later refreshes.",
+    detail: "Daily Articles · Up to six at a time",
+  },
+];
+const questions = [
+  {
+    question: "Do I need Telegram to use Track.it?",
+    answer:
+      "No. Sign in with Google or Telegram, then enable the services you want. Daily Grind is an optional feature for receiving Telegram recaps.",
+  },
+  {
+    question: "Which coding platforms can I track?",
+    answer:
+      "LeetCode, GeeksforGeeks, HackerRank and Codeforces. Each platform is registered independently. Public-history limits differ, so your dashboard explains available coverage.",
+  },
+  {
+    question: "Can I use Notes or Articles without coding tracking?",
+    answer:
+      "Yes. Notes and Daily Articles are independent services. You can enable either without registering a coding-platform username or connecting a bot.",
   },
 ];
 
@@ -45,21 +72,33 @@ export default async function Home() {
 
   return (
     <SiteShell>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Track.it",
+            url: siteOrigin(),
+            description: siteDescription,
+            inLanguage: "en",
+          }).replace(/</g, "\u003c"),
+        }}
+      />
       <div className="landing-page">
         <div className="landing-hero">
           <div className="landing-intro">
             <p className="landing-kicker">
-              <span aria-hidden="true" /> Track.it · Your daily coding rhythm
+              <span aria-hidden="true" /> Practice. Remember. Discover.
             </p>
             <h1>
-              Make practice count.
+              A home for your
               <br />
-              <span>See it all together.</span>
+              <span>coding routine.</span>
             </h1>
             <p className="lead">
-              Your LeetCode, GeeksforGeeks, HackerRank, and Codeforces practice, with separate
-              calendars, saved problem links, and morning Telegram recaps. Less checking. More
-              solving.
+              Follow your coding practice, keep private notes, and find your next useful read.
+              Choose the tools you need. Add Telegram recaps when you want them.
             </p>
             <div className="landing-actions">
               <a className="button primary" href="/api/auth/google/login">
@@ -69,7 +108,7 @@ export default async function Home() {
                 Sign in with Telegram
               </a>
               <a className="landing-text-link" href="#demo">
-                Try the live demo <span aria-hidden="true">↓</span>
+                Explore a public profile <span aria-hidden="true">↓</span>
               </a>
             </div>
             <div className="landing-platforms" aria-label="Supported platforms">
@@ -78,7 +117,7 @@ export default async function Home() {
               <span>HackerRank</span>
               <span>Codeforces</span>
             </div>
-            <p className="hero-caption">Public profiles. One-time registration. Your own pace.</p>
+            <p className="hero-caption">Google or Telegram sign-in. Every service is optional.</p>
           </div>
           <HomePreview />
         </div>
@@ -88,7 +127,7 @@ export default async function Home() {
         <section className="landing-features" aria-labelledby="features-title">
           <div className="landing-section-heading">
             <p className="eyebrow">Built around your practice</p>
-            <h2 id="features-title">One place to return to your progress.</h2>
+            <h2 id="features-title">A little structure for everything you learn.</h2>
           </div>
           <div className="landing-feature-grid">
             {features.map((feature) => (
@@ -106,9 +145,9 @@ export default async function Home() {
 
         <section className="landing-setup" id="how-it-works" aria-labelledby="how-it-works-title">
           <div className="landing-section-heading">
-            <p className="eyebrow">Three steps. One routine.</p>
+            <p className="eyebrow">Set up your own routine</p>
             <h2 id="how-it-works-title">Make room for daily progress.</h2>
-            <p>Connect once, then get back to your next problem.</p>
+            <p>Start with one service. Add more whenever they become useful.</p>
           </div>
           <ol className="landing-steps">
             <li>
@@ -127,8 +166,8 @@ export default async function Home() {
               <div>
                 <h3>Choose your services on Feature</h3>
                 <p>
-                  Enable LeetCode, GFG, HackerRank, or Codeforces by registering its public username
-                  once. Each service gets its own dashboard panel.
+                  Register a coding profile, start a private notebook, or choose your reading
+                  topics. Each service is enabled and managed independently.
                 </p>
               </div>
             </li>
@@ -139,18 +178,43 @@ export default async function Home() {
               <div>
                 <h3>Explore your progress</h3>
                 <p>
-                  Your service is ready after registration. Enable Daily Grind and connect Telegram
-                  to receive morning recaps for all your enabled services.
+                  Open Dashboard to revisit your practice, notes and articles. For Telegram recaps,
+                  enable Daily Grind separately and connect your bot.
                 </p>
               </div>
             </li>
           </ol>
         </section>
 
+        <section className="landing-grind" aria-labelledby="grind-title">
+          <div>
+            <p className="eyebrow">An optional nudge</p>
+            <h2 id="grind-title">Let Daily Grind bring the recap.</h2>
+            <p>
+              Enable Daily Grind for daily and Sunday weekly Telegram recaps from your registered
+              coding platforms. Your dashboard works independently.
+            </p>
+          </div>
+          <Link className="button secondary" href="/feature?platform=daily-grind">
+            Explore Daily Grind <span aria-hidden="true">→</span>
+          </Link>
+        </section>
+        <section className="landing-faq" aria-labelledby="faq-title">
+          <div className="landing-section-heading">
+            <p className="eyebrow">Before you begin</p>
+            <h2 id="faq-title">A few things to know.</h2>
+          </div>
+          {questions.map((item) => (
+            <details key={item.question}>
+              <summary>{item.question}</summary>
+              <p>{item.answer}</p>
+            </details>
+          ))}
+        </section>
         <section className="landing-cta" aria-labelledby="start-title">
           <div>
             <p className="eyebrow">Small steps. Daily progress.</p>
-            <h2 id="start-title">Your next Accepted is a good place to start.</h2>
+            <h2 id="start-title">Start with what helps you today.</h2>
           </div>
           <Link className="button primary" href="/feature">
             Choose your services <span aria-hidden="true">→</span>

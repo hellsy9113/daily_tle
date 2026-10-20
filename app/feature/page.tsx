@@ -13,7 +13,10 @@ import { InfoPopover } from "@/components/info-popover";
 import { NotesIcon } from "@/components/notes-icons";
 import { FeatureDialog } from "@/components/feature-dialog";
 
-export const metadata = { title: "Choose your services · Track.it" };
+export const metadata = {
+  robots: { index: false, follow: false },
+  title: "Choose your services · Track.it",
+};
 
 export default async function FeaturePage({
   searchParams,

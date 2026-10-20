@@ -1730,3 +1730,110 @@ button:disabled {
 .articles-management-footer {
   margin-top: 1rem;
 }
+
+/* Homepage tools, optional recaps, and the public-lookup dialog. */
+.demo-dialog {
+  width: min(960px, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 24px 80px #00000030;
+}
+.demo-dialog::backdrop {
+  background: #00000080;
+}
+.demo-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.demo-dialog-heading .eyebrow {
+  margin-bottom: 0.25rem;
+}
+.demo-dialog-heading h2 {
+  font-size: clamp(1.25rem, 4vw, 1.75rem);
+  margin-bottom: 0.5rem;
+}
+.demo-dialog-heading button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+}
+.preview-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.preview-tools > div {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+.preview-tools .eyebrow {
+  font-size: 0.6875rem;
+  color: var(--landing-accent);
+}
+.preview-tools p {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.landing-grind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin-block: 0 4rem;
+  background: var(--surface);
+}
+.landing-grind > div {
+  flex: 1 1 340px;
+}
+.landing-grind .eyebrow {
+  margin-bottom: 0.5rem;
+}
+.landing-grind p:not(.eyebrow) {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.landing-faq {
+  margin-block: 0 4rem;
+}
+.landing-faq details {
+  padding-block: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.landing-faq summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding-block: 0.25rem;
+}
+.landing-faq details p {
+  max-width: 75ch;
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-block: 0.75rem 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

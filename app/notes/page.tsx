@@ -3,7 +3,10 @@ import { NotesPanel } from "@/components/notes-panel";
 import { serverAccount } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 
-export const metadata = { title: "Private notes · Track.it" };
+export const metadata = {
+  robots: { index: false, follow: false },
+  title: "Private notes · Track.it",
+};
 export default async function NotesPage() {
   if (await serverAccount()) redirect("/dashboard?service=notes");
   return (

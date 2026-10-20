@@ -12,7 +12,10 @@ import { registeredFeatures, platformUsername } from "@/lib/tracking/platforms";
 import { featureById } from "@/lib/features/catalog";
 import { trackingBot } from "@/lib/tracking/config";
 
-export const metadata = { title: "Your activity · LeetCode Tracker" };
+export const metadata = {
+  robots: { index: false, follow: false },
+  title: "Your activity · Track.it",
+};
 
 export default async function DashboardPage({
   searchParams,

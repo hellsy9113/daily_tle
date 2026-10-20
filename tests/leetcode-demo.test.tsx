@@ -27,7 +27,11 @@ afterEach(async () => {
   container.remove();
   delete environment.IS_REACT_ACT_ENVIRONMENT;
 });
+async function openDemo() {
+  await act(() => container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click());
+}
 async function submit(username: string) {
+  if (!container.querySelector("input")) await openDemo();
   await act(() => {
     const input = container.querySelector<HTMLInputElement>("input")!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
@@ -43,9 +47,15 @@ async function submit(username: string) {
   );
 }
 describe("homepage live LeetCode demo", () => {
-  it("starts without a request and links to the original query bot beside the demo", () => {
+  it("starts with a compact launcher and opens an accessible dialog without a request", async () => {
     expect(fetch).not.toHaveBeenCalled();
+    expect(container.querySelector("dialog")).toBeNull();
+    await openDemo();
+    expect(container.querySelector("dialog")?.getAttribute("aria-labelledby")).toBe(
+      "demo-dialog-title",
+    );
     expect(container.querySelector('label[for="demo-username"]')).not.toBeNull();
+    expect(document.activeElement?.id).toBe("demo-username");
     const link = container.querySelector<HTMLAnchorElement>('a[href="https://t.me/todo1245bot"]')!;
     expect(link.textContent).toContain("Open query bot");
     expect(link.rel).toBe("noopener noreferrer");
@@ -121,5 +131,30 @@ describe("homepage live LeetCode demo", () => {
     await act(() => finish(Response.json({ ...result, username: "old_user" })));
     expect(oldSignal?.aborted).toBe(true);
     expect(container.querySelector(".demo-results-heading")?.textContent).toContain("new_user");
+  });
+  it("closes with Escape, restores focus, and cancels pending requests", async () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+    await submit("example");
+    const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
+    await act(() =>
+      container.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })),
+    );
+    expect(signal?.aborted).toBe(true);
+    expect(container.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('[aria-haspopup="dialog"]'));
+    expect(document.body.style.overflow).toBe("");
+  });
+  it("keeps lookup results when the popup is closed and reopened", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(result));
+    await submit("example");
+    await act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Close recent solved questions"]')!
+        .click(),
+    );
+    expect(container.querySelector(".demo-problem-grid")).toBeNull();
+    await openDemo();
+    expect(container.querySelector(".demo-problem-grid")?.textContent).toContain("Two Sum");
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

@@ -4,7 +4,10 @@ import { ProfilePanel } from "@/components/profile-panel";
 import { serverAccount } from "@/lib/auth/session";
 import { profileSummary } from "@/lib/profile";
 
-export const metadata = { title: "Profile & settings · Track.it" };
+export const metadata = {
+  robots: { index: false, follow: false },
+  title: "Profile & settings · Track.it",
+};
 export default async function ProfilePage({
   searchParams,
 }: {
