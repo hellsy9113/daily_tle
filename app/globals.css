@@ -1837,3 +1837,29 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+.demo-results-scroll {
+  max-height: min(52dvh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-block: 1.25rem;
+  padding: 4px;
+  scrollbar-gutter: stable;
+}
+.demo-problem-list {
+  display: block;
+  margin: 0;
+}
+.demo-problem-list li + li {
+  margin-top: 0.75rem;
+}
+.demo-problem-list a {
+  min-height: auto;
+  padding: 1rem 1.25rem;
+}
+.demo-problem-list h4 {
+  margin-block: 0.5rem 0.25rem;
+}
+.demo-problem-list .demo-open {
+  padding-top: 0.5rem;
+}

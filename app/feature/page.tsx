@@ -9,8 +9,6 @@ import { registrationAvailable } from "@/lib/tracking/config";
 import { trackingStatuses } from "@/lib/tracking/registration";
 import { platformUsername } from "@/lib/tracking/platforms";
 import { features as services, featurePaths, type FeatureId } from "@/lib/features/catalog";
-import { InfoPopover } from "@/components/info-popover";
-import { NotesIcon } from "@/components/notes-icons";
 import { FeatureDialog } from "@/components/feature-dialog";
 
 export const metadata = {
@@ -101,22 +99,6 @@ export default async function FeaturePage({
           <Link className="button secondary full-width" href="/">
             Return home
           </Link>
-        )}
-        {!account && !unavailable && (
-          <div className="notes-actions">
-            <Link
-              className="button secondary icon-button"
-              href="/notes"
-              title="Unlock Notes with a code"
-              aria-label="Unlock Notes with a code"
-            >
-              <NotesIcon name="lock" />
-            </Link>
-            <InfoPopover label="Notes code access">
-              Already registered Notes? Use your secret code for 20-minute access without website
-              sign-in.
-            </InfoPopover>
-          </div>
         )}
       </section>
     ) : (

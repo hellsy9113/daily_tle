@@ -28,10 +28,17 @@ afterEach(async () => {
   delete environment.IS_REACT_ACT_ENVIRONMENT;
 });
 async function openDemo() {
-  await act(() => container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click());
+  await act(() =>
+    container
+      .querySelector<HTMLButtonElement>('button[type="button"][aria-haspopup="dialog"]')!
+      .click(),
+  );
 }
 async function submit(username: string) {
-  if (!container.querySelector("input")) await openDemo();
+  const close = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Close recent solved questions"]',
+  );
+  if (close) await act(() => close.click());
   await act(() => {
     const input = container.querySelector<HTMLInputElement>("input")!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
@@ -47,16 +54,14 @@ async function submit(username: string) {
   );
 }
 describe("homepage live LeetCode demo", () => {
-  it("starts with a compact launcher and opens an accessible dialog without a request", async () => {
+  it("keeps the username form and original query-bot button on the homepage", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(container.querySelector("dialog")).toBeNull();
-    await openDemo();
-    expect(container.querySelector("dialog")?.getAttribute("aria-labelledby")).toBe(
-      "demo-dialog-title",
-    );
     expect(container.querySelector('label[for="demo-username"]')).not.toBeNull();
-    expect(document.activeElement?.id).toBe("demo-username");
-    const link = container.querySelector<HTMLAnchorElement>('a[href="https://t.me/todo1245bot"]')!;
+    expect(container.querySelector("form input")).not.toBeNull();
+    const link = container.querySelector<HTMLAnchorElement>(
+      'a.demo-bot-link[href="https://t.me/todo1245bot"]',
+    )!;
     expect(link.textContent).toContain("Open query bot");
     expect(link.rel).toBe("noopener noreferrer");
     expect(container.textContent).toContain("No sign-in needed");
@@ -104,6 +109,8 @@ describe("homepage live LeetCode demo", () => {
     );
     expect(container.textContent).not.toContain("private upstream detail");
     expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("another_user");
+    expect(container.querySelector("dialog")).toBeNull();
+    await openDemo();
     expect(container.querySelector(".demo-results-heading")?.textContent).toContain("example");
     expect(container.querySelector(".demo-problem-grid h4")?.textContent).toBe("Two Sum");
   });
@@ -132,16 +139,18 @@ describe("homepage live LeetCode demo", () => {
     expect(oldSignal?.aborted).toBe(true);
     expect(container.querySelector(".demo-results-heading")?.textContent).toContain("new_user");
   });
-  it("closes with Escape, restores focus, and cancels pending requests", async () => {
-    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+  it("shows results only in a scrollable dialog and restores focus after Escape", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(result));
     await submit("example");
-    const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
-    await act(() =>
-      container.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })),
-    );
-    expect(signal?.aborted).toBe(true);
+    const dialog = container.querySelector("dialog")!;
+    expect(dialog.getAttribute("aria-labelledby")).toBe("demo-dialog-title");
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(dialog.querySelector('.demo-results-scroll[tabindex="0"]')).not.toBeNull();
+    expect(dialog.querySelector(".demo-problem-list")).not.toBeNull();
+    await act(() => dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
     expect(container.querySelector("dialog")).toBeNull();
-    expect(document.activeElement).toBe(container.querySelector('[aria-haspopup="dialog"]'));
+    expect(container.querySelector("form input")).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('button[type="submit"]'));
     expect(document.body.style.overflow).toBe("");
   });
   it("keeps lookup results when the popup is closed and reopened", async () => {

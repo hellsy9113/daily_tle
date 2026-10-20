@@ -15,7 +15,6 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
-  const input = useRef<HTMLInputElement>(null);
   const [username, setUsername] = useState("");
   const [result, setResult] = useState<RecentSolvedQuestions | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +30,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     element.showModal();
-    input.current?.focus();
+    resultHeading.current?.focus();
     return () => {
       element.close();
       document.body.style.overflow = overflow;
@@ -69,6 +68,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
       );
       if (!controller.signal.aborted) {
         setResult(next);
+        setOpen(true);
       }
     } catch (failure) {
       if (!controller.signal.aborted)
@@ -87,22 +87,72 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
           <h2 id="demo-title">Revisit your recent LeetCode solves.</h2>
           <p>Look up a public profile and open its recently Accepted problems.</p>
         </div>
+        <a
+          className="button secondary demo-bot-link"
+          href={botUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open query bot <span aria-hidden="true">↗</span>
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </div>
+      <form className="demo-form" onSubmit={submit} aria-busy={busy}>
+        <label htmlFor="demo-username">LeetCode username</label>
+        <div className="demo-input-row">
+          <input
+            id="demo-username"
+            name="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="e.g. lee215"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={100}
+            required
+            aria-describedby="demo-help"
+            aria-invalid={Boolean(error)}
+          />
+          <button
+            ref={launcher}
+            type="submit"
+            className="button primary"
+            disabled={busy}
+            aria-haspopup="dialog"
+          >
+            {busy ? "Finding problems…" : "Show solved problems"}
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <p id="demo-help" className="field-help">
+          A public lookup only. Your username is not registered or linked to an account.
+        </p>
+      </form>
+      {error && (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
+      )}
+      {busy && (
+        <p className="field-help" role="status">
+          Fetching public Accepted submissions…
+        </p>
+      )}
+      {result && !open && (
         <button
-          ref={launcher}
-          className="button secondary"
+          className="text-button"
           type="button"
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
         >
-          Try the live demo <span aria-hidden="true">↗</span>
+          View previous results · {result.username}
         </button>
-      </div>
+      )}
       <p className="demo-bot-note">
-        Prefer Telegram?{" "}
-        <a href={botUrl} target="_blank" rel="noopener noreferrer">
-          Open query bot<span className="sr-only"> (opens in a new tab)</span>
-        </a>{" "}
-        for on-demand lookups. Daily Grind is a separate, optional recap feature.
+        Prefer Telegram? The original query bot gives you profile summaries and recent, daily, or
+        weekly results on demand. Send <code>/command</code> to see its queries. Daily Grind is a
+        separate, optional recap feature.
       </p>
       {open && (
         <dialog
@@ -134,43 +184,6 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
             Explore up to 20 public Accepted submissions. Your profile is not registered by this
             lookup.
           </p>
-          <form className="demo-form" onSubmit={submit} aria-busy={busy}>
-            <label htmlFor="demo-username">LeetCode username</label>
-            <div className="demo-input-row">
-              <input
-                ref={input}
-                id="demo-username"
-                name="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder="e.g. lee215"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                maxLength={100}
-                required
-                aria-describedby="demo-help"
-                aria-invalid={Boolean(error)}
-              />
-              <button type="submit" className="button primary" disabled={busy}>
-                {busy ? "Finding problems…" : "Show solved problems"}
-                <span aria-hidden="true">→</span>
-              </button>
-            </div>
-            <p id="demo-help" className="field-help">
-              A public lookup only. Your username is not registered or linked to an account.
-            </p>
-          </form>
-          {error && (
-            <p className="inline-error" role="alert">
-              {error}
-            </p>
-          )}
-          {busy && (
-            <p className="field-help" role="status">
-              Fetching public Accepted submissions…
-            </p>
-          )}
           {result ? (
             <div className="demo-results" aria-busy={busy}>
               <div className="demo-results-heading">
@@ -182,30 +195,37 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
                 </span>
               </div>
               {result.questions.length ? (
-                <ul className="demo-problem-grid">
-                  {result.questions.map((problem, index) => (
-                    <li key={problem.titleSlug}>
-                      <a
-                        href={`https://leetcode.com/problems/${encodeURIComponent(problem.titleSlug)}/`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <div className="demo-problem-meta">
-                          <span className="mono">{String(index + 1).padStart(2, "0")}</span>
-                          <span className="demo-accepted">Accepted</span>
-                        </div>
-                        <h4>{problem.title}</h4>
-                        <time dateTime={new Date(Number(problem.timestamp) * 1000).toISOString()}>
-                          {dateFormatter.format(new Date(Number(problem.timestamp) * 1000))} IST
-                        </time>
-                        <span className="demo-open">
-                          Open problem <span aria-hidden="true">↗</span>
-                          <span className="sr-only"> (opens in a new tab)</span>
-                        </span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                <div
+                  className="demo-results-scroll"
+                  role="region"
+                  aria-label="Recent solved questions list"
+                  tabIndex={0}
+                >
+                  <ul className="demo-problem-grid demo-problem-list">
+                    {result.questions.map((problem, index) => (
+                      <li key={problem.titleSlug}>
+                        <a
+                          href={`https://leetcode.com/problems/${encodeURIComponent(problem.titleSlug)}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <div className="demo-problem-meta">
+                            <span className="mono">{String(index + 1).padStart(2, "0")}</span>
+                            <span className="demo-accepted">Accepted</span>
+                          </div>
+                          <h4>{problem.title}</h4>
+                          <time dateTime={new Date(Number(problem.timestamp) * 1000).toISOString()}>
+                            {dateFormatter.format(new Date(Number(problem.timestamp) * 1000))} IST
+                          </time>
+                          <span className="demo-open">
+                            Open problem <span aria-hidden="true">↗</span>
+                            <span className="sr-only"> (opens in a new tab)</span>
+                          </span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : (
                 <p className="demo-empty" role="status">
                   No recently Accepted problems were found in this public feed. This does not mean
