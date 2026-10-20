@@ -44,6 +44,7 @@ describe("connected dashboard navigation", () => {
         ...account,
         gfgUsername: "gfg_user",
         hackerRankUsername: "hr_user",
+        codeforcesUsername: "cf_user",
         notesRegisteredAt: notesRegistered ? new Date() : null,
       });
       vi.mocked(trackingStatuses).mockImplementation(async (_account, ids = []) =>
@@ -72,6 +73,7 @@ describe("connected dashboard navigation", () => {
       expect(html).toContain('id="activity-title"');
       expect(html).toContain('id="gfg-activity-title"');
       expect(html).toContain('id="hackerrank-activity-title"');
+      expect(html).toContain('id="codeforces-activity-title"');
       expect(fetch).not.toHaveBeenCalled();
     },
   );
@@ -116,13 +118,14 @@ describe("connected dashboard navigation", () => {
     expect(navigation).not.toContain("Notes");
     expect(html).not.toContain("Connect Daily Grind");
   });
-  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "replaces a paused %s calendar with a resume placeholder",
     async (platform) => {
       const usernames = {
         leetcodeUsername: "lc_user",
         gfgUsername: "gfg_user",
         hackerRankUsername: "hr_user",
+        codeforcesUsername: "cf_user",
       };
       vi.mocked(serverAccount).mockResolvedValue({ ...account, ...usernames });
       vi.mocked(trackingStatuses).mockImplementation(async (_account, ids = []) =>
@@ -130,7 +133,14 @@ describe("connected dashboard navigation", () => {
           ids.map((id) => [
             id,
             {
-              username: id === "leetcode" ? "lc_user" : id === "gfg" ? "gfg_user" : "hr_user",
+              username:
+                id === "leetcode"
+                  ? "lc_user"
+                  : id === "gfg"
+                    ? "gfg_user"
+                    : id === "codeforces"
+                      ? "cf_user"
+                      : "hr_user",
               connected: true,
               status: "active",
               lastDelivery: null,
@@ -168,6 +178,7 @@ describe("connected dashboard navigation", () => {
     expect(html).toContain('id="demo"');
     expect(html).toContain("GeeksforGeeks");
     expect(html).toContain("HackerRank");
+    expect(html).toContain("Codeforces");
     expect(html).toContain('href="https://t.me/todo1245bot"');
     expect(html).not.toMatch(
       /Existing bot|View bot commands|#commands|name:your_leetcode_username/,
@@ -210,7 +221,7 @@ describe("connected dashboard navigation", () => {
     expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["leetcode"]);
     expect(page.props.children[1].props.botUrl).toBe("https://t.me/test_bot");
   });
-  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "opens the dashboard for %s alone before Daily Grind is connected",
     async (platform) => {
       const user = {
@@ -218,6 +229,7 @@ describe("connected dashboard navigation", () => {
         leetcodeUsername: null,
         gfgUsername: null,
         hackerRankUsername: null,
+        codeforcesUsername: null,
         chatId: null,
         status: "pending",
         [platform === "hackerrank" ? "hackerRankUsername" : `${platform}Username`]: "fixed-user",

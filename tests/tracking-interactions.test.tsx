@@ -37,7 +37,10 @@ afterEach(async () => {
   vi.useRealTimers();
   delete environment.IS_REACT_ACT_ENVIRONMENT;
 });
-async function render(status = initial, platform: "leetcode" | "gfg" | "hackerrank" = "leetcode") {
+async function render(
+  status = initial,
+  platform: "leetcode" | "gfg" | "hackerrank" | "codeforces" = "leetcode",
+) {
   await act(() => root.render(<TrackingPanel initialStatus={status} platform={platform} />));
 }
 async function click(text: string) {
@@ -68,7 +71,7 @@ async function submit() {
 }
 
 describe("registration and connection interactions", () => {
-  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "keeps Feature open after %s registration with an existing bot connection",
     async (platform) => {
       await render({ ...initial, connected: true, status: "active" }, platform);
@@ -90,7 +93,7 @@ describe("registration and connection interactions", () => {
       expect(container.textContent).toContain("Service enabled");
     },
   );
-  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "updates a %s connection in place when the user returns from Telegram",
     async (platform) => {
       await render({ ...initial, username: "gfg_user" }, platform);
@@ -253,86 +256,93 @@ describe("registration and connection interactions", () => {
   });
 });
 
-describe.each(["leetcode", "gfg", "hackerrank"] as const)("%s Feature lifecycle", (platform) => {
-  it("registers, pauses, resumes, deletes, and requires fresh consent to register again", async () => {
-    const firstId = "10000000-0000-4000-8000-000000000001";
-    const registered: TrackingStatus = {
-      ...initial,
-      username: "my_profile",
-      registrationId: firstId,
-      connected: true,
-      status: "active",
-    };
-    await render({ ...initial, connected: true, status: "active" }, platform);
-    await enterUsername("my_profile");
-    await acknowledge();
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json(registered));
-    await submit();
-    expect(container.querySelector('input[name="username"]')).toBeNull();
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...registered, paused: true }));
-    await act(() =>
-      container
-        .querySelector<HTMLButtonElement>(`button[aria-label="Pause ${platformLabels[platform]}"]`)!
-        .click(),
-    );
-    expect(container.textContent).toContain("Service paused");
-    expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)![1]?.body))).toEqual({
-      registrationId: firstId,
-      paused: true,
+describe.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
+  "%s Feature lifecycle",
+  (platform) => {
+    it("registers, pauses, resumes, deletes, and requires fresh consent to register again", async () => {
+      const firstId = "10000000-0000-4000-8000-000000000001";
+      const registered: TrackingStatus = {
+        ...initial,
+        username: "my_profile",
+        registrationId: firstId,
+        connected: true,
+        status: "active",
+      };
+      await render({ ...initial, connected: true, status: "active" }, platform);
+      await enterUsername("my_profile");
+      await acknowledge();
+      vi.mocked(fetch).mockResolvedValueOnce(Response.json(registered));
+      await submit();
+      expect(container.querySelector('input[name="username"]')).toBeNull();
+      vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...registered, paused: true }));
+      await act(() =>
+        container
+          .querySelector<HTMLButtonElement>(
+            `button[aria-label="Pause ${platformLabels[platform]}"]`,
+          )!
+          .click(),
+      );
+      expect(container.textContent).toContain("Service paused");
+      expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)![1]?.body))).toEqual({
+        registrationId: firstId,
+        paused: true,
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(Response.json(registered));
+      await act(() =>
+        container
+          .querySelector<HTMLButtonElement>(
+            `button[aria-label="Resume ${platformLabels[platform]}"]`,
+          )!
+          .click(),
+      );
+      expect(container.textContent).toContain("Service enabled");
+      await click("Revoke & delete data");
+      expect(
+        container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.checked,
+      ).toBe(false);
+      await act(() =>
+        container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.click(),
+      );
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({ ...registered, username: null, registrationId: null }),
+      );
+      await click("Revoke & permanently delete");
+      expect(container.querySelector('input[name="username"]')).not.toBeNull();
+      expect(container.textContent).toContain("permanently deleted");
+      await enterUsername("new_profile");
+      await click("Continue to agreement");
+      expect(
+        container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.checked,
+      ).toBe(false);
+      await act(() =>
+        container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.click(),
+      );
+      const secondId = "20000000-0000-4000-8000-000000000002";
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({ ...registered, username: "new_profile", registrationId: secondId }),
+      );
+      await submit();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json(
+          { error: "This service registration has changed. Refresh and try again." },
+          { status: 409 },
+        ),
+      );
+      await act(() =>
+        container
+          .querySelector<HTMLButtonElement>(
+            `button[aria-label="Pause ${platformLabels[platform]}"]`,
+          )!
+          .click(),
+      );
+      expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)![1]?.body))).toEqual({
+        registrationId: secondId,
+        paused: true,
+      });
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "registration has changed",
+      );
+      expect(container.textContent).toContain("Service enabled");
     });
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json(registered));
-    await act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          `button[aria-label="Resume ${platformLabels[platform]}"]`,
-        )!
-        .click(),
-    );
-    expect(container.textContent).toContain("Service enabled");
-    await click("Revoke & delete data");
-    expect(
-      container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.checked,
-    ).toBe(false);
-    await act(() =>
-      container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.click(),
-    );
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...registered, username: null, registrationId: null }),
-    );
-    await click("Revoke & permanently delete");
-    expect(container.querySelector('input[name="username"]')).not.toBeNull();
-    expect(container.textContent).toContain("permanently deleted");
-    await enterUsername("new_profile");
-    await click("Continue to agreement");
-    expect(
-      container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.checked,
-    ).toBe(false);
-    await act(() =>
-      container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.click(),
-    );
-    const secondId = "20000000-0000-4000-8000-000000000002";
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...registered, username: "new_profile", registrationId: secondId }),
-    );
-    await submit();
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json(
-        { error: "This service registration has changed. Refresh and try again." },
-        { status: 409 },
-      ),
-    );
-    await act(() =>
-      container
-        .querySelector<HTMLButtonElement>(`button[aria-label="Pause ${platformLabels[platform]}"]`)!
-        .click(),
-    );
-    expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)![1]?.body))).toEqual({
-      registrationId: secondId,
-      paused: true,
-    });
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "registration has changed",
-    );
-    expect(container.textContent).toContain("Service enabled");
-  });
-});
+  },
+);

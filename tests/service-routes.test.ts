@@ -7,6 +7,7 @@ import { revokeService, setServicePaused } from "@/lib/tracking/services";
 import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { registerGfg } from "@/lib/gfg/service";
 import { registerHackerRank } from "@/lib/hackerrank/service";
+import { registerCodeforces } from "@/lib/codeforces/service";
 import { GET as profile, PATCH as theme } from "@/app/api/profile/route";
 import {
   GET as serviceStatus,
@@ -17,6 +18,7 @@ import {
 import { POST as leetcode } from "@/app/api/tracking/route";
 import { POST as gfg } from "@/app/api/tracking/gfg/route";
 import { POST as hackerrank } from "@/app/api/tracking/hackerrank/route";
+import { POST as codeforces } from "@/app/api/tracking/codeforces/route";
 
 const database = vi.hoisted(() => ({ update: vi.fn(), set: vi.fn(), where: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ db: () => database }));
@@ -29,6 +31,7 @@ vi.mock("@/lib/tracking/registration", () => ({
 }));
 vi.mock("@/lib/gfg/service", () => ({ registerGfg: vi.fn() }));
 vi.mock("@/lib/hackerrank/service", () => ({ registerHackerRank: vi.fn() }));
+vi.mock("@/lib/codeforces/service", () => ({ registerCodeforces: vi.fn() }));
 const account = { id: "own-account" } as Account;
 const registrationId = "10000000-0000-4000-8000-000000000001";
 const status = {
@@ -54,7 +57,7 @@ beforeEach(() => {
   vi.mocked(setServicePaused).mockResolvedValue(account);
   vi.mocked(revokeService).mockResolvedValue(account);
   vi.mocked(trackingStatus).mockResolvedValue(status);
-  for (const register of [registerUsername, registerGfg, registerHackerRank])
+  for (const register of [registerUsername, registerGfg, registerHackerRank, registerCodeforces])
     vi.mocked(register).mockResolvedValue(status);
   database.update.mockReturnValue(database);
   database.set.mockReturnValue(database);
@@ -164,6 +167,7 @@ describe.each([
   ["LeetCode", leetcode, registerUsername],
   ["GFG", gfg, registerGfg],
   ["HackerRank", hackerrank, registerHackerRank],
+  ["Codeforces", codeforces, registerCodeforces],
 ] as const)("%s registration agreement", (_label, register, save) => {
   it.each([
     { username: "own" },
@@ -189,6 +193,7 @@ describe.each([
   ["leetcode", leetcode, registerUsername],
   ["gfg", gfg, registerGfg],
   ["hackerrank", hackerrank, registerHackerRank],
+  ["codeforces", codeforces, registerCodeforces],
 ] as const)("consolidated %s lifecycle routes", (id, legacy, save) => {
   it("preserves legacy registration responses and keeps both private", async () => {
     const body = { username: "own", acceptedAgreement: true, agreementVersion: "1" };

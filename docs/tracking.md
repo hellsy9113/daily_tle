@@ -3,7 +3,7 @@
 ## Daily tracking setup
 
 Users sign in with Telegram and land on `/feature` to choose LeetCode,
-GeeksforGeeks, or HackerRank. Each service is enabled independently by registering
+GeeksforGeeks, HackerRank, or Codeforces. Each service is enabled independently by registering
 one public username that stays fixed until revocation. Registration makes that service's dashboard panel
 available immediately; no other service is enabled automatically. The public
 navigation shows **Sign in**; **Feature**, **Dashboard**, and **Profile** appear after sign-in. Sign out is on Profile.
@@ -41,7 +41,7 @@ remains available on the selected service page. Signed-in homepage visitors are
 redirected to `/dashboard`; accounts without a registered service are sent to
 `/feature`. The legacy `/tracking` page redirects to `/feature?platform=leetcode`.
 
-The public homepage introduces LeetCode, GFG, and HackerRank tracking, with an
+The public homepage introduces LeetCode, GFG, HackerRank, and Codeforces tracking, with an
 illustrative calendar, Telegram recap, features, and a setup guide. A live demo directly below
 the hero accepts a public LeetCode username without sign-in and displays unique
 recently Accepted problems as linked cards. It calls
@@ -57,7 +57,7 @@ from the Daily Grind delivery connection.
 
 ### Sunday weekly recaps
 
-In addition to daily recaps, registered LeetCode, GeeksforGeeks, and HackerRank
+In addition to daily recaps, registered LeetCode, GeeksforGeeks, HackerRank, and Codeforces
 services receive a weekly Telegram recap scheduled for **Sunday at 11:00 p.m.
 Asia/Kolkata**, with recovery at **11:30 p.m.** The Vercel UTC schedules are
 `30 17 * * 0` and `0 18 * * 0`. Actual invocation precision depends on the hosting
@@ -76,6 +76,13 @@ uses saved and current public solve timestamps. GFG distinguishes verified
 timestamps from newly observed problems, excludes the initial import from
 observation counts, and does not invent solve dates. Empty weekly reports describe
 the available evidence; they do not use the daily empty-day reminder.
+
+Codeforces uses official Accepted submission timestamps, deduplicating each
+problem within the report period. Re-solving on another day remains visible on
+that day's calendar. Bounded submission imports can omit older activity; the
+calendar and recaps disclose that limitation. It uses the same Daily Grind bot,
+account-wide `/stop` and `/start`, and per-service pause and revocation controls.
+Apply `0012_codeforces_tracking.sql` before deploying Codeforces support.
 
 Weekly delivery shares the existing tracking bot, `CRON_SECRET`, account stop/start,
 platform pause/revocation, message pacing, registration-generation fencing, leases,
@@ -137,7 +144,7 @@ sync results, report sends, and stale browser mutations. Pausing or revoking wai
 | Method   | Endpoint                            | Behavior                                                                                                   |
 | -------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | GET/POST | `/api/tracking/services/[platform]` | Read service status / register with consent; existing platform registration URLs remain aliases            |
-| GET      | `/api/profile`                      | Session-owned account details, theme and three platform statuses                                           |
+| GET      | `/api/profile`                      | Session-owned account details, theme and registered service statuses                                       |
 | PATCH    | `/api/profile`                      | Save `{ "theme": "light" }` or `{ "theme": "dark" }`                                                       |
 | PATCH    | `/api/tracking/services/[platform]` | Set `{ "registrationId": "current UUID", "paused": true }`; use `false` to resume                          |
 | DELETE   | `/api/tracking/services/[platform]` | Atomically revoke and delete with `{ "registrationId": "current UUID", "confirmPermanentDeletion": true }` |
@@ -311,7 +318,7 @@ Unfinished reports can be retried up to three times on their delivery day; older
 unfinished records are marked failed. A missed primary run is reconciled by recovery.
 
 Only platforms with yesterday's saved problems send a recap. Empty LeetCode, GFG,
-and HackerRank reports stay silent. When every scheduled platform check succeeds
+HackerRank, and Codeforces reports stay silent. When every scheduled platform check succeeds
 and none has yesterday's problems, one shared message is sent per user and day:
 `hmm..no question found.do it today, I will be waiting`.
 The reminder reuses one delivery's durable retry state; recovery does not send one

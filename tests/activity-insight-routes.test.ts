@@ -75,6 +75,19 @@ describe("saved day details and weekly goals", () => {
     expect(getWeeklyGoal).toHaveBeenCalledExactlyOnceWith(account, "gfg");
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
+  it("supports Codeforces day details and a separate weekly target", async () => {
+    const details = await day(
+      new Request(
+        "http://localhost/api/tracking/activity/day?platform=codeforces&date=2026-10-14&accountId=other",
+      ),
+    );
+    expect(details.status).toBe(200);
+    expect(getActivityDay).toHaveBeenCalledExactlyOnceWith(account, "codeforces", "2026-10-14");
+    const saved = await save(write({ platform: "codeforces", weeklyTarget: 12 }));
+    expect(saved.status).toBe(200);
+    expect(saveWeeklyGoal).toHaveBeenCalledExactlyOnceWith(account, "codeforces", 12);
+    expect(saved.headers.get("cache-control")).toBe("no-store");
+  });
   it("rejects cross-origin writes and injected account identifiers", async () => {
     expect(
       (await save(write({ platform: "gfg", weeklyTarget: 10 }, "https://attacker.test"))).status,

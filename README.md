@@ -1,7 +1,7 @@
 # Track.it
 
 A Next.js app for independent opt-in services. It currently tracks LeetCode,
-GeeksforGeeks, and HackerRank practice, with Telegram sign-in, saved activity,
+GeeksforGeeks, HackerRank, and Codeforces practice, with Telegram sign-in, saved activity,
 and daily recaps. The public demo, lookup APIs, and separate command bot remain available.
 
 ## Private notes
@@ -19,7 +19,7 @@ Manage Pause/Resume and **Revoke & delete data** on the same Feature page.
 Pause hides activity and stops recaps while collection continues; resume retains history.
 Deletion clears only that service's saved data. Profile owns appearance and sign-out.
 Connect Daily Grind once for all enabled services.
-Weekly recaps for all three platforms are scheduled for Sunday at 11:00 p.m. IST,
+Weekly recaps for all four coding platforms are scheduled for Sunday at 11:00 p.m. IST,
 covering Monday through that cutoff, with recovery at 11:30 p.m.
 
 ## Local development
@@ -37,7 +37,7 @@ See [tracking setup](docs/tracking.md) for Telegram credentials and registration
 
 - `lib/features/`: browser-safe catalog, server adapters, registration, batched status, HTTP handlers.
 - `components/feature-views.tsx`: service-specific setup and optional Dashboard component slots.
-- `lib/leetcode/`, `lib/gfg/`, `lib/hackerrank/`: upstream clients, validation, data, reports.
+- `lib/leetcode/`, `lib/gfg/`, `lib/hackerrank/`, `lib/codeforces/`: upstream clients, validation, data, reports.
 - `lib/tracking/`: generation locks, pause/deletion, collection, delivery, and tracking bot.
 - `lib/auth/`, `lib/db/`, `lib/telegram/`: authentication, schema, and the independent command bot.
 - `app/`: thin pages and API entry points; `tests/`: behavior and isolated database tests.
@@ -47,7 +47,7 @@ See [tracking setup](docs/tracking.md) for Telegram credentials and registration
 - [Notes](docs/notes.md): private notes, code registration, and 20-minute guest access.
 - [Add a feature](docs/features.md): extension points, lifecycle rules, storage requirements.
 - [Tracking](docs/tracking.md): setup, consent, pause/deletion, collection and delivery guarantees.
-- [Platforms](docs/platforms.md): GFG/HackerRank APIs and public-history limitations.
+- [Platforms](docs/platforms.md): coding-platform APIs and public-history limitations.
 - [Public API and command bot](docs/api.md): existing endpoints and bot setup.
 - [Development and deployment](docs/development.md): environment, migrations, CI, and database tests.
 
@@ -62,4 +62,6 @@ npm run test:db
 Database tests create and drop an isolated `tracking_test_*` schema. Set
 `TEST_DATABASE_URL` to a test PostgreSQL database; CI supplies PostgreSQL automatically.
 Notes requires migrations `0007_notes.sql` and `0009_notes_service.sql`; weekly recaps require `0008_weekly_recaps.sql`.
+Codeforces requires `0012_codeforces_tracking.sql` before deployment. It uses the
+official public API and existing Daily Grind connection; no Codeforces API key is required.
 No new environment variable is needed.

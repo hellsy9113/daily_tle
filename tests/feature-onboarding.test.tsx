@@ -18,6 +18,7 @@ const account = {
   leetcodeUsername: null,
   gfgUsername: null,
   hackerRankUsername: null,
+  codeforcesUsername: null,
   chatId: null,
   status: "pending",
 } as Account;
@@ -39,6 +40,7 @@ beforeEach(() => {
     leetcode: initial,
     gfg: initial,
     hackerrank: initial,
+    codeforces: initial,
   });
 });
 describe("service selection after Telegram sign-in", () => {
@@ -62,17 +64,17 @@ describe("service selection after Telegram sign-in", () => {
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("offers all four services without enabling one automatically", async () => {
+  it("offers all five services without enabling one automatically", async () => {
     const html = await page();
-    for (const platform of ["leetcode", "gfg", "hackerrank"])
+    for (const platform of ["leetcode", "gfg", "hackerrank", "codeforces"])
       expect(html).toContain(`href="/feature?platform=${platform}"`);
-    expect(html.match(/Not enabled/g)).toHaveLength(4);
+    expect(html.match(/Not enabled/g)).toHaveLength(5);
     expect(html).not.toContain("<dialog");
     expect(html).not.toContain('name="username"');
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it.each(["leetcode", "gfg", "hackerrank"] as const)(
+  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "opens only the chosen %s registration form",
     async (platform) => {
       const html = await page(platform);
@@ -92,7 +94,7 @@ describe("service selection after Telegram sign-in", () => {
     const html = await page("gfg");
     expect(html).toContain("lc_user");
     expect(html).toContain("Manage service");
-    expect(html.match(/Not enabled/g)).toHaveLength(3);
+    expect(html.match(/Not enabled/g)).toHaveLength(4);
     expect(html).toContain('for="gfg-username"');
     expect(html).not.toContain('for="leetcode-username"');
   });

@@ -3,6 +3,7 @@ import type { Account } from "@/lib/db/schema";
 import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { registerGfg } from "@/lib/gfg/service";
 import { registerHackerRank } from "@/lib/hackerrank/service";
+import { registerCodeforces } from "@/lib/codeforces/service";
 import { revokeService, setServicePaused } from "@/lib/tracking/services";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { activityFeatureIds, type FeatureId, type ActivityFeatureId } from "./catalog";
@@ -22,6 +23,7 @@ const registrations = {
   leetcode: (account, input) => registerUsername(account, input),
   gfg: (account, input) => registerGfg(account, input),
   hackerrank: (account, input) => registerHackerRank(account, input),
+  codeforces: (account, input) => registerCodeforces(account, input),
 } satisfies Record<ActivityFeatureId, FeatureAdapter["register"]>;
 
 const activityAdapters = Object.fromEntries(

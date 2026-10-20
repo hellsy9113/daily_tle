@@ -53,6 +53,20 @@ export const features = [
     recaps: true,
   },
   {
+    id: "codeforces",
+    name: "Codeforces",
+    label: "Codeforces",
+    description:
+      "Follow Accepted problems, contest ratings, and daily practice with saved links and Telegram recaps.",
+    coverage:
+      "Codeforces activity uses public Accepted submissions. Large histories may be partial; saved counts reflect the available history and re-solves count once per day.",
+    readyMessage:
+      "You're set. Codeforces recaps will arrive automatically, using available public Accepted submissions.",
+    dashboard: true,
+    activity: true,
+    recaps: true,
+  },
+  {
     id: "notes",
     name: "Notes",
     label: "Notes",

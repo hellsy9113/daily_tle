@@ -2,7 +2,14 @@ import { addCalendarDays, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import "server-only";
 import { and, asc, eq, gte, isNotNull, lt, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { acceptedActivity, gfgProblems, hackerRankProblems, type Account } from "@/lib/db/schema";
+import {
+  acceptedActivity,
+  codeforcesProblems,
+  gfgProblems,
+  hackerRankProblems,
+  type Account,
+} from "@/lib/db/schema";
+import { codeforcesProblemUrl } from "@/lib/codeforces/urls";
 import { platformLabels } from "@/lib/features/catalog";
 import { platformUsername } from "@/lib/tracking/platforms";
 import { ApiError } from "@/lib/http/api-error";
@@ -22,6 +29,38 @@ export async function getActivityDay(
   now = new Date(),
 ): Promise<ActivityDayDetails> {
   requireActivityPlatform(account, platform);
+  if (platform === "codeforces") {
+    const start = activityDayStart(date, DEFAULT_TIMEZONE);
+    const end = activityDayStart(addCalendarDays(date, 1), DEFAULT_TIMEZONE);
+    const rows = await db()
+      .select({
+        id: codeforcesProblems.id,
+        title: codeforcesProblems.title,
+        contestId: codeforcesProblems.contestId,
+        index: codeforcesProblems.index,
+        rating: codeforcesProblems.rating,
+      })
+      .from(codeforcesProblems)
+      .where(
+        and(
+          eq(codeforcesProblems.accountId, account.id),
+          gte(codeforcesProblems.solvedAt, start),
+          lt(codeforcesProblems.solvedAt, end),
+          lte(codeforcesProblems.solvedAt, now),
+        ),
+      )
+      .orderBy(asc(codeforcesProblems.title));
+    return {
+      date,
+      basis: "accepted",
+      problems: [...new Map(rows.map((row) => [row.id, row])).values()].map((row) => ({
+        id: row.id,
+        title: row.title,
+        url: codeforcesProblemUrl(row.contestId, row.index),
+        ...(row.rating === null ? {} : { difficulty: `Rating ${row.rating}` }),
+      })),
+    };
+  }
   if (platform === "hackerrank") {
     const start = activityDayStart(date, DEFAULT_TIMEZONE);
     const end = activityDayStart(addCalendarDays(date, 1), DEFAULT_TIMEZONE);

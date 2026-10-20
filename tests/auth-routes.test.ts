@@ -38,6 +38,9 @@ const account: Account = {
   hackerRankUsername: null,
   hackerRankUsernameKey: null,
   hackerRankRegisteredAt: null,
+  codeforcesUsername: null,
+  codeforcesUsernameKey: null,
+  codeforcesRegisteredAt: null,
   usernameKey: null,
   chatId: null,
   status: "pending",
@@ -84,28 +87,31 @@ describe("Telegram authentication routes", () => {
     );
     expect(response.headers.get("location")).toBe(`${origin}/feature?platform=notes`);
   });
-  it.each(["leetcode", "gfg"])("preserves the %s service through sign-in", async (platform) => {
-    const alias = await login(
-      new NextRequest(`https://preview.example/api/auth/telegram/login?next=${platform}`),
-    );
-    expect(alias.headers.get("location")).toBe(
-      `${origin}/api/auth/telegram/login?next=${platform}`,
-    );
-    const started = await login(
-      new NextRequest(`${origin}/api/auth/telegram/login?next=${platform}`),
-    );
-    expect(decodeURIComponent(started.headers.get("set-cookie")!)).toContain(
-      `tracking_login_destination=/feature?platform=${platform}`,
-    );
-    const response = await callback(
-      new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
-        headers: {
-          cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature?platform=${platform}`,
-        },
-      }),
-    );
-    expect(response.headers.get("location")).toBe(`${origin}/feature?platform=${platform}`);
-  });
+  it.each(["leetcode", "gfg", "codeforces"])(
+    "preserves the %s service through sign-in",
+    async (platform) => {
+      const alias = await login(
+        new NextRequest(`https://preview.example/api/auth/telegram/login?next=${platform}`),
+      );
+      expect(alias.headers.get("location")).toBe(
+        `${origin}/api/auth/telegram/login?next=${platform}`,
+      );
+      const started = await login(
+        new NextRequest(`${origin}/api/auth/telegram/login?next=${platform}`),
+      );
+      expect(decodeURIComponent(started.headers.get("set-cookie")!)).toContain(
+        `tracking_login_destination=/feature?platform=${platform}`,
+      );
+      const response = await callback(
+        new NextRequest(`${origin}/api/auth/telegram/callback?code=private-code`, {
+          headers: {
+            cookie: `tracking_login=${loginToken}; tracking_login_destination=/feature?platform=${platform}`,
+          },
+        }),
+      );
+      expect(response.headers.get("location")).toBe(`${origin}/feature?platform=${platform}`);
+    },
+  );
   it("retains the Feature destination when moving an alias to the canonical origin", async () => {
     const response = await login(
       new NextRequest("https://preview.example/api/auth/telegram/login?next=feature"),

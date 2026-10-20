@@ -59,6 +59,8 @@ export async function dispatchTracking({
   let rateLimitedUntil = 0;
   let gfgRateLimitedUntil = 0;
   let hackerRankRateLimitedUntil = 0;
+  let codeforcesRateLimitedUntil = 0;
+  let codeforcesBusy = false;
   const pace = createMessagePacer(pause);
   const ensureTime = (reserveMs = 12_000) => {
     if (performance.now() + reserveMs >= deadline) throw new Error("Dispatch budget exhausted.");
@@ -107,6 +109,11 @@ export async function dispatchTracking({
         if (messages.length) stats.sent++;
       } catch (error) {
         stats.failed++;
+        if (delivery.platform === "codeforces" && error instanceof ApiError && error.status === 429)
+          codeforcesRateLimitedUntil = Math.max(
+            codeforcesRateLimitedUntil,
+            Date.now() + reportCollectors.codeforces.retryMs,
+          );
         if (delivery.platform === "hackerrank" && error instanceof ApiError && error.status === 429)
           hackerRankRateLimitedUntil = Math.max(
             hackerRankRateLimitedUntil,
@@ -150,6 +157,8 @@ export async function dispatchTracking({
             gfgRateLimitedUntil = Date.now() + reportCollectors.gfg.retryMs;
           if (job.platform === "hackerrank")
             hackerRankRateLimitedUntil = Date.now() + reportCollectors.hackerrank.retryMs;
+          if (job.platform === "codeforces")
+            codeforcesRateLimitedUntil = Date.now() + reportCollectors.codeforces.retryMs;
         }
         await failCollection(
           job,
@@ -164,30 +173,46 @@ export async function dispatchTracking({
       const workers = await Promise.allSettled(
         Array.from({ length: 10 }, async () => {
           while (performance.now() + 12_000 < deadline) {
-            const delivery =
-              Date.now() >= rateLimitedUntil
-                ? await claimDelivery(
-                    reportDate,
-                    new Date(),
-                    Date.now() >= gfgRateLimitedUntil,
-                    Date.now() >= hackerRankRateLimitedUntil,
-                    cadence === "daily",
-                    cadence,
-                  )
-                : null;
-            if (delivery) {
-              await processDelivery(delivery);
-              continue;
+            // Reserve eligibility before awaiting the claim so workers never queue
+            // several Codeforces profiles against its shared two-second API gate.
+            let codeforcesReserved = !codeforcesBusy && Date.now() >= codeforcesRateLimitedUntil;
+            if (codeforcesReserved) codeforcesBusy = true;
+            const releaseCodeforces = () => {
+              if (codeforcesReserved) codeforcesBusy = false;
+              codeforcesReserved = false;
+            };
+            try {
+              const delivery =
+                Date.now() >= rateLimitedUntil
+                  ? await claimDelivery(
+                      reportDate,
+                      new Date(),
+                      Date.now() >= gfgRateLimitedUntil,
+                      Date.now() >= hackerRankRateLimitedUntil,
+                      cadence === "daily",
+                      cadence,
+                      codeforcesReserved,
+                    )
+                  : null;
+              if (delivery) {
+                if (delivery.platform !== "codeforces") releaseCodeforces();
+                await processDelivery(delivery);
+                continue;
+              }
+              if (cadence === "weekly") return;
+              const job = await claimCollection(
+                reportDate,
+                new Date(),
+                Date.now() >= gfgRateLimitedUntil,
+                Date.now() >= hackerRankRateLimitedUntil,
+                codeforcesReserved,
+              );
+              if (!job) return;
+              if (job.platform !== "codeforces") releaseCodeforces();
+              await processCollection(job);
+            } finally {
+              releaseCodeforces();
             }
-            if (cadence === "weekly") return;
-            const job = await claimCollection(
-              reportDate,
-              new Date(),
-              Date.now() >= gfgRateLimitedUntil,
-              Date.now() >= hackerRankRateLimitedUntil,
-            );
-            if (!job) return;
-            await processCollection(job);
           }
         }),
       );

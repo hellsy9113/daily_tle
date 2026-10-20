@@ -3,6 +3,7 @@ import { TrackingPanel } from "./tracking-panel";
 import { LeetcodeActivityPanel } from "./leetcode-activity-panel";
 import { GfgActivityPanel } from "./gfg-activity-panel";
 import { HackerRankActivityPanel } from "./hackerrank-activity-panel";
+import { CodeforcesActivityPanel } from "./codeforces-activity-panel";
 import type { FeatureId } from "@/lib/features/catalog";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { NotesSetup } from "./notes-setup";
@@ -18,4 +19,5 @@ export const featureViews: Record<FeatureId, FeatureView> = {
   leetcode: { Setup: TrackingPanel, Dashboard: LeetcodeActivityPanel },
   gfg: { Setup: TrackingPanel, Dashboard: GfgActivityPanel },
   hackerrank: { Setup: TrackingPanel, Dashboard: HackerRankActivityPanel },
+  codeforces: { Setup: TrackingPanel, Dashboard: CodeforcesActivityPanel },
 };

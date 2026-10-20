@@ -20,7 +20,22 @@ import {
   hackerRankProblems,
   hackerRankSnapshots,
   hackerRankSync,
+  codeforcesProblems,
+  codeforcesSnapshots,
+  codeforcesSync,
+  codeforcesApiRate,
+  reportReminders,
 } from "@/lib/db/schema";
+import { getCodeforcesProfile } from "@/lib/codeforces/client";
+import { getCodeforcesProgress, registerCodeforces } from "@/lib/codeforces/service";
+import {
+  claimCodeforcesSync,
+  readCodeforcesProblems,
+  saveCodeforcesSync,
+  writeCodeforcesProfile,
+} from "@/lib/codeforces/store";
+import { reserveCodeforcesApiSlot } from "@/lib/codeforces/rate-limit";
+import type { CodeforcesProfile } from "@/lib/codeforces/types";
 import { getHackerRankProfile } from "@/lib/hackerrank/client";
 import { getHackerRankProgress, registerHackerRank } from "@/lib/hackerrank/service";
 import {
@@ -106,6 +121,7 @@ vi.mock("@/lib/leetcode/user-identity", () => ({
 vi.mock("@/lib/leetcode/last-day-solved", () => ({ getLastDaySolvedQuestions: vi.fn() }));
 vi.mock("@/lib/leetcode/accepted-history", () => ({ getAcceptedHistory: vi.fn() }));
 vi.mock("@/lib/hackerrank/client", () => ({ getHackerRankProfile: vi.fn() }));
+vi.mock("@/lib/codeforces/client", () => ({ getCodeforcesProfile: vi.fn() }));
 vi.mock("@/lib/gfg/client", () => ({ getGfgProfile: vi.fn() }));
 vi.mock("@/lib/tracking/telegram-client", async (original) => ({
   ...(await original<typeof import("@/lib/tracking/telegram-client")>()),
@@ -122,6 +138,33 @@ const admin = postgres(process.env.DATABASE_URL!, {
   onnotice: () => {},
 });
 const now = new Date("2026-10-13T03:00:00Z");
+function cfProfile(username = "cf_101", ids = ["1:A"], checkedAt = now): CodeforcesProfile {
+  return {
+    platform: "codeforces",
+    username,
+    rating: 1500,
+    maxRating: 1600,
+    rank: "specialist",
+    historyComplete: true,
+    historyStart: "2020-01-01T00:00:00.000Z",
+    checkedAt: checkedAt.toISOString(),
+    problems: ids.map((id) => {
+      const [contest, index] = id.split(":");
+      const contestId = Number(contest);
+      return {
+        submissionId: contestId * 1000 + index.charCodeAt(0),
+        id,
+        contestId,
+        index,
+        title: `Problem ${id}`,
+        url: `https://codeforces.com/problemset/problem/${contestId}/${index}`,
+        solvedAt: "2026-10-12T02:00:00.000Z",
+        rating: 800,
+        tags: ["implementation"],
+      };
+    }),
+  };
+}
 function hrProfile(username = "hr_101", ids = ["old"], checkedAt = now) {
   const result = profileFixture(username, ids, checkedAt);
   result.problems = result.problems.map((problem) => ({
@@ -210,6 +253,9 @@ beforeEach(async () => {
   vi.mocked(getAcceptedHistory).mockResolvedValue({ username: "user_101", submissions: [] });
   vi.mocked(getHackerRankProfile).mockImplementation(async (username, at = now) =>
     hrProfile(String(username), ["old"], at),
+  );
+  vi.mocked(getCodeforcesProfile).mockImplementation(async (username, at = now) =>
+    cfProfile(String(username), ["1:A"], at),
   );
   vi.mocked(getGfgProfile).mockImplementation(async (username, at = now) =>
     gfgProfile(String(username), ["old"], at),
@@ -935,6 +981,401 @@ describe("one shared empty-day reminder", () => {
     expect(message).toContain("solve dates unverified");
     expect(message).not.toContain("/today/1");
     expect(message).not.toContain(EMPTY_REPORT);
+  });
+});
+
+describe("Codeforces registration, accepted history, and Daily Grind lifecycle", () => {
+  async function currentAccount(id: string) {
+    return (await db().select().from(accounts).where(eq(accounts.id, id)))[0];
+  }
+  async function registeredAccount(telegramId = 101, active = false) {
+    const user = active ? await activeAccount(telegramId) : await account(telegramId);
+    await registerCodeforces(user, `cf_${telegramId}`);
+    return currentAccount(user.id);
+  }
+  it("upgrades existing service generations without fabricating a Codeforces opt-in", async () => {
+    const upgrade = `${namespace}_codeforces_upgrade`;
+    try {
+      for (const name of (await readdir("migrations"))
+        .filter((name) => name.endsWith(".sql") && name < "0012")
+        .sort())
+        await admin.unsafe(
+          (await readFile(`migrations/${name}`, "utf8")).replace(/\btracking\b/g, upgrade),
+        );
+      const [legacy] = await admin.unsafe(
+        `INSERT INTO ${upgrade}.accounts (telegram_id, chat_id, status, connected_at, leetcode_username, registered_at, gfg_username, gfg_registered_at, hackerrank_username, hackerrank_registered_at) VALUES (991, 991, 'active', now(), 'legacy_lc', now(), 'legacy_gfg', now(), 'legacy_hr', now()) RETURNING id`,
+      );
+      const before = await admin.unsafe(
+        `SELECT registration_id, platform FROM ${upgrade}.platform_services ORDER BY platform`,
+      );
+      await admin.unsafe(
+        (await readFile("migrations/0012_codeforces_tracking.sql", "utf8")).replace(
+          /\btracking\b/g,
+          upgrade,
+        ),
+      );
+      expect(
+        await admin.unsafe(
+          `SELECT registration_id, platform FROM ${upgrade}.platform_services ORDER BY platform`,
+        ),
+      ).toEqual(before);
+      await admin.unsafe(
+        `UPDATE ${upgrade}.accounts SET codeforces_username = 'legacy_cf', codeforces_registered_at = now() WHERE id = $1`,
+        [legacy.id],
+      );
+      expect(await admin.unsafe(`SELECT * FROM ${upgrade}.platform_services`)).toHaveLength(4);
+      await admin.unsafe(
+        `UPDATE ${upgrade}.accounts SET codeforces_username = NULL, codeforces_registered_at = NULL WHERE id = $1`,
+        [legacy.id],
+      );
+      expect(await admin.unsafe(`SELECT * FROM ${upgrade}.platform_services`)).toHaveLength(3);
+      expect(await admin.unsafe(`SELECT id FROM ${upgrade}.codeforces_api_rate`)).toEqual([
+        { id: 1 },
+      ]);
+    } finally {
+      await admin.unsafe(`DROP SCHEMA IF EXISTS ${upgrade} CASCADE`);
+    }
+  });
+  it("registers only Codeforces with consent, cached accepted history, and a fresh generation", async () => {
+    const user = await registeredAccount();
+    expect(user).toMatchObject({
+      codeforcesUsername: "cf_101",
+      leetcodeUsername: null,
+      gfgUsername: null,
+      hackerRankUsername: null,
+      status: "pending",
+    });
+    expect((await trackingStatus(user, "codeforces")).username).toBe("cf_101");
+    expect((await db().select().from(platformServices))[0]).toMatchObject({
+      platform: "codeforces",
+      agreementVersion: "1",
+      agreementAcceptedAt: now,
+      paused: false,
+    });
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(1);
+    expect((await db().select().from(codeforcesSnapshots))[0].availableSolved).toBe(1);
+    expect((await getCodeforcesProgress(user, now)).savedSolved).toBe(1);
+    expect(getCodeforcesProfile).toHaveBeenCalledTimes(1);
+  });
+  it("enforces case-insensitive ownership reservations and immutable handle timestamps", async () => {
+    const first = await registeredAccount();
+    const second = await account(102);
+    await expect(registerCodeforces(second, "CF_101")).rejects.toMatchObject({ status: 409 });
+    await expect(registerCodeforces(first, "replacement")).rejects.toMatchObject({ status: 409 });
+    await expect(
+      db()
+        .update(accounts)
+        .set({ codeforcesUsername: "replacement" })
+        .where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    await expect(
+      db()
+        .update(accounts)
+        .set({ codeforcesRegisteredAt: new Date(now.getTime() + 1000) })
+        .where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    await expect(
+      db().update(accounts).set({ codeforcesUsername: null }).where(eq(accounts.id, first.id)),
+    ).rejects.toThrow();
+    expect((await currentAccount(second.id)).codeforcesUsername).toBeNull();
+    expect(await db().select().from(platformServices)).toHaveLength(1);
+  });
+  it("allows only one winner for concurrent case-insensitive registration", async () => {
+    const first = await account(101);
+    const second = await account(102);
+    const outcomes = await Promise.allSettled([
+      registerCodeforces(first, "same_handle"),
+      registerCodeforces(second, "SAME_HANDLE"),
+    ]);
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await db().select().from(platformServices)).toHaveLength(1);
+    expect(await db().select().from(codeforcesSync)).toHaveLength(1);
+  });
+  it("rolls back a registration whose public verification fails", async () => {
+    const user = await account();
+    vi.mocked(getCodeforcesProfile).mockRejectedValueOnce(new ApiError(404, "User not found"));
+    await expect(registerCodeforces(user, "missing")).rejects.toMatchObject({ status: 404 });
+    expect((await currentAccount(user.id)).codeforcesUsername).toBeNull();
+    expect(await db().select().from(platformServices)).toHaveLength(0);
+    expect(await db().select().from(codeforcesProblems)).toHaveLength(0);
+  });
+  it("shares the existing bot connection for a Codeforces-only account and schedules it once", async () => {
+    const user = await registeredAccount();
+    expect(
+      await processTrackingUpdate({ updateId: 99, userId: 101, chatId: 101, text: "/start bad" }),
+    ).toContain("/feature?platform=codeforces");
+    const link = await createConnectionLink(user);
+    expect(
+      await processTrackingUpdate({
+        updateId: 1,
+        userId: 101,
+        chatId: 101,
+        text: `/start ${startToken(link.url)}`,
+      }),
+    ).toContain("Codeforces cf_101");
+    await prepareDeliveries(now);
+    await prepareDeliveries(now);
+    expect((await db().select().from(deliveries)).map((row) => row.platform)).toEqual([
+      "codeforces",
+    ]);
+    expect((await db().select().from(dailyCollections)).map((row) => row.platform)).toEqual([
+      "codeforces",
+    ]);
+  });
+  it("keeps per-day unique problems and cross-day re-solves account-scoped without upstream reads", async () => {
+    const first = await account();
+    const data = cfProfile();
+    data.problems = [
+      { ...data.problems[0], submissionId: 1, solvedAt: "2026-10-11T18:29:59.000Z" },
+      { ...data.problems[0], submissionId: 2, solvedAt: "2026-10-11T18:30:00.000Z" },
+      { ...data.problems[0], submissionId: 3, solvedAt: "2026-10-12T02:00:00.000Z" },
+    ];
+    vi.mocked(getCodeforcesProfile).mockResolvedValueOnce(data);
+    await registerCodeforces(first, "cf_101");
+    const user = await currentAccount(first.id);
+    vi.mocked(getCodeforcesProfile).mockResolvedValueOnce(cfProfile("cf_102", ["2:B"]));
+    const other = await registeredAccount(102);
+    const progress = await getCodeforcesProgress(user, now);
+    const calls = vi.mocked(getCodeforcesProfile).mock.calls.length;
+    const yesterday = await getActivityDay(user, "codeforces", "2026-10-12", now);
+    expect(yesterday.problems).toHaveLength(1);
+    expect(yesterday.problems[0]).toMatchObject({
+      id: "1:A",
+      url: "https://codeforces.com/problemset/problem/1/A",
+    });
+    expect((await getActivityDay(user, "codeforces", "2026-10-11", now)).problems).toHaveLength(1);
+    expect(progress.days.find((day) => day.date === yesterday.date)?.count).toBe(1);
+    expect(progress.savedSolved).toBe(1);
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(3);
+    expect(await readCodeforcesProblems(other.id)).toHaveLength(1);
+    expect(
+      (await getActivityDay(other, "codeforces", "2026-10-12", now)).problems.map(
+        (problem) => problem.id,
+      ),
+    ).toEqual(["2:B"]);
+    expect(getCodeforcesProfile).toHaveBeenCalledTimes(calls);
+  });
+  it("leases concurrent refreshes and retains saved results after rate limiting", async () => {
+    const user = await registeredAccount();
+    const later = new Date(now.getTime() + 6 * 60_000);
+    const claims = await Promise.all([
+      claimCodeforcesSync(user.id, "first", later),
+      claimCodeforcesSync(user.id, "second", later),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await expect(
+      saveCodeforcesSync(user.id, "forged", cfProfile("cf_101", ["2:B"], later)),
+    ).rejects.toThrow();
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(1);
+    // Let the successful lease expire, then verify a failed refresh preserves the cache.
+    const afterLease = new Date(later.getTime() + 8 * 60_000);
+    vi.mocked(getCodeforcesProfile).mockRejectedValueOnce(new ApiError(429, "Rate limited"));
+    expect(await getCodeforcesProgress(user, afterLease)).toMatchObject({
+      savedSolved: 1,
+      refreshFailed: true,
+    });
+    expect(await claimCodeforcesSync(user.id, "too-soon", afterLease)).toBe(false);
+  });
+  it("removes rejudged acceptances without allowing an older collection to restore them", async () => {
+    const user = await registeredAccount();
+    const original = cfProfile();
+    const later = new Date(now.getTime() + 6 * 60_000);
+    expect(await claimCodeforcesSync(user.id, "rejudge", later)).toBe(true);
+    const rejudged = cfProfile("cf_101", [], later);
+    rejudged.checkedSubmissionIds = original.problems.map((problem) => problem.submissionId);
+    await saveCodeforcesSync(user.id, "rejudge", rejudged);
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(0);
+    await db().transaction((tx) => writeCodeforcesProfile(tx, user.id, original));
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(0);
+  });
+  it("paces concurrent upstream starts with durable shared database state and bounds queueing", async () => {
+    vi.useRealTimers();
+    await db()
+      .update(codeforcesApiRate)
+      .set({ nextRequestAt: new Date() })
+      .where(eq(codeforcesApiRate.id, 1));
+    const completed = await Promise.all(
+      [1, 2].map(async () => {
+        await reserveCodeforcesApiSlot(new AbortController().signal);
+        return Date.now();
+      }),
+    );
+    completed.sort((a, b) => a - b);
+    expect(completed[1] - completed[0]).toBeGreaterThanOrEqual(2000);
+    await db()
+      .update(codeforcesApiRate)
+      .set({ nextRequestAt: new Date(Date.now() + 30_000) })
+      .where(eq(codeforcesApiRate.id, 1));
+    await expect(reserveCodeforcesApiSlot(new AbortController().signal)).rejects.toMatchObject({
+      status: 429,
+    });
+    await db()
+      .update(codeforcesApiRate)
+      .set({ nextRequestAt: new Date() })
+      .where(eq(codeforcesApiRate.id, 1));
+  });
+  it("collects paused Codeforces activity while suppressing recaps and keeps bot stop/start independent", async () => {
+    const user = await registeredAccount(101, true);
+    const service = await trackingStatus(user, "codeforces");
+    await setServicePaused(user.id, "codeforces", service.registrationId!, true);
+    vi.mocked(getCodeforcesProfile).mockResolvedValueOnce(cfProfile("cf_101", ["2:B"]));
+    vi.mocked(getLastDaySolvedQuestions).mockResolvedValue(leetcodeReport("user_101"));
+    await setServicePaused(user.id, "leetcode", (await trackingStatus(user)).registrationId!, true);
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(0);
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(2);
+    await processTrackingUpdate({ updateId: 901, userId: 101, chatId: 101, text: "/stop" });
+    await setServicePaused(user.id, "codeforces", service.registrationId!, false);
+    expect((await currentAccount(user.id)).status).toBe("paused");
+    await setServicePaused(user.id, "codeforces", service.registrationId!, true);
+    await processTrackingUpdate({ updateId: 902, userId: 101, chatId: 101, text: "/start" });
+    expect((await trackingStatus(await currentAccount(user.id), "codeforces")).paused).toBe(true);
+    await setServicePaused(user.id, "codeforces", service.registrationId!, false);
+    expect((await dispatchTracking({ now, pause: async () => {} })).sent).toBe(0);
+  });
+  it("delivers Codeforces once, persists report data, and does not replay completed reports", async () => {
+    const user = await registeredAccount();
+    const link = await createConnectionLink(user);
+    await processTrackingUpdate({
+      updateId: 1,
+      userId: 101,
+      chatId: 101,
+      text: `/start ${startToken(link.url)}`,
+    });
+    vi.mocked(getCodeforcesProfile).mockResolvedValueOnce(cfProfile("cf_101", ["2:B"]));
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 1,
+      failed: 0,
+    });
+    const messages = vi
+      .mocked(sendTrackingMessage)
+      .mock.calls.map((call) => call[1])
+      .join("\n");
+    expect(messages).toContain("Codeforces daily recap");
+    expect(messages).toContain("https://codeforces.com/problemset/problem/2/B");
+    expect(await readCodeforcesProblems(user.id)).toHaveLength(2);
+    expect(await dispatchTracking({ now, pause: async () => {} })).toMatchObject({
+      sent: 0,
+      failed: 0,
+    });
+    expect(
+      (await trackingStatus(await currentAccount(user.id), "codeforces")).lastDelivery?.status,
+    ).toBe("sent");
+  });
+  it("revokes only Codeforces and fences stale mutations, jobs, and sync after re-registration", async () => {
+    const user = await registeredAccount(101, true);
+    const other = await registeredAccount(102);
+    const session = await createSession(user.id);
+    const service = await trackingStatus(user, "codeforces");
+    const later = new Date(now.getTime() + 6 * 60_000);
+    expect(await claimCodeforcesSync(user.id, "old-sync", later, service.registrationId!)).toBe(
+      true,
+    );
+    await saveWeeklyGoal(user, "codeforces", 5);
+    await saveWeeklyGoal(user, "leetcode", 7);
+    await record(user.id, [accepted("keep-leetcode", "2026-10-12T02:00:00Z")]);
+    await db().insert(reportReminders).values({ accountId: user.id, reportDate: "2026-10-12" });
+    await prepareDeliveries(now);
+    const [candidate] = await db()
+      .select()
+      .from(dailyCollections)
+      .where(eq(dailyCollections.registrationId, service.registrationId!));
+    const [leased] = await db()
+      .update(dailyCollections)
+      .set({ status: "collecting", leaseToken: "old-job", leaseUntil: later })
+      .where(eq(dailyCollections.id, candidate.id))
+      .returning();
+    const job = { ...leased, username: "cf_101" };
+    await expect(
+      revokeService(other.id, "codeforces", service.registrationId!),
+    ).rejects.toMatchObject({ status: 409 });
+    await revokeService(user.id, "codeforces", service.registrationId!);
+    expect(
+      await db().select().from(codeforcesProblems).where(eq(codeforcesProblems.accountId, user.id)),
+    ).toHaveLength(0);
+    expect(
+      await db().select().from(codeforcesSync).where(eq(codeforcesSync.accountId, user.id)),
+    ).toHaveLength(0);
+    expect(
+      await db()
+        .select()
+        .from(codeforcesSnapshots)
+        .where(eq(codeforcesSnapshots.accountId, user.id)),
+    ).toHaveLength(0);
+    expect(
+      await db().select().from(activityGoals).where(eq(activityGoals.accountId, user.id)),
+    ).toMatchObject([{ platform: "leetcode", weeklyTarget: 7 }]);
+    expect(
+      await db()
+        .select()
+        .from(deliveries)
+        .where(and(eq(deliveries.accountId, user.id), eq(deliveries.platform, "codeforces"))),
+    ).toHaveLength(0);
+    expect(
+      await db()
+        .select()
+        .from(dailyCollections)
+        .where(eq(dailyCollections.registrationId, service.registrationId!)),
+    ).toHaveLength(0);
+    expect(
+      await db().select().from(acceptedActivity).where(eq(acceptedActivity.accountId, user.id)),
+    ).toMatchObject([{ titleSlug: "keep-leetcode" }]);
+    expect(
+      await db().select().from(reportReminders).where(eq(reportReminders.accountId, user.id)),
+    ).toHaveLength(1);
+    expect((await currentAccount(user.id)).leetcodeUsername).toBe("user_101");
+    expect((await accountForToken(session))?.id).toBe(user.id);
+    expect(await readCodeforcesProblems(other.id)).toHaveLength(1);
+    expect(await db().select().from(codeforcesApiRate)).toHaveLength(1);
+    await registerCodeforces(await currentAccount(user.id), "cf_101");
+    const current = await trackingStatus(await currentAccount(user.id), "codeforces");
+    expect(current.registrationId).not.toBe(service.registrationId);
+    await expect(
+      setServicePaused(user.id, "codeforces", service.registrationId!, true),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      claimCodeforcesSync(user.id, "stale", later, service.registrationId!),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      saveCodeforcesSync(user.id, "old-sync", cfProfile("cf_101", ["3:C"], later)),
+    ).rejects.toThrow();
+    await expect(
+      completeCollection(job, ["stale"], cfProfile("cf_101", ["3:C"], later)),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await readCodeforcesProblems(user.id)).map((problem) => problem.id)).toEqual(["1:A"]);
+  });
+  it("includes Codeforces in Sunday weekly recaps and keeps completed recovery silent", async () => {
+    const user = await registeredAccount();
+    const link = await createConnectionLink(user);
+    await processTrackingUpdate({
+      updateId: 1,
+      userId: 101,
+      chatId: 101,
+      text: `/start ${startToken(link.url)}`,
+    });
+    const sunday = new Date("2026-10-18T17:30:00Z");
+    vi.setSystemTime(sunday);
+    vi.mocked(getCodeforcesProfile).mockResolvedValueOnce(cfProfile("cf_101", ["2:B"], sunday));
+    expect(
+      await dispatchTracking({ now: sunday, cadence: "weekly", pause: async () => {} }),
+    ).toMatchObject({ sent: 1, failed: 0 });
+    expect(
+      vi
+        .mocked(sendTrackingMessage)
+        .mock.calls.map((call) => call[1])
+        .join("\n"),
+    ).toContain("Codeforces weekly recap");
+    expect((await db().select().from(deliveries))[0]).toMatchObject({
+      platform: "codeforces",
+      cadence: "weekly",
+      status: "sent",
+    });
+    expect(
+      await dispatchTracking({
+        now: new Date("2026-10-18T18:00:00Z"),
+        cadence: "weekly",
+        pause: async () => {},
+      }),
+    ).toMatchObject({ sent: 0, failed: 0 });
   });
 });
 
