@@ -1,32 +1,24 @@
+import { localClock, localDayStart, addCalendarDays } from "@/lib/timezone";
 import type { ActivityDay } from "./types";
 
 export const ACTIVITY_TIMEZONE = "Asia/Kolkata" as const;
 export const ACTIVITY_DAY_MS = 86_400_000;
-const IST_OFFSET_MS = 330 * 60 * 1000;
-
-export function activityDate(value: Date): string {
-  return new Date(value.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+export function activityDate(value: Date, timezone: string = ACTIVITY_TIMEZONE): string {
+  return localClock(value, timezone).date;
 }
-
-export function activityDayStart(date: string): Date {
-  return new Date(`${date}T00:00:00+05:30`);
+export function activityDayStart(date: string, timezone: string = ACTIVITY_TIMEZONE): Date {
+  return localDayStart(date, timezone);
 }
-
 export function weekStart(date: string): string {
   const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
-  return activityDate(
-    new Date(activityDayStart(date).getTime() - ((weekday + 6) % 7) * ACTIVITY_DAY_MS),
-  );
+  return addCalendarDays(date, -((weekday + 6) % 7));
 }
-
-export function activityWindow(now: Date) {
-  const today = activityDate(now);
-  const end = new Date(activityDayStart(today).getTime() + ACTIVITY_DAY_MS);
-  const start = new Date(end.getTime() - 365 * ACTIVITY_DAY_MS);
-  const dates = Array.from({ length: 365 }, (_, index) =>
-    activityDate(new Date(start.getTime() + index * ACTIVITY_DAY_MS)),
-  );
-  return { start: activityDate(start), end: activityDate(end), today, dates };
+export function activityWindow(now: Date, timezone: string = ACTIVITY_TIMEZONE) {
+  const today = activityDate(now, timezone);
+  const end = addCalendarDays(today, 1);
+  const start = addCalendarDays(end, -365);
+  const dates = Array.from({ length: 365 }, (_, index) => addCalendarDays(start, index));
+  return { start, end, today, dates };
 }
 
 export function activityLevel(count: number): 0 | 1 | 2 | 3 | 4 {

@@ -21,23 +21,29 @@ export async function collectWeeklyReport(
   if (source.platform === "gfg") {
     const saved = await readGfgProblems(source.accountId);
     const result = await getGfgProfile(source.username);
-    return { result, messages: formatGfgDailyReport(result, saved, source.end, range) };
+    return {
+      result,
+      messages: formatGfgDailyReport(result, saved, source.end, range, source.timezone),
+    };
   }
   if (source.platform === "hackerrank") {
     const saved = await readHackerRankProblems(source.accountId);
     const result = await getHackerRankProfile(source.username);
-    return { result, messages: formatHackerRankDailyReport(result, saved, source.end, range) };
+    return {
+      result,
+      messages: formatHackerRankDailyReport(result, saved, source.end, range, source.timezone),
+    };
   }
-  const result = await getSolvedQuestions(source.username, "thisweek", range);
+  const result = await getSolvedQuestions(source.username, "thisweek", range, source.timezone);
   const cutoff = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "Asia/Kolkata",
+    timeZone: source.timezone ?? "Asia/Kolkata",
   }).format(source.end);
   return {
     result,
     messages: splitMessage(
-      `LeetCode weekly recap · Sunday cutoff: ${cutoff} (Asia/Kolkata)\n\n${formatSolvedQuestions(result).join("\n\n")}`,
+      `LeetCode weekly recap · Sunday cutoff: ${cutoff} (${source.timezone ?? "Asia/Kolkata"})\n\n${formatSolvedQuestions(result).join("\n\n")}`,
     ),
   };
 }
@@ -46,6 +52,7 @@ interface ReportSource {
   accountId: string;
   username: string;
   end: Date;
+  timezone?: string;
 }
 interface ReportCollector {
   reserveMs: number;
@@ -58,27 +65,30 @@ export const reportCollectors: Record<ActivityPlatform, ReportCollector> = {
   leetcode: {
     reserveMs: 12_000,
     retryMs: 60_000,
-    async collect({ username, end }) {
-      const result = await getLastDaySolvedQuestions(username, end);
+    async collect({ username, end, timezone }) {
+      const result = await getLastDaySolvedQuestions(username, end, timezone);
       return { result, messages: formatDailyReport(result) };
     },
   },
   gfg: {
     reserveMs: 24_000,
     retryMs: GFG_REFRESH_MS,
-    async collect({ accountId, username, end }) {
+    async collect({ accountId, username, end, timezone }) {
       const saved = await readGfgProblems(accountId);
       const result = await getGfgProfile(username);
-      return { result, messages: formatGfgDailyReport(result, saved, end) };
+      return { result, messages: formatGfgDailyReport(result, saved, end, undefined, timezone) };
     },
   },
   hackerrank: {
     reserveMs: 24_000,
     retryMs: HACKERRANK_REFRESH_MS,
-    async collect({ accountId, username, end }) {
+    async collect({ accountId, username, end, timezone }) {
       const saved = await readHackerRankProblems(accountId);
       const result = await getHackerRankProfile(username);
-      return { result, messages: formatHackerRankDailyReport(result, saved, end) };
+      return {
+        result,
+        messages: formatHackerRankDailyReport(result, saved, end, undefined, timezone),
+      };
     },
   },
 };

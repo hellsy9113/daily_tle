@@ -1,3 +1,4 @@
+import { DEFAULT_TIMEZONE, localClock, localTime } from "@/lib/timezone";
 import "server-only";
 import { and, eq, getTableColumns, gt, isNotNull, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -30,10 +31,14 @@ import { weeklyReportPeriod } from "./weekly-period";
 export type ClaimedDelivery = Delivery & { username: string; chatId: number };
 const LEASE_MS = 7 * 60 * 1000;
 
-export function reportPeriod(now: Date) {
-  const range = getPreviousCalendarPeriod("lastday", now);
-  const reportDate = new Date(range.start.getTime() + 330 * 60 * 1000).toISOString().slice(0, 10);
-  return { ...range, reportDate, cutoff: new Date(range.end.getTime() + 8.5 * 60 * 60 * 1000) };
+export function reportPeriod(now: Date, timezone = DEFAULT_TIMEZONE) {
+  const range = getPreviousCalendarPeriod("lastday", now, timezone);
+  const reportDate = localClock(range.start, timezone).date;
+  return {
+    ...range,
+    reportDate,
+    cutoff: localTime(localClock(range.end, timezone).date, 510, timezone),
+  };
 }
 
 export async function acquireDispatchLock(now: Date) {
@@ -58,47 +63,47 @@ export async function releaseDispatchLock(token: string) {
     );
 }
 
-export async function prepareDeliveries(now: Date) {
-  const range = reportPeriod(now);
+export async function prepareDeliveries(now: Date, timezone = DEFAULT_TIMEZONE) {
+  const range = reportPeriod(now, timezone);
   await db().transaction(async (transaction) => {
     await transaction.select({ id: accounts.id }).from(accounts).orderBy(accounts.id).for("update");
-    await prepareCollections(transaction, now);
-    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
-    SELECT id, 'leetcode', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'leetcode' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'leetcode' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
+    await prepareCollections(transaction, now, timezone);
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, timezone, report_date, period_start, period_end)
+    SELECT id, 'leetcode', ${timezone}, ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE timezone = ${timezone} AND status = 'active' AND leetcode_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'leetcode' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'leetcode' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
-    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
-    SELECT id, 'gfg', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'gfg' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'gfg' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, timezone, report_date, period_start, period_end)
+    SELECT id, 'gfg', ${timezone}, ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE timezone = ${timezone} AND status = 'active' AND gfg_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'gfg' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'gfg' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
       AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
       AND gfg_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
-    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, report_date, period_start, period_end)
-    SELECT id, 'hackerrank', ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
-    FROM ${accounts} WHERE status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'hackerrank' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'hackerrank' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
+    await transaction.execute(sql`INSERT INTO ${deliveries} (account_id, platform, timezone, report_date, period_start, period_end)
+    SELECT id, 'hackerrank', ${timezone}, ${range.reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz
+    FROM ${accounts} WHERE timezone = ${timezone} AND status = 'active' AND hackerrank_username IS NOT NULL AND chat_id IS NOT NULL AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.account_id = ${accounts}.id AND s.platform = 'hackerrank' AND NOT s.paused) AND EXISTS (SELECT 1 FROM ${dailyCollections} c WHERE c.account_id = ${accounts}.id AND c.platform = 'hackerrank' AND c.report_date = ${range.reportDate}::date AND c.recap_eligible)
     AND connected_at <= ${range.cutoff.toISOString()}::timestamptz
     AND hackerrank_registered_at <= ${range.cutoff.toISOString()}::timestamptz
     ON CONFLICT (account_id, platform, report_date, cadence) DO NOTHING`);
     await transaction.execute(sql`UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
-    WHERE cadence = 'daily' AND report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
+    WHERE account_id IN (SELECT id FROM ${accounts} WHERE timezone = ${timezone}) AND cadence = 'daily' AND report_date < ${range.reportDate}::date AND status IN ('pending', 'sending', 'failed') AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)`);
   });
   return range.reportDate;
 }
 
-export async function prepareWeeklyDeliveries(now: Date) {
-  const range = weeklyReportPeriod(now);
+export async function prepareWeeklyDeliveries(now: Date, timezone = DEFAULT_TIMEZONE) {
+  const range = weeklyReportPeriod(now, timezone);
   await db().transaction(async (transaction) => {
     await transaction.select({ id: accounts.id }).from(accounts).orderBy(accounts.id).for("update");
     await transaction.execute(sql`
-      INSERT INTO ${deliveries} (account_id, registration_id, platform, cadence, report_date, period_start, period_end, status, next_attempt_at)
-      SELECT a.id, s.registration_id, s.platform, 'weekly', ${range.reportDate}::date,
+      INSERT INTO ${deliveries} (account_id, registration_id, platform, cadence, timezone, report_date, period_start, period_end, status, next_attempt_at)
+      SELECT a.id, s.registration_id, s.platform, 'weekly', ${timezone}, ${range.reportDate}::date,
         ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
         CASE WHEN a.status = 'active' AND NOT s.paused THEN 'pending' ELSE 'cancelled' END,
         ${now.toISOString()}::timestamptz
       FROM ${accounts} a JOIN ${platformServices} s ON s.account_id = a.id
-      WHERE a.chat_id IS NOT NULL
+      WHERE a.timezone = ${timezone} AND a.chat_id IS NOT NULL
         AND CASE s.platform WHEN 'gfg' THEN a.gfg_username WHEN 'hackerrank' THEN a.hackerrank_username ELSE a.leetcode_username END IS NOT NULL
         AND CASE s.platform WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${range.cutoff.toISOString()}::timestamptz
         AND a.connected_at <= ${range.cutoff.toISOString()}::timestamptz
@@ -106,7 +111,7 @@ export async function prepareWeeklyDeliveries(now: Date) {
     `);
     await transaction.execute(sql`
       UPDATE ${deliveries} SET status = 'failed', last_error = 'delivery_window_closed', lease_token = NULL, lease_until = NULL
-      WHERE cadence = 'weekly' AND report_date < ${range.reportDate}::date
+      WHERE account_id IN (SELECT id FROM ${accounts} WHERE timezone = ${timezone}) AND cadence = 'weekly' AND report_date < ${range.reportDate}::date
         AND status IN ('pending', 'sending', 'failed')
         AND (lease_until IS NULL OR lease_until < ${now.toISOString()}::timestamptz)
     `);
@@ -115,7 +120,11 @@ export async function prepareWeeklyDeliveries(now: Date) {
 }
 
 /** Reuse one completed empty delivery so the shared reminder has durable retry state. */
-export async function prepareEmptyDayReports(reportDate: string, now: Date) {
+export async function prepareEmptyDayReports(
+  reportDate: string,
+  now: Date,
+  timezone = DEFAULT_TIMEZONE,
+) {
   const rows = await db().execute(sql`
     UPDATE ${deliveries} AS target
     SET messages = ${JSON.stringify([EMPTY_REPORT])}::jsonb,
@@ -123,7 +132,7 @@ export async function prepareEmptyDayReports(reportDate: string, now: Date) {
       next_attempt_at = ${now.toISOString()}::timestamptz,
       last_error = NULL, lease_token = NULL, lease_until = NULL
     FROM ${accounts} AS account
-    WHERE target.account_id = account.id AND account.status = 'active' AND account.chat_id IS NOT NULL
+    WHERE target.account_id = account.id AND account.timezone = ${timezone} AND account.status = 'active' AND account.chat_id IS NOT NULL
       AND EXISTS (SELECT 1 FROM ${platformServices} s WHERE s.registration_id = target.registration_id AND NOT s.paused)
       AND NOT EXISTS (SELECT 1 FROM ${reportReminders} reminder WHERE reminder.account_id = target.account_id AND reminder.report_date = target.report_date)
       AND target.cadence = 'daily' AND target.report_date = ${reportDate}::date AND target.status = 'sent' AND target.messages = '[]'::jsonb
@@ -150,6 +159,8 @@ export async function claimDelivery(
   allowHackerRank = true,
   preparedOnly = false,
   cadence: "daily" | "weekly" = "daily",
+  timezone?: string,
+  recover = true,
 ): Promise<ClaimedDelivery | null> {
   // A single SQL statement locks and claims the next row, avoiding network
   // round trips for a separate BEGIN, SELECT, UPDATE, and COMMIT per recipient.
@@ -165,6 +176,7 @@ export async function claimDelivery(
     .where(
       and(
         eq(candidateDelivery.reportDate, reportDate),
+        timezone ? eq(accounts.timezone, timezone) : undefined,
         eq(candidateDelivery.cadence, cadence),
         preparedOnly ? isNotNull(candidateDelivery.messages) : undefined,
         allowGfg ? undefined : ne(candidateDelivery.platform, "gfg"),
@@ -174,6 +186,7 @@ export async function claimDelivery(
         isNotNull(accounts.chatId),
         sql`CASE WHEN ${candidateDelivery.platform} = 'hackerrank' THEN ${accounts.hackerRankUsername} WHEN ${candidateDelivery.platform} = 'gfg' THEN ${accounts.gfgUsername} ELSE ${accounts.leetcodeUsername} END IS NOT NULL`,
         sql`${candidateDelivery.attempts} < 3`,
+        recover ? undefined : eq(candidateDelivery.attempts, 0),
         lte(candidateDelivery.nextAttemptAt, now),
         or(
           eq(candidateDelivery.status, "pending"),

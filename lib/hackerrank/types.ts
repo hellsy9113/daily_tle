@@ -21,7 +21,7 @@ export interface StoredHackerRankProblem extends HackerRankProblem {
   baseline: boolean;
 }
 export interface HackerRankProgress extends HackerRankSummary {
-  timezone: "Asia/Kolkata";
+  timezone: string;
   savedSolved: number;
   solvedToday: number;
   solvedThisWeek: number;

@@ -1,3 +1,4 @@
+import { TimezoneLabel } from "./timezone-label";
 import Link from "next/link";
 
 export function SiteShell({
@@ -31,7 +32,7 @@ export function SiteShell({
       </main>
       <footer className="site-footer">
         <span>Small steps. Daily progress.</span>
-        <span>Asia/Kolkata · IST</span>
+        <TimezoneLabel />
       </footer>
     </div>
   );

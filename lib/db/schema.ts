@@ -27,6 +27,7 @@ export const accounts = tracking.table(
   "accounts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    timezone: text("timezone").notNull().default("Asia/Kolkata"),
     theme: text("theme").$type<"light" | "dark">(),
     notesRegisteredAt: time("notes_registered_at"),
     telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
@@ -85,6 +86,7 @@ export const dailyCollections = tracking.table(
       .notNull()
       .references(() => platformServices.registrationId, { onDelete: "cascade" }),
     platform: text("platform").$type<ActivityPlatform>().notNull(),
+    timezone: text("timezone").notNull().default("Asia/Kolkata"),
     reportDate: date("report_date").notNull(),
     start: time("period_start").notNull(),
     end: time("period_end").notNull(),
@@ -159,6 +161,7 @@ export const deliveries = tracking.table(
     registrationId: uuid("registration_id")
       .notNull()
       .references(() => platformServices.registrationId, { onDelete: "cascade" }),
+    timezone: text("timezone").notNull().default("Asia/Kolkata"),
     reportDate: date("report_date").notNull(),
     platform: text("platform").$type<ActivityPlatform>().notNull().default("leetcode"),
     cadence: text("cadence").$type<"daily" | "weekly">().notNull().default("daily"),
@@ -203,11 +206,14 @@ export const acceptedActivity = tracking.table(
       .notNull()
       .references(() => accounts.id),
     date: date("activity_date").notNull(),
+    timezone: text("timezone").notNull().default("Asia/Kolkata"),
     titleSlug: text("title_slug").notNull(),
     title: text("title").notNull(),
     acceptedAt: time("accepted_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.accountId, table.date, table.titleSlug] })],
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.date, table.titleSlug, table.timezone] }),
+  ],
 );
 
 export const activityDays = tracking.table(
@@ -217,12 +223,13 @@ export const activityDays = tracking.table(
       .notNull()
       .references(() => accounts.id),
     date: date("activity_date").notNull(),
+    timezone: text("timezone").notNull().default("Asia/Kolkata"),
     observedFrom: time("observed_from"),
     observedUntil: time("observed_until").notNull(),
     coveredUntil: time("covered_until"),
     checkedAt: time("checked_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.accountId, table.date] })],
+  (table) => [primaryKey({ columns: [table.accountId, table.date, table.timezone] })],
 );
 
 export const activitySync = tracking.table("activity_sync", {

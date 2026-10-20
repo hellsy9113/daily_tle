@@ -1,4 +1,5 @@
-import { ACTIVITY_DAY_MS, activityDate, activityDayStart, weekStart } from "./calendar";
+import { addCalendarDays, DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { activityDate, weekStart } from "./calendar";
 import type { ActivityDay, ActivityWeek, WeeklyComparison } from "./types";
 
 /** Count a problem once per week, even if it was accepted on several days. */
@@ -6,23 +7,17 @@ export function compareWeeks(
   problems: { id: string; date: string }[],
   days: ActivityDay[],
   now: Date,
+  timezone = DEFAULT_TIMEZONE,
 ): WeeklyComparison {
-  const today = activityDate(now);
+  const today = activityDate(now, timezone);
   const start = weekStart(today);
-  const end = activityDate(new Date(activityDayStart(today).getTime() + ACTIVITY_DAY_MS));
-  const previous = activityDate(new Date(activityDayStart(start).getTime() - 7 * ACTIVITY_DAY_MS));
-  const previousEnd = activityDate(new Date(activityDayStart(end).getTime() - 7 * ACTIVITY_DAY_MS));
+  const end = addCalendarDays(today, 1);
+  const previous = addCalendarDays(start, -7);
+  const previousEnd = addCalendarDays(end, -7);
   const coverage = new Map(days.map((day) => [day.date, day.coverage]));
   function period(from: string, until: string): ActivityWeek {
-    const dates = Array.from(
-      {
-        length: Math.round(
-          (activityDayStart(until).getTime() - activityDayStart(from).getTime()) / ACTIVITY_DAY_MS,
-        ),
-      },
-      (_, index) =>
-        activityDate(new Date(activityDayStart(from).getTime() + index * ACTIVITY_DAY_MS)),
-    );
+    const dates: string[] = [];
+    for (let date = from; date < until; date = addCalendarDays(date, 1)) dates.push(date);
     return {
       start: from,
       end: until,

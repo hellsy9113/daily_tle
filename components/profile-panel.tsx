@@ -11,8 +11,31 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
   const router = useRouter();
   const [profile, setProfile] = useState(initialProfile);
   const [themeBusy, setThemeBusy] = useState(false);
+  const [timezone, setTimezone] = useState(initialProfile.timezone);
+  const [timezoneBusy, setTimezoneBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  async function saveTimezone() {
+    if (timezoneBusy) return;
+    setTimezoneBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const saved = await requestJson<{ timezone: string }>("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone }),
+      });
+      setTimezone(saved.timezone);
+      setProfile((current) => ({ ...current, timezone: saved.timezone }));
+      setNotice("Timezone saved. Activity days and notification times follow your choice.");
+      router.refresh();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not save your timezone.");
+    } finally {
+      setTimezoneBusy(false);
+    }
+  }
   async function changeTheme(theme: "light" | "dark") {
     if (themeBusy) return;
     setThemeBusy(true);
@@ -65,7 +88,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
             <dd>
               {new Intl.DateTimeFormat("en-IN", {
                 dateStyle: "medium",
-                timeZone: "Asia/Kolkata",
+                timeZone: profile.timezone,
               }).format(new Date(profile.createdAt))}
             </dd>
           </div>
@@ -89,6 +112,45 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
         <form action="/api/auth/logout" method="post">
           <button className="button secondary" type="submit">
             Sign out
+          </button>
+        </form>
+      </section>
+      <section className="tracking-panel" aria-labelledby="profile-timezone-title">
+        <h2 id="profile-timezone-title">Timezone</h2>
+        <p className="field-help" id="timezone-help">
+          India (Asia/Kolkata) is the default. Calendar days and future Telegram recaps follow your
+          saved timezone, including daylight saving time. Daily recaps start at 8:30 a.m., recovery
+          at 9:30 a.m., and nightly activity checks at 10:45 p.m. local time.
+        </p>
+        <form
+          className="timezone-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveTimezone();
+          }}
+        >
+          <label htmlFor="profile-timezone">Your timezone</label>
+          <select
+            id="profile-timezone"
+            value={timezone}
+            disabled={timezoneBusy}
+            aria-describedby="timezone-help"
+            onChange={(event) => setTimezone(event.target.value)}
+          >
+            {profile.timezones.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone === "Asia/Kolkata"
+                  ? "India · Asia/Kolkata (UTC+05:30)"
+                  : zone.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+          <button
+            className="button primary"
+            type="submit"
+            disabled={timezoneBusy || timezone === profile.timezone}
+          >
+            {timezoneBusy ? "Saving timezone…" : "Save timezone"}
           </button>
         </form>
       </section>

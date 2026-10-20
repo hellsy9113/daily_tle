@@ -40,7 +40,7 @@ export interface ActivityDay {
 
 export interface ActivityResult {
   username: string;
-  timezone: "Asia/Kolkata";
+  timezone: string;
   start: string;
   end: string;
   days: ActivityDay[];
@@ -71,6 +71,7 @@ export interface DayObservation {
 }
 
 export interface ActivityObservation {
+  timezone?: string;
   problems: AcceptedProblemObservation[];
   days: DayObservation[];
   checkedAt: Date;

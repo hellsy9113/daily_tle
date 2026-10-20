@@ -150,7 +150,7 @@ describe("GFG validation and upstream communication", () => {
       "includeProblems=1",
       "startDate=2026-02-31",
       "endDate=2026-13-01",
-      "timezone=UTC",
+      "timezone=Not/AZone",
       "startDate=2026-10-14&endDate=2026-10-13",
     ])
       expect(() => parseGfgQuery(new URLSearchParams(query))).toThrow();

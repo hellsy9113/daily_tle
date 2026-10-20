@@ -1,3 +1,4 @@
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { activityDate, activityWindow, weekStart } from "@/lib/activity/calendar";
 import type { HackerRankProgress, HackerRankSummary, StoredHackerRankProblem } from "./types";
 
@@ -6,22 +7,26 @@ export function buildHackerRankProgress(
   problems: StoredHackerRankProblem[],
   snapshots: { date: string }[],
   now: Date,
+  timezone = DEFAULT_TIMEZONE,
 ): HackerRankProgress {
-  const range = activityWindow(now);
+  const range = activityWindow(now, timezone);
   const dated = problems.filter((problem) => problem.solvedAt <= now.toISOString());
   const counts = new Map<string, number>();
   for (const problem of dated) {
-    const date = activityDate(new Date(problem.solvedAt));
+    const date = activityDate(new Date(problem.solvedAt), timezone);
     counts.set(date, (counts.get(date) ?? 0) + 1);
   }
-  const observed = new Set(snapshots.map((snapshot) => snapshot.date));
+  const observed = new Set(
+    timezone === DEFAULT_TIMEZONE ? snapshots.map((snapshot) => snapshot.date) : [],
+  );
   return {
     ...profile,
-    timezone: "Asia/Kolkata",
+    timezone,
     savedSolved: problems.length,
     solvedToday: counts.get(range.today) ?? 0,
     solvedThisWeek: dated.filter(
-      (problem) => weekStart(activityDate(new Date(problem.solvedAt))) === weekStart(range.today),
+      (problem) =>
+        weekStart(activityDate(new Date(problem.solvedAt), timezone)) === weekStart(range.today),
     ).length,
     days: range.dates.map((date) => ({
       date,

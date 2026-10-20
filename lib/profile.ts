@@ -12,6 +12,16 @@ export async function profileSummary(account: Account) {
     connected: account.chatId !== null,
     status: account.status,
     theme: account.theme,
+    timezone: account.timezone ?? "Asia/Kolkata",
+    timezones: [
+      ...new Set([
+        "Asia/Kolkata",
+        "UTC",
+        ...Intl.supportedValuesOf("timeZone").map((zone) =>
+          zone === "Asia/Calcutta" ? "Asia/Kolkata" : zone,
+        ),
+      ]),
+    ],
     services,
   };
 }

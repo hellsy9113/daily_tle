@@ -1,3 +1,4 @@
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import {
   getPreviousCalendarPeriod,
   type CalendarPeriodRange,
@@ -10,8 +11,9 @@ export function formatHackerRankDailyReport(
   saved: StoredHackerRankProblem[],
   periodEnd: Date,
   weeklyRange?: CalendarPeriodRange,
+  timezone = DEFAULT_TIMEZONE,
 ) {
-  const range = weeklyRange ?? getPreviousCalendarPeriod("lastday", periodEnd);
+  const range = weeklyRange ?? getPreviousCalendarPeriod("lastday", periodEnd, timezone);
   const known = new Map(saved.map((problem) => [problem.id, problem]));
   for (const problem of profile.problems) {
     const previous = known.get(problem.id);
@@ -26,13 +28,13 @@ export function formatHackerRankDailyReport(
   if (!weeklyRange && !problems.length) return [];
   const date = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
-    timeZone: "Asia/Kolkata",
+    timeZone: timezone,
   }).format(range.start);
   return splitMessage(
     [
       weeklyRange
-        ? `HackerRank weekly recap for ${profile.username}\n${date} – ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(range.end)} (Asia/Kolkata; Sunday cutoff)`
-        : `HackerRank daily recap for ${profile.username}\n${date} (Asia/Kolkata)`,
+        ? `HackerRank weekly recap for ${profile.username}\n${date} – ${new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: timezone }).format(range.end)} (${timezone}; Sunday cutoff)`
+        : `HackerRank daily recap for ${profile.username}\n${date} (${timezone})`,
       `${problems.length} unique solved challenges found in saved public activity for ${weeklyRange ? "this week through the cutoff" : "yesterday"}.`,
       ...problems.map((problem, index) => `${index + 1}. ${problem.title}\n${problem.url}`),
       "Public activity may be incomplete. Timestamps are reported by HackerRank; first-ever solve dates are not guaranteed.",

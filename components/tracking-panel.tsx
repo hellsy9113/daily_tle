@@ -1,4 +1,5 @@
 "use client";
+import { useTimezone } from "./timezone-provider";
 
 import { ConsentDialog } from "./consent-dialog";
 import { ServiceManagement } from "./service-control";
@@ -26,6 +27,7 @@ export function TrackingPanel({
   initialStatus: TrackingStatus;
   platform?: FeatureId;
 }) {
+  const timezone = useTimezone();
   const platformLabel = platformLabels[platform];
   const statusPath = statusPaths[platform];
   const router = useRouter();
@@ -273,7 +275,7 @@ export function TrackingPanel({
             </div>
             <div>
               <dt>Delivery window</dt>
-              <dd>8:30–9:30 a.m. IST, daily</dd>
+              <dd>8:30–9:30 a.m. ({timezone}), daily</dd>
             </div>
             <div>
               <dt>Latest report</dt>
@@ -357,7 +359,7 @@ export function TrackingPanel({
               </p>
               <p className="field-help">
                 Use /stop in the bot to pause. Delayed reports may arrive during the 9:30–10:30 a.m.
-                recovery window.
+                recovery window ({timezone}).
               </p>
               <button className="text-button" onClick={refresh} disabled={refreshing}>
                 {refreshing ? "Refreshing…" : "Refresh status"}

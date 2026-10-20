@@ -21,7 +21,11 @@ export async function getAccountActivity(account: Account, now = new Date()) {
   if (await claimActivitySync(account.id, token, now, registration.service.registrationId)) {
     try {
       const history = await getAcceptedHistory(registration.username);
-      await saveActivitySync(account.id, token, observeAcceptedHistory(history.submissions, now));
+      await saveActivitySync(
+        account.id,
+        token,
+        observeAcceptedHistory(history.submissions, now, registration.account.timezone),
+      );
     } catch (error) {
       await failActivitySync(
         account.id,

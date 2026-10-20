@@ -1,11 +1,12 @@
+import { addCalendarDays } from "@/lib/timezone";
 import "server-only";
 import { lockRegistration } from "@/lib/tracking/services";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { acceptedActivity, activityDays, activitySync, type Account } from "@/lib/db/schema";
 import {
-  ACTIVITY_DAY_MS,
   ACTIVITY_TIMEZONE,
+  activityDate,
   activityDayStart,
   activityWindow,
   streaks,
@@ -21,12 +22,18 @@ export async function writeActivityObservation(
   accountId: string,
   observation: ActivityObservation,
 ) {
+  const timezone = observation.timezone ?? ACTIVITY_TIMEZONE;
   if (observation.problems.length) {
     await writer
       .insert(acceptedActivity)
-      .values(observation.problems.map((problem) => ({ ...problem, accountId })))
+      .values(observation.problems.map((problem) => ({ ...problem, accountId, timezone })))
       .onConflictDoUpdate({
-        target: [acceptedActivity.accountId, acceptedActivity.date, acceptedActivity.titleSlug],
+        target: [
+          acceptedActivity.accountId,
+          acceptedActivity.date,
+          acceptedActivity.titleSlug,
+          acceptedActivity.timezone,
+        ],
         set: {
           title: sql`CASE WHEN excluded.accepted_at >= ${acceptedActivity.acceptedAt} THEN excluded.title ELSE ${acceptedActivity.title} END`,
           acceptedAt: sql`greatest(${acceptedActivity.acceptedAt}, excluded.accepted_at)`,
@@ -40,14 +47,16 @@ export async function writeActivityObservation(
         observation.days.map((day) => ({
           accountId,
           date: day.date,
+          timezone,
           observedFrom: day.from,
           observedUntil: day.until,
-          coveredUntil: day.from && day.from < activityDayStart(day.date) ? day.until : null,
+          coveredUntil:
+            day.from && day.from < activityDayStart(day.date, timezone) ? day.until : null,
           checkedAt: observation.checkedAt,
         })),
       )
       .onConflictDoUpdate({
-        target: [activityDays.accountId, activityDays.date],
+        target: [activityDays.accountId, activityDays.date, activityDays.timezone],
         set: {
           observedFrom: sql`CASE WHEN excluded.observed_until >= ${activityDays.observedUntil} THEN excluded.observed_from ELSE ${activityDays.observedFrom} END`,
           observedUntil: sql`greatest(${activityDays.observedUntil}, excluded.observed_until)`,
@@ -66,14 +75,20 @@ export async function writeActivityObservation(
 }
 
 export async function readActivity(account: Account, now: Date): Promise<ActivityResult> {
-  const range = activityWindow(now);
+  const timezone = account.timezone ?? ACTIVITY_TIMEZONE;
+  const range = activityWindow(now, timezone);
   const withinRange = and(
-    gte(acceptedActivity.date, range.start),
-    lt(acceptedActivity.date, range.end),
+    gte(acceptedActivity.acceptedAt, activityDayStart(range.start, timezone)),
+    lt(acceptedActivity.acceptedAt, activityDayStart(range.end, timezone)),
+    lt(acceptedActivity.acceptedAt, now),
   );
   const [problems, coverage, states] = await Promise.all([
     db()
-      .select({ date: acceptedActivity.date, titleSlug: acceptedActivity.titleSlug })
+      .select({
+        date: acceptedActivity.date,
+        titleSlug: acceptedActivity.titleSlug,
+        acceptedAt: acceptedActivity.acceptedAt,
+      })
       .from(acceptedActivity)
       .where(and(eq(acceptedActivity.accountId, account.id), withinRange)),
     db()
@@ -82,28 +97,49 @@ export async function readActivity(account: Account, now: Date): Promise<Activit
       .where(
         and(
           eq(activityDays.accountId, account.id),
-          gte(activityDays.date, range.start),
-          lt(activityDays.date, range.end),
+          gte(activityDays.date, addCalendarDays(range.start, -2)),
+          lt(activityDays.date, addCalendarDays(range.end, 2)),
         ),
       ),
     db().select().from(activitySync).where(eq(activitySync.accountId, account.id)).limit(1),
   ]);
+  const regrouped = [
+    ...new Map(
+      problems.map((problem) => {
+        const date = activityDate(problem.acceptedAt, timezone);
+        return [`${date}:${problem.titleSlug}`, { ...problem, date }];
+      }),
+    ).values(),
+  ];
   const counts = new Map<string, number>();
-  for (const problem of problems) counts.set(problem.date, (counts.get(problem.date) ?? 0) + 1);
-  const byDate = new Map(coverage.map((day) => [day.date, day]));
+  for (const problem of regrouped) counts.set(problem.date, (counts.get(problem.date) ?? 0) + 1);
   const days = range.dates.map((date) => {
-    const row = byDate.get(date);
-    const end = new Date(activityDayStart(date).getTime() + ACTIVITY_DAY_MS);
-    const requiredUntil = end <= now ? end : row?.observedUntil;
+    const start = activityDayStart(date, timezone);
+    const end = activityDayStart(addCalendarDays(date, 1), timezone);
+    const requiredUntil = end <= now ? end : now;
+    const matching = coverage.filter(
+      (row) =>
+        row.observedUntil &&
+        row.observedUntil > start &&
+        (row.observedFrom
+          ? row.observedFrom < end
+          : activityDayStart(row.date, row.timezone) < end),
+    );
+    const complete = matching.some(
+      (row) =>
+        row.timezone === timezone &&
+        row.date === date &&
+        row.coveredUntil &&
+        row.coveredUntil >= requiredUntil,
+    );
     return {
       date,
       count: counts.get(date) ?? 0,
-      coverage:
-        row?.coveredUntil && requiredUntil && row.coveredUntil >= requiredUntil
-          ? ("complete" as const)
-          : row || counts.has(date)
-            ? ("partial" as const)
-            : ("unknown" as const),
+      coverage: complete
+        ? ("complete" as const)
+        : matching.length || counts.has(date)
+          ? ("partial" as const)
+          : ("unknown" as const),
     };
   });
   const state = states[0];
@@ -113,14 +149,15 @@ export async function readActivity(account: Account, now: Date): Promise<Activit
   );
   return {
     username: account.leetcodeUsername!,
-    timezone: ACTIVITY_TIMEZONE,
+    timezone,
     start: range.start,
     end: range.end,
     days,
     weekly: compareWeeks(
-      problems.map((problem) => ({ id: problem.titleSlug, date: problem.date })),
+      regrouped.map((problem) => ({ id: problem.titleSlug, date: problem.date })),
       days,
       now,
+      timezone,
     ),
     uniqueQuestions: new Set(problems.map((problem) => problem.titleSlug)).size,
     activeDays: days.filter((day) => day.count > 0).length,

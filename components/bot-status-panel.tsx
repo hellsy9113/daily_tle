@@ -1,4 +1,5 @@
 "use client";
+import { useTimezone } from "./timezone-provider";
 
 import { useEffect } from "react";
 import type { TrackingStatus } from "@/lib/tracking/types";
@@ -15,6 +16,7 @@ export function BotStatusPanel({
   botUrl: string;
   statusPlatform: FeatureId;
 }) {
+  const timezone = useTimezone();
   const { data, busy, error, refresh } = useJsonResource<TrackingStatus>(
     statusPaths[statusPlatform],
     {
@@ -69,7 +71,7 @@ export function BotStatusPanel({
         <dl className="bot-status-details">
           <div>
             <dt>Daily report</dt>
-            <dd>8:30–9:30 a.m. IST</dd>
+            <dd>8:30–9:30 a.m. ({timezone})</dd>
           </div>
           <div>
             <dt>Latest report</dt>
@@ -90,7 +92,7 @@ export function BotStatusPanel({
               : status.status === "paused"
                 ? "Send /start in the bot to resume reports."
                 : "Send /stop in the bot to pause, or /start to resume."}{" "}
-          Delayed reports may arrive by 10:30 a.m. IST.
+          Delayed reports may arrive by 10:30 a.m. ({timezone}).
         </p>
       </section>
       {error && (

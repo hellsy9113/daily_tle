@@ -1,3 +1,4 @@
+import { addCalendarDays } from "@/lib/timezone";
 import "server-only";
 import { and, asc, eq, gte, isNotNull, lt, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -5,7 +6,7 @@ import { acceptedActivity, gfgProblems, hackerRankProblems, type Account } from 
 import { platformLabels } from "@/lib/features/catalog";
 import { platformUsername } from "@/lib/tracking/platforms";
 import { ApiError } from "@/lib/http/api-error";
-import { ACTIVITY_DAY_MS, activityDayStart } from "./calendar";
+import { activityDayStart } from "./calendar";
 import type { ActivityDayDetails, ActivityPlatform } from "./types";
 
 export function requireActivityPlatform(account: Account, platform: ActivityPlatform) {
@@ -22,8 +23,8 @@ export async function getActivityDay(
 ): Promise<ActivityDayDetails> {
   requireActivityPlatform(account, platform);
   if (platform === "hackerrank") {
-    const start = activityDayStart(date);
-    const end = new Date(start.getTime() + ACTIVITY_DAY_MS);
+    const start = activityDayStart(date, account.timezone);
+    const end = activityDayStart(addCalendarDays(date, 1), account.timezone);
     const rows = await db()
       .select({
         id: hackerRankProblems.id,
@@ -58,12 +59,22 @@ export async function getActivityDay(
     const rows = await db()
       .select({ id: acceptedActivity.titleSlug, title: acceptedActivity.title })
       .from(acceptedActivity)
-      .where(and(eq(acceptedActivity.accountId, account.id), eq(acceptedActivity.date, date)))
+      .where(
+        and(
+          eq(acceptedActivity.accountId, account.id),
+          gte(acceptedActivity.acceptedAt, activityDayStart(date, account.timezone)),
+          lt(
+            acceptedActivity.acceptedAt,
+            activityDayStart(addCalendarDays(date, 1), account.timezone),
+          ),
+          lte(acceptedActivity.acceptedAt, now),
+        ),
+      )
       .orderBy(asc(acceptedActivity.title));
     return {
       date,
       basis: "accepted",
-      problems: rows.map((row) => ({
+      problems: [...new Map(rows.map((row) => [row.id, row])).values()].map((row) => ({
         ...row,
         url: `https://leetcode.com/problems/${encodeURIComponent(row.id)}/`,
       })),
@@ -80,8 +91,8 @@ export async function getActivityDay(
       ),
     )
     .limit(1);
-  const start = activityDayStart(date);
-  const end = new Date(start.getTime() + ACTIVITY_DAY_MS);
+  const start = activityDayStart(date, account.timezone);
+  const end = activityDayStart(addCalendarDays(date, 1), account.timezone);
   const timestamp = dated ? gfgProblems.acceptedAt : gfgProblems.firstObservedAt;
   const rows = await db()
     .select({ id: gfgProblems.id, title: gfgProblems.title, difficulty: gfgProblems.difficulty })

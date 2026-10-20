@@ -10,10 +10,46 @@ navigation shows **Sign in**; **Feature**, **Dashboard**, and **Profile** appear
 
 Connect Daily Grind once through a personal Telegram link and tap **Start** to
 receive recaps for all enabled services. Yesterday's available problems arrive at
-**8:30–9:30 a.m. Asia/Kolkata**. Failed or interrupted reports are retried during
+**8:30–9:30 a.m. in your Profile timezone** (India by default). Failed or interrupted reports are retried during
 **9:30–10:30 a.m.** Daily commands are unnecessary; `/stop` pauses delivery and
 `/start` resumes the same account. Delivery status is separate from service
 registration: pending, paused, or blocked delivery does not hide registered activity.
+
+### Account timezone and nightly collection
+
+India (`Asia/Kolkata`) is the saved default for existing and new accounts. Profile
+lets each signed-in user choose an IANA timezone. Activity days, day details,
+weekly comparisons, displayed timestamps, and future daily/weekly Telegram reports
+use that timezone, including daylight-saving transitions. Daily delivery starts at
+08:30 local time, recovery starts at 09:30 and closes at 10:30; Sunday weekly delivery
+starts at 23:00 with recovery at 23:30. Public query-bot/demo APIs retain their India-time contract.
+
+A collection-only check runs at 22:45 local time for all registered coding platforms,
+even with no browser or Telegram connection. Paused services continue collecting.
+It reuses dashboard sync cooldowns, leases and registration-generation checks, without
+preparing or sending notifications. A later solve, upstream delay/failure, or exhausted
+runtime budget can still defer detection. GFG observations cannot prove historical solve times.
+
+Apply **`0010_account_timezone.sql` before deployment**. It saves account preferences
+and freezes timezone metadata alongside report periods. Existing prepared/delivered
+reports keep their saved periods and timezone; changing timezone does not replay an
+already delivered date. Existing activity instants are regrouped for display. Earlier
+LeetCode observations were deduplicated within their original calendar day, so counts
+after changing timezone remain lower bounds until fresh public history supplies evidence.
+Coverage observations from different timezones stay separate.
+
+Vercel invokes `/api/cron/tracking/tick` every 15 minutes (`*/15 * * * *` UTC).
+The protected handler selects only accounts in a local collection/delivery window.
+Primary windows do not reclaim failed work until the local recovery window. Existing
+leases, frozen message parts, and durable delivery keys prevent completed reports
+from being sent again on subsequent ticks. The previous cron endpoints remain protected
+manual aliases and use the same local windows.
+
+**Deployment requirement:** Vercel Hobby rejects cron schedules more frequent than
+once daily. Use a plan supporting the 15-minute cron or an external scheduler that
+calls `/api/cron/tracking/tick` with `Authorization: Bearer <CRON_SECRET>` every 15 minutes
+(remove the Vercel `crons` entry if using an external scheduler on Hobby).
+No hosting-plan change or external scheduler is provisioned by this code.
 
 Returning from Telegram checks the connection automatically; the manual check
 remains available on the selected service page. Signed-in homepage visitors are
@@ -38,11 +74,10 @@ from the Daily Grind delivery connection.
 
 In addition to daily recaps, registered LeetCode, GeeksforGeeks, and HackerRank
 services receive a weekly Telegram recap scheduled for **Sunday at 11:00 p.m.
-Asia/Kolkata**, with recovery at **11:30 p.m.** The Vercel UTC schedules are
-`30 17 * * 0` and `0 18 * * 0`. Actual invocation precision depends on the hosting
-plan. Weekly handlers skip requests before the cutoff or outside Sunday in IST.
+in your Profile timezone**, with recovery at **11:30 p.m.** The timezone-aware scheduler selects each account’s local Sunday window. Actual invocation precision depends on the hosting
+plan. Weekly handlers skip requests before the cutoff or outside Sunday in the account timezone.
 
-The report covers the **current Monday at 00:00 through Sunday at 23:00 IST**.
+The report covers the **current Monday at 00:00 through Sunday at 23:00 in the account timezone**.
 It is a week-to-date recap: Sunday's final hour is excluded because it has not
 finished at send time. Messages identify the cutoff; recovery always reuses the
 same saved boundaries. The public `lastweek` API and query-bot command retain
@@ -117,7 +152,7 @@ sync results, report sends, and stale browser mutations. Pausing or revoking wai
 | -------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | GET/POST | `/api/tracking/services/[platform]` | Read service status / register with consent; existing platform registration URLs remain aliases            |
 | GET      | `/api/profile`                      | Session-owned account details, theme and three platform statuses                                           |
-| PATCH    | `/api/profile`                      | Save `{ "theme": "light" }` or `{ "theme": "dark" }`                                                       |
+| PATCH    | `/api/profile`                      | Save `{ "theme": "light" }`, `{ "theme": "dark" }`, or `{ "timezone": "Asia/Kolkata" }`                    |
 | PATCH    | `/api/tracking/services/[platform]` | Set `{ "registrationId": "current UUID", "paused": true }`; use `false` to resume                          |
 | DELETE   | `/api/tracking/services/[platform]` | Atomically revoke and delete with `{ "registrationId": "current UUID", "confirmPermanentDeletion": true }` |
 
@@ -126,13 +161,13 @@ Mutations require the signed-in account and same-origin requests; client account
 are rejected. A stale registration ID returns 409. Private responses use `Cache-Control: no-store`.
 
 The existing daily/recovery cron routes prepare one leased collection job per registration
-and IST report day, including pending, paused, and blocked Telegram accounts. Upstream lookup
+and local report day, including pending, paused, and blocked Telegram accounts. Upstream lookup
 failures retry independently of Telegram failures. Only eligible unpaused services prepare
 recaps. Shared empty-day reminders ignore paused platforms and remain silent when all are paused.
 
 ### Accepted-activity calendar
 
-Every day uses Asia/Kolkata boundaries and counts distinct Accepted `titleSlug`s.
+Every day uses the account’s saved timezone boundaries and counts distinct Accepted `titleSlug`s.
 Re-solving a problem on another day counts for that day; repeated accepts on the
 same day count once. The unique-problems summary deduplicates across the full
 displayed range. Green intensity represents 1, 2–3, 4–7, and 8+ problems.
@@ -216,7 +251,7 @@ To verify onboarding before general release, temporarily enable registration
 on a test deployment, sign in, register a test username, and connect the bot.
 Invoke the authenticated daily cron route to send a real report to that test
 account, then inspect the dashboard. Cron eligibility includes accounts connected
-before 8:30 a.m. IST; connections after that cutoff start the following day.
+before 8:30 a.m. in their saved timezone; connections after that cutoff start the following day.
 Use a separate test bot and database branch when testing previews so the
 production webhook and registrations remain stable. Enable production registration
 after verification.
@@ -280,8 +315,7 @@ and work only for the same Telegram identity used on the website. Website sessio
 expire after 30 days and are revoked on logout. Mutation endpoints require a
 matching Origin header.
 
-The primary and recovery cron routes are protected by `CRON_SECRET`; each runs
-once daily on Vercel Hobby with hour-level scheduling precision. Fluid Compute
+All cron routes are protected by `CRON_SECRET`; the scheduler runs every 15 minutes. Fluid Compute
 and a 300-second limit are configured in `vercel.json`. Processing uses ten
 workers, five Telegram messages per second, per-chat spacing, and a 260-second
 work budget. Delivery records retain the period, prepared messages, completed
@@ -310,17 +344,18 @@ that volume or adding a queue.
 | GET    | `/api/tracking`                                                | Signed-in account's username, connection, and latest report status                    |
 | POST   | `/api/tracking`                                                | Register with username and explicit agreement acceptance                              |
 | POST   | `/api/tracking/telegram-link`                                  | Create a personal bot link with its expiry                                            |
-| GET    | `/api/tracking/activity/day?platform=leetcode&date=2026-10-14` | Read the selected platform's saved problems for one IST date                          |
+| GET    | `/api/tracking/activity/day?platform=leetcode&date=2026-10-14` | Read the selected platform's saved problems for one date in the account timezone      |
 | GET    | `/api/tracking/goal?platform=leetcode`                         | Read the account's platform-specific weekly target                                    |
 | PUT    | `/api/tracking/goal`                                           | Save `{ "platform": "leetcode", "weeklyTarget": 5 }`; use `null` to remove the target |
 | GET    | `/api/auth/telegram/login`                                     | Begin Telegram sign-in                                                                |
 | GET    | `/api/auth/telegram/callback`                                  | Verify Telegram identity and issue a session                                          |
 | POST   | `/api/auth/logout`                                             | Revoke the current session                                                            |
 | POST   | `/api/telegram/tracking/webhook`                               | Second bot's private-chat activation and pause/resume                                 |
+| GET    | `/api/cron/tracking/tick`                                      | Run all timezone-local collection/delivery windows                                    |
 | GET    | `/api/cron/tracking/daily`                                     | Prepare and dispatch yesterday's reports                                              |
 | GET    | `/api/cron/tracking/retry`                                     | Reconcile and resume unfinished reports                                               |
-| GET    | `/api/cron/tracking/weekly`                                    | Sunday 23:00 IST: dispatch current-week recaps for enabled platforms                  |
-| GET    | `/api/cron/tracking/weekly-retry`                              | Sunday 23:30 IST: reconcile and recover the same weekly reports                       |
+| GET    | `/api/cron/tracking/weekly`                                    | Sunday 23:00 local: dispatch current-week recaps for enabled platforms                |
+| GET    | `/api/cron/tracking/weekly-retry`                              | Sunday 23:30 local: reconcile and recover the same weekly reports                     |
 
 Unauthorized account requests return `401`, cross-origin mutations `403`, and
 registration conflicts `409`. Existing LeetCode validation and upstream error

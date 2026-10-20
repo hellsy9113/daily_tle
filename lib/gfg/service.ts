@@ -65,7 +65,7 @@ export async function getGfgProgress(account: Account, query?: GfgQuery, now = n
   ]);
   if (!state?.profile) throw new ApiError(503, "GFG is synchronizing. Try again shortly.");
   return {
-    ...buildGfgProgress(state.profile, problems, snapshots, now, query),
+    ...buildGfgProgress(state.profile, problems, snapshots, now, query, account.timezone),
     refreshing: Boolean(state.leaseToken && state.leaseUntil && state.leaseUntil > now),
     refreshFailed: Boolean(state.lastError),
   };
