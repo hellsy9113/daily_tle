@@ -23,7 +23,7 @@ export default async function FeaturePage({
   const params = await searchParams;
   const selected = services.find((service) => service.id === params.platform);
   const available = registrationAvailable();
-  const selectedAvailable = selected?.id === "notes" || available;
+  const selectedAvailable = selected?.id === "notes" || selected?.id === "articles" || available;
   let account: Account | null = null;
   let status;
   let serviceStatuses: Partial<Record<FeatureId, TrackingStatus>> = {};
@@ -57,7 +57,7 @@ export default async function FeaturePage({
         <div className="tracking-intro">
           <p className="lead">{selected.description}</p>
           <p className="field-help">{selected.coverage}</p>
-          {selected.id !== "notes" && (
+          {selected.id !== "notes" && selected.id !== "articles" && (
             <p className="field-help">
               Your dashboard is available after registration. Connect Daily Grind once for all
               enabled services to receive morning Telegram recaps.

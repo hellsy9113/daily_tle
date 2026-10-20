@@ -114,6 +114,25 @@ import { registerNotes, manageNotes, notesStatus } from "@/lib/notes/service";
 import { notes as savedNotes } from "@/lib/db/schema";
 import { handleFeature } from "@/lib/features/handlers";
 import { POST as websiteLogout } from "@/app/api/auth/logout/route";
+import {
+  articleCatalog,
+  articleSubscriptions,
+  articleFeedDays,
+  articleFeedItems,
+  articleSeen,
+  articleSourceState,
+} from "@/lib/db/schema";
+import {
+  articlesStatus,
+  registerArticles,
+  updateArticleTopics,
+  manageArticles,
+  dailyArticles,
+} from "@/lib/articles/service";
+import { refreshArticleCatalog, claimArticleSource } from "@/lib/articles/ingest";
+import { ARTICLE_SOURCES } from "@/lib/articles/sources";
+import { GET as articlesFeed } from "@/app/api/articles/route";
+import { PATCH as articlesTopics } from "@/app/api/articles/preferences/route";
 
 vi.mock("@/lib/leetcode/user-identity", () => ({
   getLeetCodeIdentity: vi.fn(async (username: string) => username),
@@ -2959,5 +2978,400 @@ describe("Notes opt-in service lifecycle", () => {
     await expect(
       createNote(status.registrationId!, { text: "Late write", links: [] }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("Daily Articles catalog, selections and lifecycle", () => {
+  beforeEach(async () => {
+    await admin.unsafe(
+      `TRUNCATE ${namespace}.article_catalog, ${namespace}.article_source_state CASCADE`,
+    );
+  });
+  async function reader(topics = ["web"], telegramId = 101) {
+    const user = await account(telegramId);
+    const status = await registerArticles(user, topics);
+    return { user, status, cookie: `tracking_session=${await createSession(user.id)}` };
+  }
+  async function seed(count = 10, options: Partial<typeof articleCatalog.$inferInsert> = {}) {
+    return db()
+      .insert(articleCatalog)
+      .values(
+        Array.from({ length: count }, (_, index) => ({
+          canonicalUrl: `https://example.com/${options.source ?? "source"}/${index}`,
+          title: `Article ${index}`,
+          source: "Test publisher",
+          publishedAt: new Date(now.getTime() - (index + 1) * 60_000),
+          topics: ["web"] as ("web" | "dsa")[],
+          summary: "A short publisher excerpt.",
+          evergreen: true,
+          ...options,
+        })),
+      )
+      .returning();
+  }
+  function req(cookie = "", method = "GET", body?: unknown, origin = "http://localhost:3000") {
+    return new Request("http://localhost:3000/api/articles?accountId=someone-else&limit=100", {
+      method,
+      headers: { cookie, origin, "Content-Type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+  it("enforces registration, topic limits, same-origin writes and authenticated account ownership", async () => {
+    const user = await account();
+    const cookie = `tracking_session=${await createSession(user.id)}`;
+    expect((await articlesFeed(req())).status).toBe(401);
+    expect((await articlesFeed(req(cookie))).status).toBe(409);
+    for (const topics of [[], ["web", "dsa", "languages"], ["web", "web"], ["nope"]])
+      expect((await handleFeature(req(cookie, "POST", { topics }), "articles")).status).toBe(400);
+    expect(
+      (
+        await handleFeature(
+          req(cookie, "POST", { topics: ["web"] }, "https://attacker.example"),
+          "articles",
+        )
+      ).status,
+    ).toBe(403);
+    const response = await handleFeature(
+      req(cookie, "POST", { topics: ["web", "dsa"] }),
+      "articles",
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      topics: ["dsa", "web"],
+      registrationId: expect.any(String),
+    });
+    expect((await handleFeature(req(cookie, "POST", { topics: ["web"] }), "articles")).status).toBe(
+      409,
+    );
+    expect(await db().select().from(articleSubscriptions)).toHaveLength(1);
+    expect(await db().select().from(platformServices)).toHaveLength(0);
+    expect((await articlesFeed(req(cookie))).headers.get("cache-control")).toBe("no-store");
+  });
+  it("caps at six, prioritizes recent unseen content and falls back to unseen evergreen only", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const { user } = await reader();
+    const recent = await seed(3);
+    await seed(5, {
+      source: "evergreen",
+      publishedAt: new Date(now.getTime() - 100 * 86400000),
+      evergreen: true,
+    });
+    await seed(2, {
+      source: "old-news",
+      publishedAt: new Date(now.getTime() - 100 * 86400000),
+      evergreen: false,
+    });
+    await seed(2, { source: "future", publishedAt: new Date(now.getTime() + 86400000) });
+    await seed(2, { source: "wrong-topic", topics: ["dsa"] });
+    const feed = await dailyArticles(user.id, now);
+    expect(feed.articles).toHaveLength(6);
+    expect(feed.articles.slice(0, 3).map((item) => item.id)).toEqual(recent.map((item) => item.id));
+    expect(feed.articles.slice(3).every((item) => item.source === "evergreen")).toBe(true);
+    expect(new Set(feed.articles.map((item) => item.id)).size).toBe(6);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+  it("creates exactly one stable selection under concurrent reads and freezes it after ingestion", async () => {
+    const { user } = await reader();
+    await seed(12);
+    const results = await Promise.all(Array.from({ length: 8 }, () => dailyArticles(user.id, now)));
+    expect(results.every((feed) => JSON.stringify(feed) === JSON.stringify(results[0]))).toBe(true);
+    expect(await db().select().from(articleFeedDays)).toHaveLength(1);
+    expect(await db().select().from(articleFeedItems)).toHaveLength(6);
+    expect(await db().select().from(articleSeen)).toHaveLength(6);
+    await seed(3, { source: "later-refresh", publishedAt: now });
+    expect(await dailyArticles(user.id, new Date(now.getTime() + 3600000))).toEqual(results[0]);
+  });
+  it("rolls over at IST midnight and never repeats while unseen suitable articles remain", async () => {
+    const { user } = await reader();
+    await seed(10);
+    const before = await dailyArticles(user.id, new Date("2026-10-13T18:29:59.999Z"));
+    const after = await dailyArticles(user.id, new Date("2026-10-13T18:30:00Z"));
+    expect(before.date).toBe("2026-10-13");
+    expect(after.date).toBe("2026-10-14");
+    expect(before.articles).toHaveLength(6);
+    expect(after.articles).toHaveLength(4);
+    expect(after.articles.every((item) => !before.articles.some((old) => old.id === item.id))).toBe(
+      true,
+    );
+    expect((await dailyArticles(user.id, new Date("2026-10-14T18:30:00Z"))).articles).toEqual([]);
+  });
+  it("keeps even empty/short selections stable, without fabricated filler", async () => {
+    const { user } = await reader();
+    const empty = await dailyArticles(user.id, now);
+    expect(empty.articles).toEqual([]);
+    await seed(2);
+    expect(await dailyArticles(user.id, now)).toEqual(empty);
+    expect(
+      (await dailyArticles(user.id, new Date(now.getTime() + 86400000))).articles,
+    ).toHaveLength(2);
+  });
+  it("enforces the cap and topic limits at the database boundary too", async () => {
+    const { user, status } = await reader();
+    const [article] = await seed(1);
+    await dailyArticles(user.id, now);
+    const [day] = await db().select().from(articleFeedDays);
+    await expect(
+      db().insert(articleFeedItems).values({
+        dayId: day.id,
+        subscriptionId: status.registrationId!,
+        articleId: article.id,
+        position: 7,
+        topic: "web",
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23514" } });
+    await expect(
+      db()
+        .update(articleSubscriptions)
+        .set({ topics: ["web", "dsa", "ai-ml"] })
+        .where(eq(articleSubscriptions.id, status.registrationId!)),
+    ).rejects.toMatchObject({ cause: { code: "23514" } });
+  });
+  it("scopes selections and history to each authenticated account, ignoring client selectors", async () => {
+    const first = await reader();
+    const second = await reader(["dsa"], 202);
+    await seed(3);
+    await seed(3, { source: "dsa", topics: ["dsa"] });
+    const web = await (await articlesFeed(req(first.cookie))).json();
+    const dsa = await (await articlesFeed(req(second.cookie))).json();
+    expect(web.articles.every((item: { topic: string }) => item.topic === "web")).toBe(true);
+    expect(dsa.articles.every((item: { topic: string }) => item.topic === "dsa")).toBe(true);
+    expect(
+      (
+        await articlesTopics(
+          req(first.cookie, "PATCH", {
+            registrationId: second.status.registrationId,
+            topics: ["web"],
+          }),
+        )
+      ).status,
+    ).toBe(409);
+    const [secondDay] = await db()
+      .select()
+      .from(articleFeedDays)
+      .where(eq(articleFeedDays.subscriptionId, second.status.registrationId!));
+    await expect(
+      db().insert(articleFeedItems).values({
+        dayId: secondDay.id,
+        subscriptionId: first.status.registrationId!,
+        articleId: web.articles[0].id,
+        position: 4,
+        topic: "web",
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23503" } });
+  });
+  it("updates topics for subsequent days without changing today's selection", async () => {
+    const { user, cookie, status } = await reader();
+    await seed(2);
+    await seed(3, { source: "dsa", topics: ["dsa"] });
+    const first = await dailyArticles(user.id, now);
+    expect(
+      (
+        await articlesTopics(
+          req(cookie, "PATCH", { registrationId: status.registrationId, topics: ["dsa"] }),
+        )
+      ).status,
+    ).toBe(200);
+    const stable = await dailyArticles(user.id, now);
+    expect(stable.articles).toEqual(first.articles);
+    expect(stable.selectedTopics).toEqual(["web"]);
+    expect(stable.topics).toEqual(["dsa"]);
+    expect(
+      (await dailyArticles(user.id, new Date(now.getTime() + 86400000))).articles.every(
+        (item) => item.topic === "dsa",
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await articlesTopics(
+          req(cookie, "PATCH", {
+            registrationId: status.registrationId,
+            topics: ["dsa", "web", "ai-ml"],
+          }),
+        )
+      ).status,
+    ).toBe(400);
+  });
+  it("pauses reads, resumes the same day's selection, and preserves shared catalog on revoke", async () => {
+    const { user, status } = await reader();
+    const other = await reader(["web"], 202);
+    await seed(8);
+    const saved = await dailyArticles(user.id, now);
+    await dailyArticles(other.user.id, now);
+    await manageArticles(user.id, status.registrationId!, true);
+    await expect(dailyArticles(user.id, now)).rejects.toMatchObject({ status: 423 });
+    await manageArticles(user.id, status.registrationId!, false);
+    expect(await dailyArticles(user.id, now)).toEqual(saved);
+    const updated = await manageArticles(user.id, status.registrationId!, "revoke");
+    expect((await articlesStatus(updated)).registrationId).toBeNull();
+    expect(await db().select().from(articleCatalog)).toHaveLength(8);
+    expect(
+      (await db().select().from(articleFeedDays)).every(
+        (day) => day.subscriptionId === other.status.registrationId,
+      ),
+    ).toBe(true);
+    expect(
+      (await db().select().from(articleSeen)).every(
+        (seen) => seen.subscriptionId === other.status.registrationId,
+      ),
+    ).toBe(true);
+    expect((await dailyArticles(other.user.id, now)).articles).toHaveLength(6);
+    const fresh = await registerArticles(updated, ["web"]);
+    expect(fresh.registrationId).not.toBe(status.registrationId);
+    await expect(
+      updateArticleTopics(user.id, status.registrationId!, ["dsa"]),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(manageArticles(user.id, status.registrationId!, "revoke")).rejects.toMatchObject({
+      status: 409,
+    });
+  });
+});
+
+describe("central article ingestion", () => {
+  const source = ARTICLE_SOURCES[1];
+  const xml = `<rss><channel><item><title>Web accessibility guide</title><link>https://web.dev/articles/test/?utm_source=feed</link><pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate><description>Accessible web basics</description></item></channel></rss>`;
+  beforeEach(async () => {
+    await admin.unsafe(
+      `TRUNCATE ${namespace}.article_catalog, ${namespace}.article_source_state CASCADE`,
+    );
+  });
+  const robots = () =>
+    new Response("User-agent: *\nAllow: /", { headers: { "Content-Type": "text/plain" } });
+  it("batch inserts shared metadata once, fences concurrent jobs, and deduplicates canonical URLs", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) =>
+      String(url).endsWith("robots.txt")
+        ? robots()
+        : new Response(xml, { headers: { etag: '"v1"' } }),
+    );
+    const results = await Promise.all([
+      refreshArticleCatalog({ now, fetcher, sources: [source] }),
+      refreshArticleCatalog({ now, fetcher, sources: [source] }),
+    ]);
+    expect(results.reduce((sum, result) => sum + result.inserted, 0)).toBe(1);
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).endsWith("robots.txt"))).toHaveLength(
+      1,
+    );
+    expect((await db().select().from(articleCatalog))[0]).toMatchObject({
+      canonicalUrl: "https://web.dev/articles/test",
+      summary: "Accessible web basics",
+    });
+    vi.setSystemTime(new Date(now.getTime() + 7 * 3600000));
+    expect(
+      (await refreshArticleCatalog({ now: new Date(), fetcher, sources: [source] })).inserted,
+    ).toBe(0);
+    expect(await db().select().from(articleCatalog)).toHaveLength(1);
+  });
+  it("uses conditional headers and handles 304 without deleting or changing the catalog", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) =>
+      String(url).endsWith("robots.txt")
+        ? robots()
+        : new Response(xml, {
+            headers: { etag: '"v1"', "last-modified": "Mon, 12 Oct 2026 00:00:00 GMT" },
+          }),
+    );
+    await refreshArticleCatalog({ now, fetcher, sources: [source] });
+    const next = new Date(now.getTime() + 7 * 3600000);
+    vi.setSystemTime(next);
+    const unchanged = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => {
+      expect(options?.headers).toMatchObject({
+        "If-None-Match": '"v1"',
+        "If-Modified-Since": "Mon, 12 Oct 2026 00:00:00 GMT",
+      });
+      return new Response(null, { status: 304 });
+    });
+    expect(
+      (await refreshArticleCatalog({ now: next, fetcher: unchanged, sources: [source] })).failed,
+    ).toBe(0);
+    expect(await db().select().from(articleCatalog)).toHaveLength(1);
+  });
+  it("honors robots denial and Retry-After, retaining old catalog entries during outages", async () => {
+    await db()
+      .insert(articleCatalog)
+      .values({
+        canonicalUrl: "https://web.dev/kept",
+        title: "Kept guide",
+        source: "web.dev",
+        topics: ["web"],
+        summary: "Kept",
+        evergreen: true,
+      });
+    const denied = vi.fn(async () => new Response("User-agent: *\nDisallow: /"));
+    expect((await refreshArticleCatalog({ now, fetcher: denied, sources: [source] })).skipped).toBe(
+      1,
+    );
+    expect(denied).toHaveBeenCalledOnce();
+    await db().delete(articleSourceState);
+    const limited = vi.fn(async (url: string | URL | Request) =>
+      String(url).endsWith("robots.txt")
+        ? robots()
+        : new Response("Slow down", { status: 429, headers: { "Retry-After": "86400" } }),
+    );
+    expect((await refreshArticleCatalog({ now, fetcher: limited, sources: [source] })).failed).toBe(
+      1,
+    );
+    const [state] = await db().select().from(articleSourceState);
+    expect(state.nextFetchAt.getTime()).toBe(now.getTime() + 86400000);
+    expect(await db().select().from(articleCatalog)).toHaveLength(1);
+    expect(
+      (await refreshArticleCatalog({ now, fetcher: limited, sources: [source] })).skipped,
+    ).toBe(1);
+  });
+  it("rejects unsafe redirects and oversized responses and keeps ingestion bounded", async () => {
+    const redirect = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { location: "https://attacker.example/" } }),
+    );
+    expect(
+      (await refreshArticleCatalog({ now, fetcher: redirect, sources: [source] })).failed,
+    ).toBe(1);
+    expect(redirect).toHaveBeenCalledOnce();
+    await db().delete(articleSourceState);
+    const oversized = vi.fn(async (url: string | URL | Request) =>
+      String(url).endsWith("robots.txt") ? robots() : new Response("x".repeat(2 * 1024 * 1024 + 1)),
+    );
+    expect(
+      (await refreshArticleCatalog({ now, fetcher: oversized, sources: [source] })).failed,
+    ).toBe(1);
+    expect(await db().select().from(articleCatalog)).toHaveLength(0);
+    const unused = vi.fn();
+    expect(
+      (await refreshArticleCatalog({ now, fetcher: unused, sources: [source], budgetMs: 0 }))
+        .deferred,
+    ).toBe(1);
+    expect(unused).not.toHaveBeenCalled();
+  });
+  it("defers long publisher crawl delays and uses the cached policy on the next eligible run", async () => {
+    const delayed = vi.fn(async () => new Response("User-agent: *\nAllow: /\nCrawl-delay: 20"));
+    expect(
+      (await refreshArticleCatalog({ now, fetcher: delayed, sources: [source] })).skipped,
+    ).toBe(1);
+    expect(delayed).toHaveBeenCalledOnce();
+    const next = new Date(now.getTime() + 3600000);
+    vi.setSystemTime(next);
+    const allowed = vi.fn(async () => new Response(xml));
+    expect(
+      (await refreshArticleCatalog({ now: next, fetcher: allowed, sources: [source] })).inserted,
+    ).toBe(1);
+    expect(allowed).toHaveBeenCalledOnce();
+  });
+  it("prioritizes never-attempted sources ahead of persistently failing cold sources", async () => {
+    await db()
+      .insert(articleSourceState)
+      .values({ id: source.id, failures: 3, nextFetchAt: new Date(now.getTime() - 1000) });
+    const fresh = { ...source, id: "new-source", url: "https://fresh.example/feed" };
+    const calls: string[] = [];
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return robots();
+    });
+    await refreshArticleCatalog({ now, fetcher, sources: [source, fresh] });
+    expect(calls[0]).toBe("https://fresh.example/robots.txt");
+  });
+  it("lets a new job recover an expired source lease and makes an active lease idempotent", async () => {
+    const first = await claimArticleSource(source.id, now);
+    expect(first?.leaseToken).toBeTruthy();
+    expect(await claimArticleSource(source.id, now)).toBeUndefined();
+    const after = new Date(now.getTime() + 121000);
+    expect((await claimArticleSource(source.id, after))?.leaseToken).not.toBe(first?.leaseToken);
   });
 });

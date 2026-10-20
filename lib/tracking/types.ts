@@ -3,6 +3,7 @@ export type DeliveryStatus = "pending" | "sending" | "sent" | "failed" | "cancel
 export type ReportStatus = DeliveryStatus | "empty";
 
 export interface TrackingStatus {
+  topics?: import("@/lib/articles/topics").ArticleTopic[];
   paused: boolean;
   registrationId: string | null;
   username: string | null;

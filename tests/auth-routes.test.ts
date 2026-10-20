@@ -28,6 +28,7 @@ const sessionToken = "s".repeat(43);
 const account: Account = {
   theme: null,
   timezone: "Asia/Kolkata",
+  articlesRegisteredAt: null,
   notesRegisteredAt: null,
   id: "account-id",
   telegramId: 123,

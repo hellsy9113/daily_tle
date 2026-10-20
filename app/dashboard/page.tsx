@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArticlesPanel } from "@/components/articles-panel";
 import { NotesPanel } from "@/components/notes-panel";
 import { redirect } from "next/navigation";
 import { SiteShell } from "@/components/site-shell";
@@ -26,12 +27,15 @@ export default async function DashboardPage({
   const selectedActivity = activity.find((id) => id === selected);
   const first = selectedActivity ?? activity[0];
   const notesRegistered = registered.includes("notes");
-  const showNotes = notesRegistered && (selected === "notes" || !first);
+  const articlesRegistered = registered.includes("articles");
+  const showArticles =
+    articlesRegistered && (selected === "articles" || (!first && !notesRegistered));
+  const showNotes = notesRegistered && (selected === "notes" || (!first && !showArticles));
   return (
     <SiteShell signedIn>
       <nav className="dashboard-service-nav" aria-label="Dashboard services">
         {activity.length > 0 && (
-          <Link href="/dashboard" aria-current={!showNotes ? "page" : undefined}>
+          <Link href="/dashboard" aria-current={!showNotes && !showArticles ? "page" : undefined}>
             Activity
           </Link>
         )}
@@ -40,8 +44,15 @@ export default async function DashboardPage({
             Notes
           </Link>
         )}
+        {articlesRegistered && (
+          <Link href="/dashboard?service=articles" aria-current={showArticles ? "page" : undefined}>
+            Daily Articles
+          </Link>
+        )}
       </nav>
-      {showNotes ? (
+      {showArticles ? (
+        <ArticlesPanel />
+      ) : showNotes ? (
         <NotesPanel signedIn />
       ) : (
         <ActivityDashboard

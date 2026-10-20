@@ -76,6 +76,16 @@ export const features = [
     readyMessage: "Your private notebook is ready.",
     dashboard: true,
   },
+  {
+    id: "articles",
+    name: "Daily Articles",
+    label: "Daily Articles",
+    description: "A small daily reading list for the topics you care about.",
+    coverage:
+      "Choose 1–2 topics. Up to 6 unseen articles each day, from a shared catalog of publisher feeds and public APIs. Selection stays fixed for the IST day; availability may mean fewer articles.",
+    readyMessage: "Your daily reading is ready on Dashboard.",
+    dashboard: true,
+  },
 ] as const satisfies readonly FeatureDefinition[];
 
 export type FeatureId = (typeof features)[number]["id"];
