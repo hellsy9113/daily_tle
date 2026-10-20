@@ -1,4 +1,5 @@
 import "server-only";
+import { dailyGrindStatus } from "@/lib/daily-grind/service";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { deliveries, platformServices, type Account } from "@/lib/db/schema";
@@ -42,6 +43,10 @@ export async function trackingStatuses(account: Account, ids: readonly FeatureId
       .orderBy(deliveries.platform, desc(deliveries.reportDate)),
   ]);
   for (const id of ids) {
+    if (id === "daily-grind") {
+      statuses[id] = await dailyGrindStatus(account);
+      continue;
+    }
     if (id === "articles") {
       statuses.articles = await articlesStatus(account);
       continue;

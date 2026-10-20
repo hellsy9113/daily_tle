@@ -89,7 +89,7 @@ describe("HackerRank optional tracking", () => {
       leetcodeUsername: "lc_user",
       hackerRankUsername: null,
     });
-    const html = renderToStaticMarkup(await DashboardPage());
+    const html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).not.toContain("hackerrank-activity-title");
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -98,8 +98,8 @@ describe("HackerRank optional tracking", () => {
     vi.mocked(trackingStatuses).mockResolvedValue({
       hackerrank: { ...status, connected: false, status: "pending" },
     });
-    const html = renderToStaticMarkup(await DashboardPage());
-    expect(html).toContain("Connect Daily Grind");
+    const html = renderToStaticMarkup(await DashboardPage({}));
+    expect(html).not.toContain('aria-label="Telegram bot status"');
     expect(html).toContain('href="/feature?platform=hackerrank"');
   });
   it("supports a HackerRank-only dashboard without fetching other platforms", async () => {
@@ -107,7 +107,7 @@ describe("HackerRank optional tracking", () => {
     vi.mocked(fetch).mockImplementation(async (path) =>
       Response.json(String(path).startsWith("/api/hackerrank/") ? progress : status),
     );
-    await act(async () => root.render(await DashboardPage()));
+    await act(async () => root.render(await DashboardPage({})));
     expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["hackerrank"]);
     expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(["/api/hackerrank/hr_user"]);
     expect(container.querySelector('[aria-label="HackerRank progress by day"]')).not.toBeNull();

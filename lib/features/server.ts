@@ -1,4 +1,10 @@
 import "server-only";
+import {
+  dailyGrindStatus,
+  registerDailyGrind,
+  manageDailyGrind,
+  parseDailyGrindConsent,
+} from "@/lib/daily-grind/service";
 import type { Account } from "@/lib/db/schema";
 import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { registerGfg } from "@/lib/gfg/service";
@@ -47,6 +53,14 @@ const activityAdapters = Object.fromEntries(
 
 export const featureAdapters: Record<FeatureId, FeatureAdapter> = {
   ...activityAdapters,
+  "daily-grind": {
+    parseRegistration: parseDailyGrindConsent,
+    register: registerDailyGrind,
+    status: dailyGrindStatus,
+    pause: (accountId, registrationId, paused) =>
+      manageDailyGrind(accountId, registrationId, paused),
+    revoke: (accountId, registrationId) => manageDailyGrind(accountId, registrationId, "revoke"),
+  },
   articles: {
     parseRegistration: parseArticleTopics,
     register: registerArticles,

@@ -24,7 +24,7 @@ beforeEach(() => vi.clearAllMocks());
 describe("profile access and initial theme", () => {
   it("requires authentication for the profile", async () => {
     vi.mocked(serverAccount).mockResolvedValue(null);
-    await expect(ProfilePage()).rejects.toThrow("redirect:/feature");
+    await expect(ProfilePage({})).rejects.toThrow("redirect:/feature");
     expect(profileSummary).not.toHaveBeenCalled();
   });
   it("allows a signed-in account with no services to manage its settings", async () => {
@@ -32,13 +32,15 @@ describe("profile access and initial theme", () => {
     vi.mocked(serverAccount).mockResolvedValue(account);
     vi.mocked(profileSummary).mockResolvedValue({
       telegramId: 101,
+      googleEmail: null,
+      googleLinked: false,
       createdAt: "2026-10-18T01:00:00Z",
       connected: false,
       status: "pending",
       theme: "dark",
       services: [],
     });
-    const html = renderToStaticMarkup(await ProfilePage());
+    const html = renderToStaticMarkup(await ProfilePage({}));
     expect(html).toContain("Profile &amp; settings");
     expect(html).toContain('action="/api/auth/logout"');
     expect(profileSummary).toHaveBeenCalledWith(account);

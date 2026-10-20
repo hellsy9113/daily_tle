@@ -75,7 +75,7 @@ export function trackingBot() {
 
 export function registrationConfigurationIssues(): ConfigurationIssue[] {
   const issues: ConfigurationIssue[] = [];
-  for (const validate of [appUrl, trackingBot]) {
+  for (const validate of [appUrl]) {
     try {
       validate();
     } catch (error) {
@@ -85,22 +85,8 @@ export function registrationConfigurationIssues(): ConfigurationIssue[] {
   }
   if (process.env.TRACKING_REGISTRATION_ENABLED !== "true")
     issues.push({ variable: "TRACKING_REGISTRATION_ENABLED", reason: "must be exactly true" });
-  for (const variable of [
-    "DATABASE_URL",
-    "TELEGRAM_LOGIN_CLIENT_ID",
-    "TELEGRAM_LOGIN_CLIENT_SECRET",
-  ]) {
-    if (!process.env[variable]?.trim()) issues.push({ variable, reason: "missing" });
-  }
-  if (
-    process.env.TELEGRAM_LOGIN_CLIENT_ID &&
-    /^\d+:[A-Za-z0-9_-]+$/.test(process.env.TRACKING_TELEGRAM_BOT_TOKEN ?? "") &&
-    process.env.TELEGRAM_LOGIN_CLIENT_ID !== process.env.TRACKING_TELEGRAM_BOT_TOKEN?.split(":")[0]
-  )
-    issues.push({
-      variable: "TELEGRAM_LOGIN_CLIENT_ID",
-      reason: "must match the tracking bot ID",
-    });
+  if (!process.env.DATABASE_URL?.trim())
+    issues.push({ variable: "DATABASE_URL", reason: "missing" });
   return issues;
 }
 

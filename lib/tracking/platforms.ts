@@ -18,6 +18,8 @@ export const platformFields = {
 >;
 
 export function platformUsername(account: Account, platform: FeatureId) {
+  if (platform === "daily-grind")
+    return account.dailyGrindRegistrationId ? "Telegram recaps" : null;
   if (platform === "articles") return account.articlesRegisteredAt ? "Daily reading" : null;
   if (platform === "notes") return account.notesRegisteredAt ? "Private notebook" : null;
   return account[platformFields[platform].username];

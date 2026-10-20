@@ -8,6 +8,8 @@ export async function profileSummary(account: Account) {
   const services = featureIds.map((platform) => ({ platform, ...statuses[platform]! }));
   return {
     telegramId: account.telegramId,
+    googleEmail: account.googleEmail ?? null,
+    googleLinked: Boolean(account.googleId),
     createdAt: account.createdAt.toISOString(),
     connected: account.chatId !== null,
     status: account.status,

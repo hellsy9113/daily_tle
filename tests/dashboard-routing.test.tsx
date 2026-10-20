@@ -54,7 +54,7 @@ describe("connected dashboard navigation", () => {
         topics: ["web"],
       },
     });
-    const html = renderToStaticMarkup(await DashboardPage());
+    const html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).toContain('aria-label="Daily Articles"');
     expect(html).toContain('href="/dashboard?service=articles"');
     expect(html).not.toContain('id="activity-title"');
@@ -87,7 +87,7 @@ describe("connected dashboard navigation", () => {
           ]),
         ),
       );
-      const html = renderToStaticMarkup(await DashboardPage());
+      const html = renderToStaticMarkup(await DashboardPage({}));
       const navigation = /<nav[^>]*aria-label="Dashboard services"[^>]*>([\s\S]*?)<\/nav>/.exec(
         html,
       )![1];
@@ -135,7 +135,7 @@ describe("connected dashboard navigation", () => {
         lastDelivery: null,
       },
     });
-    const html = renderToStaticMarkup(await DashboardPage());
+    const html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).toContain('aria-label="Dashboard services"');
     expect(html).toContain('href="/dashboard?service=notes"');
     expect(html).toContain('aria-label="Private notes"');
@@ -175,7 +175,7 @@ describe("connected dashboard navigation", () => {
           ]),
         ),
       );
-      const html = renderToStaticMarkup(await DashboardPage());
+      const html = renderToStaticMarkup(await DashboardPage({}));
       expect(html).toContain("Your daily data is still saved");
       expect(html).toContain(`href="/feature?platform=${platform}"`);
       expect(html).not.toContain(
@@ -197,7 +197,7 @@ describe("connected dashboard navigation", () => {
     expect(html).toContain('href="/api/auth/telegram/login"');
     const navigation = /<nav aria-label="Main navigation">([\s\S]*?)<\/nav>/.exec(html)?.[1];
     expect(navigation).toBeDefined();
-    expect(navigation).not.toContain('href="/feature"');
+    expect(navigation).toContain('href="/feature"');
     expect(navigation).toContain("Sign in");
     expect(html).toContain('id="how-it-works"');
     expect(html).toContain('id="demo"');
@@ -237,14 +237,15 @@ describe("connected dashboard navigation", () => {
     "requires sign-in and at least one registered service before the dashboard",
     async (user) => {
       vi.mocked(serverAccount).mockResolvedValue(user);
-      await expect(DashboardPage()).rejects.toThrow("redirect:/feature");
+      await expect(DashboardPage({})).rejects.toThrow("redirect:/feature");
       expect(trackingStatuses).not.toHaveBeenCalled();
     },
   );
   it("loads only the current account's status and public bot link", async () => {
-    const page = await DashboardPage();
+    const page = await DashboardPage({});
     expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["leetcode"]);
-    expect(page.props.children[1].props.botUrl).toBe("https://t.me/test_bot");
+    expect(page.props.children[1].props.showBot).toBe(false);
+    expect(page.props.children[1].props.botUrl).toBe("");
   });
   it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "opens the dashboard for %s alone before Daily Grind is connected",
@@ -270,12 +271,12 @@ describe("connected dashboard navigation", () => {
           registrationId: null,
         },
       });
-      const page = await DashboardPage();
+      const page = await DashboardPage({});
       expect(page.props.children[1].props.statusPlatform).toBe(platform);
       expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(user, [platform]);
       const html = renderToStaticMarkup(page);
       expect(html).toContain(`href="/feature?platform=${platform}"`);
-      expect(html).toContain("Connect Daily Grind");
+      expect(html).not.toContain('aria-label="Telegram bot status"');
       expect(html).not.toContain("Scheduled for the next morning");
       expect(fetch).not.toHaveBeenCalled();
     },

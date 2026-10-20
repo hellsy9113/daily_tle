@@ -171,19 +171,29 @@ export function ServiceManagement({
           onCancel={() => setOpen(false)}
           onConfirm={() => void revoke()}
         >
-          <p>
-            Revoke <strong>{platformLabels[platform]}</strong> for{" "}
-            <strong className="mono">{status.username}</strong> and permanently delete its saved
-            activity, profiles, snapshots, goals, and report history from Track.it.
-          </p>
-          <p>
-            This cannot be undone. Daily collection and recaps stop. Other services and your
-            Track.it account are kept.
-          </p>
-          <p>
-            Your public coding-platform profile and Telegram messages already delivered are not
-            deleted. A later registration starts fresh.
-          </p>
+          {platform === "daily-grind" ? (
+            <p>
+              Revoke Daily Grind and delete its Telegram connection, pending links, and delivery
+              history. Coding-platform activity, Notes, Articles, sign-in identities, and your
+              account are kept. Messages already delivered to Telegram remain there.
+            </p>
+          ) : (
+            <>
+              <p>
+                Revoke <strong>{platformLabels[platform]}</strong> for{" "}
+                <strong className="mono">{status.username}</strong> and permanently delete its saved
+                activity, profiles, snapshots, goals, and report history from Track.it.
+              </p>
+              <p>
+                This cannot be undone. Daily collection and recaps stop. Other services and your
+                Track.it account are kept.
+              </p>
+              <p>
+                Your public coding-platform profile and Telegram messages already delivered are not
+                deleted. A later registration starts fresh.
+              </p>
+            </>
+          )}
         </ConsentDialog>
       )}
     </div>

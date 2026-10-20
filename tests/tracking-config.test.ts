@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { errorResponse } from "@/lib/http/api-error";
 import {
   appUrl,
+  trackingBot,
   registrationAvailable,
   registrationConfigurationIssues,
   requireRegistrationAvailable,
@@ -26,56 +27,51 @@ describe("tracking deployment configuration", () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "APP_URL",
-    "DATABASE_URL",
-    "TRACKING_TELEGRAM_BOT_TOKEN",
-    "TRACKING_TELEGRAM_BOT_USERNAME",
-    "TRACKING_TELEGRAM_WEBHOOK_SECRET",
-    "TELEGRAM_LOGIN_CLIENT_ID",
-    "TELEGRAM_LOGIN_CLIENT_SECRET",
-  ])("identifies the missing %s when the flag is enabled", (variable) => {
+  it.each(["APP_URL", "DATABASE_URL"])("requires %s for platform registration", (variable) => {
     vi.stubEnv(variable, "");
     expect(registrationAvailable()).toBe(false);
     expect(registrationConfigurationIssues()).toContainEqual({ variable, reason: "missing" });
   });
-
-  it("reports all missing bot settings together", () => {
-    vi.stubEnv("TRACKING_TELEGRAM_BOT_TOKEN", "");
-    vi.stubEnv("TRACKING_TELEGRAM_BOT_USERNAME", "");
-    vi.stubEnv("TRACKING_TELEGRAM_WEBHOOK_SECRET", "");
-    expect(registrationConfigurationIssues().map(({ variable }) => variable)).toEqual([
+  it("allows website features without Telegram or Google credentials", () => {
+    for (const key of [
       "TRACKING_TELEGRAM_BOT_TOKEN",
       "TRACKING_TELEGRAM_BOT_USERNAME",
       "TRACKING_TELEGRAM_WEBHOOK_SECRET",
-    ]);
+      "TELEGRAM_LOGIN_CLIENT_ID",
+      "TELEGRAM_LOGIN_CLIENT_SECRET",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+    ])
+      vi.stubEnv(key, "");
+    expect(registrationAvailable()).toBe(true);
+    expect(() => trackingBot()).toThrow();
   });
-
   it.each([
     ["APP_URL", "http://localhost:3000"],
     ["APP_URL", "https://tracker.example/api/auth/telegram/callback"],
     ["APP_URL", "not-a-url"],
     ["TRACKING_REGISTRATION_ENABLED", '"true"'],
     ["TRACKING_REGISTRATION_ENABLED", "true "],
-    ["TRACKING_TELEGRAM_BOT_TOKEN", "invalid-token-placeholder"],
-    ["TRACKING_TELEGRAM_BOT_USERNAME", "https://t.me/tracking_bot"],
-    ["TRACKING_TELEGRAM_WEBHOOK_SECRET", "contains spaces"],
-    ["TELEGRAM_LOGIN_CLIENT_ID", "99"],
-  ])("identifies an invalid %s without bypassing validation", (variable, value) => {
+  ])("rejects invalid website configuration %s", (variable, value) => {
     vi.stubEnv(variable, value);
     expect(registrationAvailable()).toBe(false);
     expect(registrationConfigurationIssues()).toEqual(
       expect.arrayContaining([expect.objectContaining({ variable })]),
     );
   });
-
-  it("keeps the original bot separate", () => {
+  it.each([
+    ["TRACKING_TELEGRAM_BOT_TOKEN", "invalid-token-placeholder"],
+    ["TRACKING_TELEGRAM_BOT_USERNAME", "https://t.me/tracking_bot"],
+    ["TRACKING_TELEGRAM_WEBHOOK_SECRET", "contains spaces"],
+  ])("validates %s when enabling the optional bot", (variable, value) => {
+    vi.stubEnv(variable, value);
+    expect(() => trackingBot()).toThrow();
+    expect(registrationAvailable()).toBe(true);
+  });
+  it("keeps the original bot separate without disabling website features", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "42:tracking-bot-placeholder");
-    expect(registrationAvailable()).toBe(false);
-    expect(registrationConfigurationIssues()).toContainEqual({
-      variable: "TRACKING_TELEGRAM_BOT_TOKEN",
-      reason: "must belong to a different bot than TELEGRAM_BOT_TOKEN",
-    });
+    expect(() => trackingBot()).toThrow();
+    expect(registrationAvailable()).toBe(true);
   });
 
   it("allows HTTP localhost for development only", () => {
@@ -101,7 +97,6 @@ describe("tracking deployment configuration", () => {
     });
     const logs = JSON.stringify(vi.mocked(console.warn).mock.calls);
     expect(logs).toContain("APP_URL");
-    expect(logs).toContain("TRACKING_TELEGRAM_BOT_TOKEN");
     expect(logs).not.toMatch(/private-url-password|private-invalid-token|login-secret-placeholder/);
   });
 });

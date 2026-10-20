@@ -18,11 +18,7 @@ export function SiteShell({
         </Link>
         <nav aria-label="Main navigation">
           {signedIn && <Link href="/feature">Feature</Link>}
-          {signedIn ? (
-            <Link href="/dashboard">Dashboard</Link>
-          ) : (
-            <a href="/api/auth/telegram/login">Sign in</a>
-          )}
+          {signedIn ? <Link href="/dashboard">Dashboard</Link> : <a href="/feature">Sign in</a>}
           {signedIn && <Link href="/profile">Profile</Link>}
         </nav>
       </header>

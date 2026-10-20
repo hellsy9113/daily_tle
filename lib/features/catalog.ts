@@ -13,6 +13,15 @@ export interface FeatureDefinition {
 
 export const features = [
   {
+    id: "daily-grind",
+    name: "Daily Grind",
+    label: "Daily Grind",
+    description: "Optional daily and weekly Telegram recaps for your enabled coding platforms.",
+    coverage:
+      "Enable this service, then connect your Telegram account. Morning recaps arrive at 8:30–9:30 a.m. IST. Platform tracking works independently.",
+    readyMessage: "Daily Grind is enabled. Connect Telegram to receive recaps.",
+  },
+  {
     id: "leetcode",
     name: "LeetCode",
     label: "LeetCode",
@@ -21,7 +30,7 @@ export const features = [
     coverage:
       "LeetCode exposes recent Accepted history only. Saved activity builds over time; older solves may be missing.",
     readyMessage:
-      "You're set. Yesterday's solved questions will arrive automatically. No daily commands needed.",
+      "Your LeetCode activity is ready on Dashboard. Enable Daily Grind separately for Telegram recaps.",
     dashboard: true,
     activity: true,
     recaps: true,
@@ -34,7 +43,7 @@ export const features = [
     coverage:
       "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable.",
     readyMessage:
-      "You're set. GFG progress recaps will arrive automatically. Problems without verified solve dates are labeled as newly observed.",
+      "Your GFG activity is ready on Dashboard. Problems without verified solve dates are labeled as newly observed.",
     dashboard: true,
     activity: true,
     recaps: true,
@@ -46,8 +55,7 @@ export const features = [
     description: "Keep public solved challenges, problem links, and daily recaps together.",
     coverage:
       "HackerRank public history can be incomplete. Counts reflect saved solved challenges; first-ever solve dates are not guaranteed.",
-    readyMessage:
-      "You're set. HackerRank recaps will arrive automatically, using available public solved activity.",
+    readyMessage: "Your HackerRank activity is ready on Dashboard.",
     dashboard: true,
     activity: true,
     recaps: true,
@@ -60,8 +68,7 @@ export const features = [
       "Follow Accepted problems, contest ratings, and daily practice with saved links and Telegram recaps.",
     coverage:
       "Codeforces activity uses public Accepted submissions. Large histories may be partial; saved counts reflect the available history and re-solves count once per day.",
-    readyMessage:
-      "You're set. Codeforces recaps will arrive automatically, using available public Accepted submissions.",
+    readyMessage: "Your Codeforces activity is ready on Dashboard.",
     dashboard: true,
     activity: true,
     recaps: true,

@@ -26,6 +26,12 @@ const origin = "https://tracker.example";
 const loginToken = "l".repeat(43);
 const sessionToken = "s".repeat(43);
 const account: Account = {
+  googleId: null,
+  googleEmail: null,
+  dailyGrindRegistrationId: null,
+  dailyGrindRegisteredAt: null,
+  dailyGrindPaused: false,
+  dailyGrindAgreementVersion: null,
   theme: null,
   timezone: "Asia/Kolkata",
   articlesRegisteredAt: null,

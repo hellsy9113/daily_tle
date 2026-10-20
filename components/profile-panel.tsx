@@ -58,7 +58,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
         <dl className="account-details">
           <div>
             <dt>Telegram ID</dt>
-            <dd className="mono">{profile.telegramId}</dd>
+            <dd className="mono">{profile.telegramId ?? "Not linked"}</dd>
           </div>
           <div>
             <dt>Account created</dt>
@@ -70,19 +70,15 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
             </dd>
           </div>
           <div>
-            <dt>Daily Grind connection</dt>
-            <dd>{profile.connected ? "Connected" : "Not connected"}</dd>
-          </div>
-          <div>
-            <dt>Telegram recaps</dt>
+            <dt>Google account</dt>
             <dd>
-              {profile.status === "active"
-                ? "Active"
-                : profile.status === "blocked"
-                  ? "Bot blocked"
-                  : profile.status === "paused"
-                    ? "Paused in Telegram"
-                    : "Awaiting connection"}
+              {profile.googleLinked ? (
+                (profile.googleEmail ?? "Linked")
+              ) : (
+                <a className="text-button" href="/api/auth/google/login?link=1">
+                  Link Google sign-in
+                </a>
+              )}
             </dd>
           </div>
         </dl>

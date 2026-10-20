@@ -42,7 +42,9 @@ describe("batched private feature status", () => {
       for (const [sql, params] of query.mock.calls) {
         expect(sql).toContain('"account_id"');
         expect(params).toContain(account.id);
-        for (const id of ids.filter((id) => id !== "notes" && id !== "articles"))
+        for (const id of ids.filter(
+          (id) => id !== "notes" && id !== "articles" && id !== "daily-grind",
+        ))
           expect(params).toContain(id);
       }
       expect(statuses.leetcode).toMatchObject({

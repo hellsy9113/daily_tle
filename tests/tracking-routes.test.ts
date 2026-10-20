@@ -18,6 +18,12 @@ vi.mock("@/lib/tracking/registration", () => ({
   createConnectionLink: vi.fn(),
 }));
 const ownAccount: Account = {
+  googleId: null,
+  googleEmail: null,
+  dailyGrindRegistrationId: null,
+  dailyGrindRegisteredAt: null,
+  dailyGrindPaused: false,
+  dailyGrindAgreementVersion: null,
   theme: null,
   timezone: "Asia/Kolkata",
   articlesRegisteredAt: null,
@@ -121,8 +127,8 @@ describe("authenticated tracking endpoints", () => {
       url: "https://t.me/bot?start=test",
       expiresAt: new Date().toISOString(),
     });
-    expect((await link(request({}))).status).toBe(200);
-    expect(createConnectionLink).toHaveBeenCalledWith(ownAccount);
+    expect((await link(request({ registrationId: "current-generation" }))).status).toBe(200);
+    expect(createConnectionLink).toHaveBeenCalledWith(ownAccount, "current-generation");
   });
   it("rejects cron calls without the separate bearer secret", async () => {
     vi.stubEnv("CRON_SECRET", "cron-test");

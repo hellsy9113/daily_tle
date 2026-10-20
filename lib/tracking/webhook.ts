@@ -1,5 +1,5 @@
 import "server-only";
-import { accountSetupPath, registeredFeatures, platformUsername } from "./platforms";
+import { registeredFeatures, platformUsername } from "./platforms";
 import { platformLabels, featureById } from "@/lib/features/catalog";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -72,19 +72,45 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
       .onConflictDoNothing()
       .returning();
     if (!inserted.length) return null;
-    const [account] = await transaction
+    const command =
+      "text" in update
+        ? /^\/(start|stop)(?:@([A-Za-z0-9_]+))?(?:\s+(\S+))?$/i.exec(update.text)
+        : null;
+    const token = command?.[1].toLowerCase() === "start" ? command[3] : undefined;
+    const [connection] =
+      token && validToken(token)
+        ? await transaction
+            .select()
+            .from(connectionTokens)
+            .where(
+              and(
+                eq(connectionTokens.tokenHash, hashToken(token)),
+                gt(connectionTokens.expiresAt, new Date()),
+              ),
+            )
+        : [];
+    const [telegramAccount] = await transaction
       .select()
       .from(accounts)
       .where(eq(accounts.telegramId, update.userId))
-      .limit(1)
-      .for("update");
-    const recapIds = account
-      ? registeredFeatures(account).filter((id) => featureById[id].recaps)
+      .limit(1);
+    const accountId = connection?.accountId ?? telegramAccount?.id;
+    const [account] = accountId
+      ? await transaction.select().from(accounts).where(eq(accounts.id, accountId)).for("update")
       : [];
-    const setupUrl = new URL(recapIds.length ? accountSetupPath(account) : "/feature", appUrl())
-      .href;
-    const setup = `Set up daily tracking at ${setupUrl}`;
-    if (!account || !recapIds.length) return "text" in update ? setup : null;
+    const setupUrl = new URL("/feature?platform=daily-grind", appUrl()).href;
+    const setup = `Enable Daily Grind at ${setupUrl}`;
+    if (!account?.dailyGrindRegistrationId) return "text" in update ? setup : null;
+    if (
+      (account.telegramId !== null && account.telegramId !== update.userId) ||
+      (telegramAccount && telegramAccount.id !== account.id)
+    )
+      return "text" in update
+        ? `This Telegram account belongs to a different Track.it account. Sign in with Telegram to manage that account at ${setupUrl}`
+        : null;
+    if (token && (!connection || connection.registrationId !== account.dailyGrindRegistrationId))
+      return `This connection link is invalid or expired. Get a new link at ${setupUrl}`;
+    const recapIds = registeredFeatures(account).filter((id) => featureById[id].recaps);
     if ("blocked" in update) {
       if (account.chatId !== update.chatId) return null;
       // Telegram may deliver the membership event after /start. Joining must
@@ -100,7 +126,6 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         .where(and(eq(deliveries.accountId, account.id), ne(deliveries.status, "sent")));
       return null;
     }
-    const command = /^\/(start|stop)(?:@([A-Za-z0-9_]+))?(?:\s+(\S+))?$/i.exec(update.text);
     if (
       !command ||
       (command[2] && command[2].toLowerCase() !== trackingBot().username.toLowerCase())
@@ -118,7 +143,8 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
         .where(and(eq(deliveries.accountId, account.id), ne(deliveries.status, "sent")));
       return "Daily recaps are paused for all services. Daily data is still saved. Send /start to resume recaps.";
     }
-    const token = command[3];
+    if (account.dailyGrindPaused)
+      return `Daily Grind is paused on the website. Resume it at ${setupUrl}`;
     if (token) {
       if (!validToken(token))
         return `This connection link is invalid or expired. Get a new link at ${setupUrl}`;
@@ -128,18 +154,20 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
           and(
             eq(connectionTokens.tokenHash, hashToken(token)),
             eq(connectionTokens.accountId, account.id),
+            eq(connectionTokens.registrationId, account.dailyGrindRegistrationId),
             gt(connectionTokens.expiresAt, new Date()),
           ),
         )
         .returning();
       if (!consumed.length)
-        return `This connection link is invalid or expired. Sign in with the same Telegram account and get a new link at ${setupUrl}`;
+        return `This connection link is invalid or expired. Get a new link at ${setupUrl}`;
     } else if (account.chatId !== update.chatId) {
       return setup;
     }
     await transaction
       .update(accounts)
       .set({
+        telegramId: update.userId,
         chatId: update.chatId,
         status: "active",
         connectedAt: account.connectedAt ?? new Date(),
@@ -152,7 +180,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
           : `${platformLabels[id]} ${platformUsername(account, id)}`,
       )
       .join(" and ");
-    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
+    return `Daily Grind is active${names ? ` for ${names}` : ". Enable a coding platform on Feature to receive recaps"}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
   });
 }
 

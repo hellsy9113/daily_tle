@@ -8,6 +8,7 @@ import type { FeatureId } from "@/lib/features/catalog";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { NotesSetup } from "./notes-setup";
 
+import { DailyGrindSetup } from "./daily-grind-setup";
 import { ArticlesSetup } from "./articles-setup";
 
 /** Setup is a component slot: future services can supply a form other than a username. */
@@ -17,6 +18,7 @@ interface FeatureView {
 }
 
 export const featureViews: Record<FeatureId, FeatureView> = {
+  "daily-grind": { Setup: DailyGrindSetup },
   notes: { Setup: NotesSetup },
   articles: { Setup: ArticlesSetup },
   leetcode: { Setup: TrackingPanel, Dashboard: LeetcodeActivityPanel },

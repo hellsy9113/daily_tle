@@ -16,12 +16,16 @@ export const metadata = { title: "Your activity · LeetCode Tracker" };
 
 export default async function DashboardPage({
   searchParams,
-}: { searchParams?: Promise<{ service?: string }> } = {}) {
+}: {
+  searchParams?: Promise<{ service?: string }>;
+}) {
   const selected = (await searchParams)?.service;
   const account = await serverAccount();
   if (!account) redirect("/feature");
   const registered = registeredFeatures(account);
   if (!registered.length) redirect("/feature");
+  if (!registered.some((id) => featureById[id].dashboard))
+    redirect("/feature?platform=daily-grind");
   const statuses = await trackingStatuses(account, registered);
   const activity = registered.filter((id) => featureById[id].recaps);
   const selectedActivity = activity.find((id) => id === selected);
@@ -58,7 +62,8 @@ export default async function DashboardPage({
         <ActivityDashboard
           initialStatus={statuses[first]!}
           statusPlatform={first}
-          botUrl={`https://t.me/${trackingBot().username}`}
+          botUrl={account.dailyGrindRegistrationId ? `https://t.me/${trackingBot().username}` : ""}
+          showBot={Boolean(account.dailyGrindRegistrationId) && !account.dailyGrindPaused}
         >
           {activity
             .filter((id) => !selectedActivity || id === selectedActivity)

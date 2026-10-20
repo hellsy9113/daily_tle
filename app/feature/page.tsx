@@ -57,12 +57,6 @@ export default async function FeaturePage({
         <div className="tracking-intro">
           <p className="lead">{selected.description}</p>
           <p className="field-help">{selected.coverage}</p>
-          {selected.id !== "notes" && selected.id !== "articles" && (
-            <p className="field-help">
-              Your dashboard is available after registration. Connect Daily Grind once for all
-              enabled services to receive morning Telegram recaps.
-            </p>
-          )}
         </div>
         <Setup key={selected.id} platform={selected.id} initialStatus={status} />
       </>
@@ -78,20 +72,28 @@ export default async function FeaturePage({
         <p className="muted">
           {unavailable
             ? "Please try again shortly."
-            : "Use the Telegram account where you want your daily recaps delivered. Your services are enabled separately after sign-in."}
+            : "Sign in with Google or Telegram. Enable only the services you want; Daily Grind is optional."}
         </p>
-        {params.error === "login" && (
+        {(params.error === "login" || params.error === "google-login") && (
           <p className="inline-error" role="alert">
             Sign-in expired or could not be verified. Please try again.
           </p>
         )}
         {selectedAvailable && !unavailable && !account ? (
-          <a
-            className="button primary full-width"
-            href={`/api/auth/telegram/login?next=${selected?.id ?? "feature"}`}
-          >
-            Continue with Telegram <span aria-hidden="true">→</span>
-          </a>
+          <div className="notes-actions">
+            <a
+              className="button primary full-width"
+              href={`/api/auth/google/login?next=${selected?.id ?? "feature"}`}
+            >
+              Continue with Google <span aria-hidden="true">→</span>
+            </a>
+            <a
+              className="button secondary full-width"
+              href={`/api/auth/telegram/login?next=${selected?.id ?? "feature"}`}
+            >
+              Continue with Telegram
+            </a>
+          </div>
         ) : (
           <Link className="button secondary full-width" href="/">
             Return home
@@ -131,7 +133,7 @@ export default async function FeaturePage({
         <p className="lead">
           {account
             ? "Enable services independently. Register once to use each service and manage it here."
-            : "Sign in with Telegram, then choose the services you want to use."}
+            : "Sign in with Google or Telegram, then choose the services you want to use."}
         </p>
       </div>
 

@@ -111,7 +111,7 @@ describe("Codeforces optional tracking", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("sends registration only after explicit consent and retains Daily Grind setup", async () => {
+  it("sends registration only after explicit consent and links to optional Daily Grind", async () => {
     await act(() =>
       root.render(
         <TrackingPanel
@@ -149,7 +149,7 @@ describe("Codeforces optional tracking", () => {
       }),
     );
     expect(container.textContent).toContain("Service enabled");
-    expect(container.textContent).toContain("Connect Telegram");
+    expect(container.textContent).toContain("Manage Daily Grind");
     expect(refresh).toHaveBeenCalledOnce();
   });
 
@@ -160,10 +160,10 @@ describe("Codeforces optional tracking", () => {
       codeforcesUsername: null,
     });
     vi.mocked(trackingStatuses).mockResolvedValueOnce({ leetcode: status });
-    let html = renderToStaticMarkup(await DashboardPage());
+    let html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).not.toContain("codeforces-activity-title");
     vi.mocked(trackingStatuses).mockResolvedValueOnce({ codeforces: { ...status, paused: true } });
-    html = renderToStaticMarkup(await DashboardPage());
+    html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).toContain("Your daily data is still saved");
     expect(html).toContain('href="/feature?platform=codeforces"');
     expect(html).not.toContain("codeforces-activity-title");
@@ -214,7 +214,7 @@ describe("Codeforces optional tracking", () => {
 
   it("loads only the Codeforces panel for a Codeforces-only account", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(progress));
-    await act(async () => root.render(await DashboardPage()));
+    await act(async () => root.render(await DashboardPage({})));
     expect(trackingStatuses).toHaveBeenCalledExactlyOnceWith(account, ["codeforces"]);
     expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(["/api/codeforces/cf_user"]);
     expect(container.querySelector('[aria-label="Codeforces progress by day"]')).not.toBeNull();

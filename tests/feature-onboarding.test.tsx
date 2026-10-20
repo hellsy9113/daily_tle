@@ -64,11 +64,11 @@ describe("service selection after Telegram sign-in", () => {
     expect(trackingStatuses).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("offers all six services without enabling one automatically", async () => {
+  it("offers all seven services without enabling one automatically", async () => {
     const html = await page();
     for (const platform of ["leetcode", "gfg", "hackerrank", "codeforces"])
       expect(html).toContain(`href="/feature?platform=${platform}"`);
-    expect(html.match(/Not enabled/g)).toHaveLength(6);
+    expect(html.match(/Not enabled/g)).toHaveLength(7);
     expect(html).not.toContain("<dialog");
     expect(html).not.toContain('name="username"');
     expect(trackingStatuses).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe("service selection after Telegram sign-in", () => {
     const html = await page("gfg");
     expect(html).toContain("lc_user");
     expect(html).toContain("Manage service");
-    expect(html.match(/Not enabled/g)).toHaveLength(5);
+    expect(html.match(/Not enabled/g)).toHaveLength(6);
     expect(html).toContain('for="gfg-username"');
     expect(html).not.toContain('for="leetcode-username"');
   });
@@ -106,7 +106,7 @@ describe("service selection after Telegram sign-in", () => {
     });
     const html = await page("leetcode");
     expect(html).toContain("Service enabled");
-    expect(html).toContain("Connect Telegram");
+    expect(html).toContain("Manage Daily Grind");
     expect(html).not.toContain('name="username"');
   });
   it("returns unknown service selections to the catalog", async () => {

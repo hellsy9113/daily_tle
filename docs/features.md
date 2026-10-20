@@ -1,6 +1,6 @@
 # Add an opt-in feature
 
-The shared workflow is sign in → register → use → pause/resume → revoke and delete.
+The shared workflow is Google or Telegram sign-in → register → use → pause/resume → revoke and delete.
 Keep common behavior here and feature-specific behavior in the feature's domain modules.
 
 Feature cards open registration and management in a modal dialog. Existing
@@ -51,6 +51,13 @@ Daily Articles is another non-activity feature with shared catalog storage and a
 subscriptions, selections, and seen history. Its registration body is `{ topics }`,
 with one or two supported topic IDs. It supplies a custom setup, feed panel, and
 transactional lifecycle adapter. See [Daily Articles](articles.md).
+
+Daily Grind is an optional Telegram delivery feature with its own account-held registration
+generation, consent version, timestamp, and pause flag. Enabling a coding platform does
+not enable Daily Grind. Connected legacy accounts are migrated as opted in. Google-only
+accounts can use every website feature without a Telegram identity. Daily Grind owns
+its bot links, delivery state, and revocation; platform activity remains independent.
+See [authentication and Daily Grind](authentication.md).
 
 ## HTTP contract
 

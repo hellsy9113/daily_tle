@@ -124,7 +124,7 @@ describe("GFG feature onboarding and dashboard", () => {
     vi.mocked(trackingStatuses).mockResolvedValue({
       leetcode: { ...status, username: "leetcode_user" },
     });
-    const html = renderToStaticMarkup(await DashboardPage());
+    const html = renderToStaticMarkup(await DashboardPage({}));
     expect(html).not.toContain("gfg-activity-title");
     expect(html).not.toContain("Enable GFG tracking");
     expect(html).toContain('href="/feature"');
@@ -174,7 +174,7 @@ describe("GFG feature onboarding and dashboard", () => {
     vi.mocked(fetch).mockImplementation(async (path) =>
       Response.json(String(path).startsWith("/api/gfg/") ? progress : status),
     );
-    const page = await DashboardPage();
+    const page = await DashboardPage({});
     await act(() => root.render(page));
     expect(vi.mocked(fetch).mock.calls.map((call) => call[0])).not.toContain(
       "/api/tracking/activity",

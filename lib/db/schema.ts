@@ -32,7 +32,13 @@ export const accounts = tracking.table(
     theme: text("theme").$type<"light" | "dark">(),
     articlesRegisteredAt: time("articles_registered_at"),
     notesRegisteredAt: time("notes_registered_at"),
-    telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
+    telegramId: bigint("telegram_id", { mode: "number" }).unique(),
+    googleId: text("google_id").unique(),
+    googleEmail: text("google_email"),
+    dailyGrindRegistrationId: uuid("daily_grind_registration_id"),
+    dailyGrindRegisteredAt: time("daily_grind_registered_at"),
+    dailyGrindAgreementVersion: text("daily_grind_agreement_version"),
+    dailyGrindPaused: boolean("daily_grind_paused").notNull().default(false),
     leetcodeUsername: text("leetcode_username"),
     gfgUsername: text("gfg_username"),
     gfgUsernameKey: text("gfg_username_key").generatedAlwaysAs(sql`lower(gfg_username)`),
@@ -146,6 +152,7 @@ export const loginAttempts = tracking.table("login_attempts", {
 });
 
 export const connectionTokens = tracking.table("connection_tokens", {
+  registrationId: uuid("registration_id").notNull(),
   tokenHash: text("token_hash").primaryKey(),
   accountId: uuid("account_id")
     .notNull()
@@ -524,4 +531,14 @@ export const articleSourceState = tracking.table("article_source_state", {
   robotsCheckedAt: time("robots_checked_at"),
   robotsAllowed: boolean("robots_allowed"),
   robotsDelaySeconds: integer("robots_delay_seconds").notNull().default(0),
+});
+
+export const googleLoginAttempts = tracking.table("google_login_attempts", {
+  tokenHash: text("token_hash").primaryKey(),
+  state: text("state").notNull(),
+  nonce: text("nonce").notNull(),
+  verifier: text("verifier").notNull(),
+  expiresAt: time("expires_at").notNull(),
+  linkAccountId: uuid("link_account_id").references(() => accounts.id),
+  sessionHash: text("session_hash"),
 });

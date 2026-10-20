@@ -9,7 +9,7 @@ import { queryBotUrl } from "@/lib/telegram/bot-link";
 export const metadata = {
   title: "Track.it · Your coding practice, together",
   description:
-    "Sign in with Telegram and choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Follow your practice with activity calendars and daily recaps.",
+    "Sign in with Google or Telegram and choose LeetCode, GeeksforGeeks, HackerRank, or Codeforces tracking. Follow your practice with activity calendars and daily recaps.",
 };
 
 const features = [
@@ -31,7 +31,7 @@ const features = [
     number: "03",
     title: "Your morning, already organised.",
     description:
-      "Daily Grind sends yesterday's available problems to Telegram. When every enabled platform has no matches, you receive one shared reminder.",
+      "Enable the optional Daily Grind feature to send yesterday's available problems to Telegram. When every enabled platform has no matches, you receive one shared reminder.",
     detail: "Daily recaps · Pause or resume in the bot",
   },
 ];
@@ -62,8 +62,11 @@ export default async function Home() {
               solving.
             </p>
             <div className="landing-actions">
-              <a className="button primary" href="/api/auth/telegram/login">
-                Sign in with Telegram <span aria-hidden="true">→</span>
+              <a className="button primary" href="/api/auth/google/login">
+                Sign in with Google <span aria-hidden="true">→</span>
+              </a>
+              <a className="button secondary" href="/api/auth/telegram/login">
+                Sign in with Telegram
               </a>
               <a className="landing-text-link" href="#demo">
                 Try the live demo <span aria-hidden="true">↓</span>
@@ -113,8 +116,8 @@ export default async function Home() {
                 01
               </span>
               <div>
-                <h3>Sign in with Telegram</h3>
-                <p>Use the account where you want your morning recap delivered.</p>
+                <h3>Sign in with Google or Telegram</h3>
+                <p>Choose Google or Telegram. You can enable optional Telegram recaps later.</p>
               </div>
             </li>
             <li>
@@ -136,8 +139,8 @@ export default async function Home() {
               <div>
                 <h3>Explore your progress</h3>
                 <p>
-                  Your service is ready after registration. Connect Daily Grind once to receive
-                  morning recaps for all your enabled services.
+                  Your service is ready after registration. Enable Daily Grind and connect Telegram
+                  to receive morning recaps for all your enabled services.
                 </p>
               </div>
             </li>

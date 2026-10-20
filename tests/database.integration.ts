@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { registerDailyGrind, manageDailyGrind } from "@/lib/daily-grind/service";
 import { readFile, readdir } from "node:fs/promises";
 import postgres from "postgres";
 import { and, eq } from "drizzle-orm";
@@ -297,7 +299,13 @@ afterAll(async () => {
 async function account(telegramId = 101, username?: string) {
   const [result] = await db()
     .insert(accounts)
-    .values({ telegramId, leetcodeUsername: username, registeredAt: username ? now : null })
+    .values({
+      telegramId,
+      leetcodeUsername: username,
+      registeredAt: username ? now : null,
+      dailyGrindRegistrationId: randomUUID(),
+      dailyGrindRegisteredAt: now,
+    })
     .returning();
   return result;
 }
@@ -438,7 +446,7 @@ describe("platform lifecycle and permanent deletion", () => {
     await registerGfg(user, "gfg_101");
     const summary = await profileSummary(await freshAccount(user.id));
     expect(summary.theme).toBe("dark");
-    expect(summary.services.filter((service) => service.username)).toHaveLength(2);
+    expect(summary.services.filter((service) => service.username)).toHaveLength(3);
     const service = (
       await db().select().from(platformServices).where(eq(platformServices.platform, "gfg"))
     )[0];
@@ -560,7 +568,7 @@ describe("platform lifecycle and permanent deletion", () => {
       expect((await accountForToken(token))?.id).toBe(user.id);
       expect(
         (await profileSummary(remaining)).services.filter((entry) => entry.username),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
       expect(await ownRows(acceptedActivity, other.id)).toHaveLength(1);
       expect(
         await db().select().from(activityGoals).where(eq(activityGoals.accountId, user.id)),
@@ -1125,7 +1133,7 @@ describe("Codeforces registration, accepted history, and Daily Grind lifecycle",
     const user = await registeredAccount();
     expect(
       await processTrackingUpdate({ updateId: 99, userId: 101, chatId: 101, text: "/start bad" }),
-    ).toContain("/feature?platform=codeforces");
+    ).toContain("/feature?platform=daily-grind");
     const link = await createConnectionLink(user);
     expect(
       await processTrackingUpdate({
@@ -1421,7 +1429,7 @@ describe("separate HackerRank registration, calendar, and reports", () => {
         chatId: 101,
         text: "/start invalid-token",
       }),
-    ).toContain("/feature?platform=hackerrank");
+    ).toContain("/feature?platform=daily-grind");
     const link = await createConnectionLink(user);
     expect(
       await processTrackingUpdate({
@@ -2114,7 +2122,7 @@ describe("Telegram account binding", () => {
       chatId: 102,
       text: `/start ${token}`,
     });
-    expect(reply).toContain("same Telegram account");
+    expect(reply).toContain("different Track.it account");
     expect(
       await processTrackingUpdate({
         updateId: 2,
@@ -2169,7 +2177,7 @@ describe("Telegram account binding", () => {
     await account(101, "owner");
     expect(
       await processTrackingUpdate({ updateId: 1, userId: 101, chatId: 101, text: "/start" }),
-    ).toContain("Set up");
+    ).toContain("Enable Daily Grind");
     expect((await db().select().from(accounts))[0].chatId).toBeNull();
   });
   it("pauses pending deliveries and resumes only the same fixed account", async () => {
@@ -2376,6 +2384,8 @@ describe("durable delivery processing", () => {
       .values(
         Array.from({ length: 100 }, (_, i) => ({
           telegramId: 1000 + i,
+          dailyGrindRegistrationId: randomUUID(),
+          dailyGrindRegisteredAt: now,
           chatId: 1000 + i,
           leetcodeUsername: `batch_${i}`,
           status: "active" as const,
@@ -3688,5 +3698,176 @@ describe("account-triggered article catalog refresh", () => {
     expect(
       await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
     ).toMatchObject({ mode: "catalog", sources: 0 });
+  });
+});
+
+describe("Google accounts and optional Daily Grind", () => {
+  async function googleAccount(subject = "google-reader") {
+    const [user] = await db()
+      .insert(accounts)
+      .values({
+        googleId: subject,
+        googleEmail: "reader@example.com",
+        leetcodeUsername: "google-coder",
+        registeredAt: now,
+      })
+      .returning();
+    return user;
+  }
+  it("creates a Google account without Telegram or Daily Grind and collects activity without delivery", async () => {
+    const user = await googleAccount();
+    expect(user.telegramId).toBeNull();
+    expect(user.dailyGrindRegistrationId).toBeNull();
+    await expect(createConnectionLink(user)).rejects.toMatchObject({ status: 409 });
+    await prepareDeliveries(now);
+    expect(await db().select().from(deliveries)).toHaveLength(0);
+    const [job] = await db().select().from(dailyCollections);
+    expect(job.accountId).toBe(user.id);
+    expect(job.recapEligible).toBe(false);
+  });
+  it("requires consent and isolates registration, connection, pause and revocation", async () => {
+    const user = await googleAccount();
+    const cookie = `tracking_session=${await createSession(user.id)}`;
+    const request = (body: unknown) =>
+      new Request("http://localhost:3000/api/tracking/services/daily-grind", {
+        method: "POST",
+        headers: { cookie, origin: "http://localhost:3000", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    expect(
+      (
+        await handleFeature(
+          request({ acceptedAgreement: false, agreementVersion: "1" }),
+          "daily-grind",
+        )
+      ).status,
+    ).toBe(400);
+    const response = await handleFeature(
+      request({ acceptedAgreement: true, agreementVersion: "1" }),
+      "daily-grind",
+    );
+    expect(response.status).toBe(201);
+    const status = await response.json();
+    const [registered] = await db().select().from(accounts).where(eq(accounts.id, user.id));
+    expect(registered.dailyGrindAgreementVersion).toBe("1");
+    const link = await createConnectionLink(registered);
+    const token = new URL(link.url).searchParams.get("start")!;
+    expect(
+      await processTrackingUpdate({
+        updateId: 80001,
+        userId: 505,
+        chatId: 505,
+        text: `/start ${token}`,
+      }),
+    ).toContain("Daily Grind is active");
+    const [connected] = await db().select().from(accounts).where(eq(accounts.id, user.id));
+    expect(connected).toMatchObject({
+      telegramId: 505,
+      chatId: 505,
+      googleId: "google-reader",
+      status: "active",
+    });
+    await prepareDeliveries(now);
+    expect(await db().select().from(deliveries)).toHaveLength(1);
+    await manageDailyGrind(user.id, status.registrationId, true);
+    expect((await db().select().from(deliveries))[0].status).toBe("cancelled");
+    expect(
+      await processTrackingUpdate({ updateId: 80002, userId: 505, chatId: 505, text: "/start" }),
+    ).toContain("paused on the website");
+    await expect(createConnectionLink(connected)).rejects.toMatchObject({ status: 423 });
+    const resumed = await manageDailyGrind(user.id, status.registrationId, false);
+    const staleLink = await createConnectionLink(resumed);
+    const revoked = await manageDailyGrind(user.id, status.registrationId, "revoke");
+    expect(revoked).toMatchObject({
+      dailyGrindRegistrationId: null,
+      chatId: null,
+      telegramId: 505,
+      googleId: "google-reader",
+      leetcodeUsername: "google-coder",
+    });
+    expect(await db().select().from(deliveries)).toHaveLength(0);
+    expect(await db().select().from(connectionTokens)).toHaveLength(0);
+    expect(await db().select().from(platformServices)).toHaveLength(1);
+    expect(await accountForToken(cookie.slice("tracking_session=".length))).not.toBeNull();
+    const next = await registerDailyGrind(revoked);
+    expect(next.registrationId).not.toBe(status.registrationId);
+    await expect(manageDailyGrind(user.id, status.registrationId, false)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(createConnectionLink(revoked, status.registrationId)).rejects.toMatchObject({
+      status: 409,
+    });
+    const staleToken = new URL(staleLink.url).searchParams.get("start");
+    expect(
+      await processTrackingUpdate({
+        updateId: 80003,
+        userId: 505,
+        chatId: 505,
+        text: `/start ${staleToken}`,
+      }),
+    ).toContain("invalid or expired");
+    expect(
+      (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].chatId,
+    ).toBeNull();
+  });
+  it("refuses a Telegram identity already belonging to another account without consuming the link", async () => {
+    await account(101);
+    const user = await googleAccount();
+    const status = await registerDailyGrind(user);
+    const link = await createConnectionLink(user, status.registrationId!);
+    const token = new URL(link.url).searchParams.get("start")!;
+    expect(
+      await processTrackingUpdate({
+        updateId: 80004,
+        userId: 101,
+        chatId: 101,
+        text: `/start ${token}`,
+      }),
+    ).toContain("different Track.it account");
+    expect(await db().select().from(connectionTokens)).toHaveLength(1);
+    expect(
+      (await db().select().from(accounts).where(eq(accounts.id, user.id)))[0].telegramId,
+    ).toBeNull();
+  });
+});
+
+describe("Google and Daily Grind migration", () => {
+  it("retains connected legacy accounts as opted in and leaves unconnected accounts opted out", async () => {
+    const upgrade = `${namespace}_auth_upgrade`;
+    try {
+      const files = (await readdir("migrations")).filter((name) => name.endsWith(".sql")).sort();
+      for (const filename of files.filter((name) => name < "0015")) {
+        await admin.unsafe(
+          (await readFile(`migrations/${filename}`, "utf8")).replace(/\btracking\b/g, upgrade),
+        );
+      }
+      await admin.unsafe(
+        `INSERT INTO ${upgrade}.accounts (telegram_id, leetcode_username, registered_at, chat_id, connected_at, status) VALUES (601, 'legacy-connected', now(), 601, now(), 'active')`,
+      );
+      await admin.unsafe(`INSERT INTO ${upgrade}.accounts (telegram_id) VALUES (602)`);
+      await admin.unsafe(
+        `INSERT INTO ${upgrade}.connection_tokens (token_hash, account_id, expires_at) SELECT repeat('a',64), id, now() + interval '15 minutes' FROM ${upgrade}.accounts WHERE telegram_id=602`,
+      );
+      await admin.unsafe(
+        (await readFile("migrations/0015_google_and_daily_grind.sql", "utf8")).replace(
+          /\btracking\b/g,
+          upgrade,
+        ),
+      );
+      const rows = await admin.unsafe(`SELECT * FROM ${upgrade}.accounts ORDER BY telegram_id`);
+      expect(rows[0].daily_grind_registration_id).toBeTruthy();
+      expect(rows[0].daily_grind_registered_at).toEqual(rows[0].connected_at);
+      expect(rows[0].daily_grind_agreement_version).toBeNull();
+      expect(rows[0].status).toBe("active");
+      expect(rows[1].daily_grind_registration_id).toBeNull();
+      expect(await admin.unsafe(`SELECT * FROM ${upgrade}.connection_tokens`)).toHaveLength(0);
+      const google = await admin.unsafe(
+        `INSERT INTO ${upgrade}.accounts (google_id, google_email) VALUES ('google-only', 'test@example.com') RETURNING *`,
+      );
+      expect(google[0].telegram_id).toBeNull();
+      expect(google[0].daily_grind_registration_id).toBeNull();
+    } finally {
+      await admin.unsafe(`DROP SCHEMA IF EXISTS ${upgrade} CASCADE`);
+    }
   });
 });

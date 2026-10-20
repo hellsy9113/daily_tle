@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DailyGrindSetup } from "@/components/daily-grind-setup";
 import { TrackingPanel } from "@/components/tracking-panel";
 import { platformLabels } from "@/lib/features/catalog";
 import type { TrackingStatus } from "@/lib/tracking/types";
@@ -43,6 +44,14 @@ async function render(
 ) {
   await act(() => root.render(<TrackingPanel initialStatus={status} platform={platform} />));
 }
+const dailyGrind: TrackingStatus = {
+  ...initial,
+  username: "Telegram recaps",
+  registrationId: "10000000-0000-4000-8000-000000000001",
+};
+async function renderDailyGrind(status: TrackingStatus = dailyGrind) {
+  await act(() => root.render(<DailyGrindSetup initialStatus={status} />));
+}
 async function click(text: string) {
   const button = [...container.querySelectorAll("button")].find((item) =>
     item.textContent?.includes(text),
@@ -70,6 +79,72 @@ async function submit() {
   await click("Accept & register");
 }
 
+describe("optional Daily Grind enrollment", () => {
+  it("requires delivery consent before enabling and fences connection requests to its generation", async () => {
+    await renderDailyGrind(initial);
+    const enable = () =>
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Enable Daily Grind",
+      )!;
+    expect(enable().disabled).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    await act(() => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(dailyGrind));
+    await click("Enable Daily Grind");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/tracking/services/daily-grind",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ agreementVersion: "1", acceptedAgreement: true }),
+      }),
+    );
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        url: "https://t.me/test_bot?start=personal",
+        expiresAt: new Date(Date.now() + 900000).toISOString(),
+      }),
+    );
+    await click("Connect Telegram");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/tracking/telegram-link",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ registrationId: dailyGrind.registrationId }),
+      }),
+    );
+  });
+  it("pauses and revokes Daily Grind separately and requires fresh consent afterward", async () => {
+    await renderDailyGrind();
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...dailyGrind, paused: true }));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Pause Daily Grind"]')!.click(),
+    );
+    expect(container.textContent).toContain("Paused on the website");
+    expect(container.textContent).not.toContain("Connect Telegram");
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(dailyGrind));
+    await act(() =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Resume Daily Grind"]')!.click(),
+    );
+    await click("Revoke & delete data");
+    expect(container.querySelector("dialog")!.textContent).toContain(
+      "Coding-platform activity, Notes, Articles",
+    );
+    await act(() =>
+      container.querySelector<HTMLInputElement>('dialog input[type="checkbox"]')!.click(),
+    );
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(initial));
+    await click("Revoke & permanently delete");
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(
+      false,
+    );
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Enable Daily Grind",
+      )!.disabled,
+    ).toBe(true);
+  });
+});
+
 describe("registration and connection interactions", () => {
   it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
     "keeps Feature open after %s registration with an existing bot connection",
@@ -93,31 +168,26 @@ describe("registration and connection interactions", () => {
       expect(container.textContent).toContain("Service enabled");
     },
   );
-  it.each(["leetcode", "gfg", "hackerrank", "codeforces"] as const)(
-    "updates a %s connection in place when the user returns from Telegram",
-    async (platform) => {
-      await render({ ...initial, username: "gfg_user" }, platform);
-      vi.mocked(fetch).mockResolvedValueOnce(
-        Response.json({
-          url: "https://t.me/test_bot?start=token",
-          expiresAt: new Date(Date.now() + 900_000).toISOString(),
-        }),
-      );
-      await click("Connect Telegram");
-      vi.mocked(fetch).mockResolvedValueOnce(
-        Response.json({ ...initial, username: "gfg_user", connected: true, status: "active" }),
-      );
-      await act(() => window.dispatchEvent(new Event("focus")));
-      expect(fetch).toHaveBeenLastCalledWith(
-        `/api/tracking/services/${platform}`,
-        expect.objectContaining({ cache: "no-store" }),
-      );
-      expect(container.textContent).toContain("Logged in");
-      expect(container.textContent).toContain("Connected");
-      expect(container.querySelector('a[href="/dashboard"]')).toBeNull();
-      expect(replace).not.toHaveBeenCalled();
-    },
-  );
+  it("updates Daily Grind in place on return from Telegram", async () => {
+    await renderDailyGrind();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        url: "https://t.me/test_bot?start=token",
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      }),
+    );
+    await click("Connect Telegram");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ ...dailyGrind, connected: true, status: "active" }),
+    );
+    await act(() => window.dispatchEvent(new Event("focus")));
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/tracking/services/daily-grind",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(container.textContent).toContain("Telegram connected");
+    expect(replace).not.toHaveBeenCalled();
+  });
   it.each([Response.json(null, { status: 502 }), new Response("Bad Gateway", { status: 502 })])(
     "shows safe retry feedback for an invalid error response",
     async (response) => {
@@ -135,7 +205,7 @@ describe("registration and connection interactions", () => {
     },
   );
   it("cancels connection checks and prevents navigation after leaving setup", async () => {
-    await render({ ...initial, username: "my_username" });
+    await renderDailyGrind();
     let finish!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(
       () =>
@@ -143,13 +213,13 @@ describe("registration and connection interactions", () => {
           finish = resolve;
         }),
     );
-    await click("check connection");
+    await click("Check connection");
     const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
     await act(() => root.render(null));
     await act(() =>
       finish(
         Response.json({
-          ...initial,
+          ...dailyGrind,
           username: "my_username",
           connected: true,
           status: "active",
@@ -196,7 +266,7 @@ describe("registration and connection interactions", () => {
       toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"],
     });
     vi.setSystemTime(new Date("2026-10-13T03:00:00Z"));
-    await render({ ...initial, username: "my_username" });
+    await renderDailyGrind();
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
         url: "https://t.me/test_bot?start=private-token",
@@ -209,15 +279,15 @@ describe("registration and connection interactions", () => {
     expect(container.querySelector('a[href^="https://t.me/"]')).toBeNull();
     expect(container.textContent).toContain("Create new connection link");
     vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+      Response.json({ ...dailyGrind, username: "my_username", connected: true, status: "active" }),
     );
-    await click("check connection");
-    expect(container.textContent).toContain("Connected");
-    expect(container.textContent).toContain("No daily commands needed");
+    await click("Check connection");
+    expect(container.textContent).toContain("Telegram connected");
+    expect(container.textContent).toContain("Daily recaps");
     expect(replace).not.toHaveBeenCalled();
   });
   it("checks on return from Telegram and keeps the service page open", async () => {
-    await render({ ...initial, username: "my_username" });
+    await renderDailyGrind();
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
         url: "https://t.me/test_bot?start=token",
@@ -226,18 +296,18 @@ describe("registration and connection interactions", () => {
     );
     await click("Connect Telegram");
     vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+      Response.json({ ...dailyGrind, username: "my_username", connected: true, status: "active" }),
     );
     await act(() => window.dispatchEvent(new Event("focus")));
     expect(fetch).toHaveBeenLastCalledWith(
-      "/api/tracking/services/leetcode",
+      "/api/tracking/services/daily-grind",
       expect.objectContaining({ cache: "no-store" }),
     );
     expect(replace).not.toHaveBeenCalled();
   });
   it("polls briefly while waiting for Start and stops after connecting", async () => {
     vi.useFakeTimers();
-    await render({ ...initial, username: "my_username" });
+    await renderDailyGrind();
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
         url: "https://t.me/test_bot?start=token",
@@ -246,7 +316,7 @@ describe("registration and connection interactions", () => {
     );
     await click("Connect Telegram");
     vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ ...initial, username: "my_username", connected: true, status: "active" }),
+      Response.json({ ...dailyGrind, username: "my_username", connected: true, status: "active" }),
     );
     await act(() => vi.advanceTimersByTime(5000));
     expect(replace).not.toHaveBeenCalled();

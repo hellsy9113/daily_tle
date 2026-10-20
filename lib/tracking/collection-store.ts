@@ -16,7 +16,7 @@ export async function prepareCollections(tx: Transaction, now: Date) {
   await tx.execute(sql`
     INSERT INTO ${dailyCollections} (account_id, registration_id, platform, report_date, period_start, period_end, recap_eligible, next_attempt_at)
     SELECT a.id, s.registration_id, s.platform, ${reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
-      coalesce((a.status = 'active' AND NOT s.paused AND a.chat_id IS NOT NULL
+      coalesce((a.status = 'active' AND a.daily_grind_registration_id IS NOT NULL AND NOT a.daily_grind_paused AND NOT s.paused AND a.chat_id IS NOT NULL
         AND a.connected_at <= ${cutoff.toISOString()}::timestamptz
         AND CASE s.platform WHEN 'codeforces' THEN a.codeforces_registered_at WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${cutoff.toISOString()}::timestamptz), false),
       ${now.toISOString()}::timestamptz
@@ -108,6 +108,8 @@ export async function completeCollection(
       leased.recapEligible &&
       !service.paused &&
       account.status === "active" &&
+      Boolean(account.dailyGrindRegistrationId) &&
+      !account.dailyGrindPaused &&
       account.chatId !== null
     ) {
       await tx

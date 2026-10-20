@@ -2,13 +2,13 @@
 
 ## Daily tracking setup
 
-Users sign in with Telegram and land on `/feature` to choose LeetCode,
+Users sign in with Google or Telegram and land on `/feature` to choose LeetCode,
 GeeksforGeeks, HackerRank, or Codeforces. Each service is enabled independently by registering
 one public username that stays fixed until revocation. Registration makes that service's dashboard panel
 available immediately; no other service is enabled automatically. The public
 navigation shows **Sign in**; **Feature**, **Dashboard**, and **Profile** appear after sign-in. Sign out is on Profile.
 
-Connect Daily Grind once through a personal Telegram link and tap **Start** to
+Enable the optional **Daily Grind** service on Feature, then connect through a personal Telegram link and tap **Start** to
 receive recaps for all enabled services. Yesterday's available problems arrive at
 **8:30–9:30 a.m. Asia/Kolkata**. Failed or interrupted reports are retried during
 **9:30–10:30 a.m.** Daily commands are unnecessary; `/stop` pauses delivery and
@@ -114,6 +114,10 @@ the Telegram account, bot connection, and sessions.
 Each service links to its Feature page for registration, Pause/Resume, and
 **Revoke & delete data**. The theme is saved to the account
 and rendered on the root HTML before hydration; until a choice is saved, device colors apply.
+
+Daily Grind has its own Feature registration, pause, and revoke controls. Website tracking
+works without the bot. Existing connected accounts stay opted in. Google OAuth and
+identity linking are documented in [authentication](authentication.md).
 
 The selected Feature page has Pause/Resume controls. Dashboard headers and paused
 placeholders link to that page. Pausing hides

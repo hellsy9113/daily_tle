@@ -20,6 +20,8 @@ const status = {
 } as const;
 const profile: ProfileSummary = {
   telegramId: 101,
+  googleEmail: null,
+  googleLinked: false,
   createdAt: "2026-10-18T01:00:00Z",
   connected: true,
   status: "active",

@@ -24,26 +24,23 @@ describe("tracking UI states", () => {
     expect(html).toContain("Continue to agreement");
     expect(html).toContain("disabled");
   });
-  it("renders registered usernames read-only with one connection action", () => {
+  it("renders registered usernames read-only with a link to optional recaps", () => {
     const html = renderToStaticMarkup(
       <TrackingPanel initialStatus={{ ...initial, username: "registered_user" }} />,
     );
     expect(html).toContain("registered_user");
     expect(html).toContain("Locked");
     expect(html).not.toContain('name="username"');
-    expect(html).toContain("Connect Telegram");
+    expect(html).toContain('href="/feature?platform=daily-grind"');
   });
   it.each(["active", "paused", "blocked"] as const)("renders the %s connection state", (status) => {
     const html = renderToStaticMarkup(
       <TrackingPanel initialStatus={{ ...initial, username: "user", connected: true, status }} />,
     );
-    expect(html).toContain(
-      status === "active" ? "Connected" : status === "paused" ? "Paused" : "Blocked",
-    );
-    expect(html).toContain("/stop");
+    expect(html).toContain("Telegram recaps are optional");
     expect(html).not.toContain("Connect Telegram");
   });
-  it("shows report failure without exposing infrastructure details", () => {
+  it("keeps report status out of platform setup", () => {
     const html = renderToStaticMarkup(
       <TrackingPanel
         initialStatus={{
@@ -55,7 +52,7 @@ describe("tracking UI states", () => {
         }}
       />,
     );
-    expect(html).toContain("Could not deliver");
+    expect(html).not.toContain("Latest report");
     expect(html).not.toMatch(/lease|database|postgres/i);
   });
   it("provides navigation, one main landmark and a profile link for authenticated users", () => {

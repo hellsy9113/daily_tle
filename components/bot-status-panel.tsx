@@ -57,7 +57,7 @@ export function BotStatusPanel({
                 Open bot <span aria-hidden="true">↗</span>
               </a>
             ) : (
-              <a className="button secondary" href={featurePaths[statusPlatform]}>
+              <a className="button secondary" href={featurePaths["daily-grind"]}>
                 Connect Daily Grind <span aria-hidden="true">→</span>
               </a>
             )}

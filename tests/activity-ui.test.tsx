@@ -58,7 +58,12 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 const dashboard = (state = status) => (
-  <ActivityDashboard initialStatus={state} botUrl="https://t.me/test_bot" statusPlatform="leetcode">
+  <ActivityDashboard
+    showBot
+    initialStatus={state}
+    botUrl="https://t.me/test_bot"
+    statusPlatform="leetcode"
+  >
     <LeetcodeActivityPanel username="fixed-user" />
   </ActivityDashboard>
 );
@@ -115,9 +120,9 @@ describe("activity dashboard", () => {
     const disconnected = { ...status, connected: false, status: "pending" as const };
     responses(activity, disconnected);
     await act(() => root.render(dashboard(disconnected)));
-    expect(container.querySelector('a[href="/feature?platform=leetcode"]')?.textContent).toContain(
-      "Connect Daily Grind",
-    );
+    expect(
+      container.querySelector('a[href="/feature?platform=daily-grind"]')?.textContent,
+    ).toContain("Connect Daily Grind");
     expect(container.textContent).toContain("Your service is enabled");
     expect(container.textContent).not.toContain("Scheduled for the next morning");
     expect(container.querySelector('[aria-label="Accepted problems by day"]')).not.toBeNull();
@@ -127,6 +132,7 @@ describe("activity dashboard", () => {
     await act(() =>
       root.render(
         <ActivityDashboard
+          showBot
           initialStatus={status}
           botUrl="https://t.me/test_bot"
           statusPlatform="gfg"
