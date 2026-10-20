@@ -30,6 +30,7 @@ export const accounts = tracking.table(
     id: uuid("id").primaryKey().defaultRandom(),
     timezone: text("timezone").notNull().default("Asia/Kolkata"),
     theme: text("theme").$type<"light" | "dark">(),
+    articlesRegisteredAt: time("articles_registered_at"),
     notesRegisteredAt: time("notes_registered_at"),
     telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
     leetcodeUsername: text("leetcode_username"),
@@ -442,4 +443,84 @@ export const notesLoginLimits = tracking.table("notes_login_limits", {
   key: text("key").primaryKey(),
   attempts: integer("attempts").notNull(),
   resetAt: time("reset_at").notNull(),
+});
+
+export const articleCatalog = tracking.table("article_catalog", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  canonicalUrl: text("canonical_url").notNull().unique(),
+  title: text("title").notNull(),
+  source: text("source").notNull(),
+  publishedAt: time("published_at"),
+  topics: text("topics").array().$type<import("@/lib/articles/topics").ArticleTopic[]>().notNull(),
+  summary: text("summary").notNull().default(""),
+  evergreen: boolean("evergreen").notNull().default(false),
+  ingestedAt: time("ingested_at").notNull().defaultNow(),
+});
+export const articleSubscriptions = tracking.table("article_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("account_id")
+    .notNull()
+    .unique()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  topics: text("topics").array().$type<import("@/lib/articles/topics").ArticleTopic[]>().notNull(),
+  paused: boolean("paused").notNull().default(false),
+  createdAt: time("created_at").notNull().defaultNow(),
+});
+export const articleFeedDays = tracking.table(
+  "article_feed_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => articleSubscriptions.id, { onDelete: "cascade" }),
+    date: date("feed_date").notNull(),
+    topics: text("topics")
+      .array()
+      .$type<import("@/lib/articles/topics").ArticleTopic[]>()
+      .notNull(),
+    generatedAt: time("generated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("article_feed_days_subscription_date_key").on(table.subscriptionId, table.date),
+  ],
+);
+export const articleFeedItems = tracking.table(
+  "article_feed_items",
+  {
+    dayId: uuid("day_id").notNull(),
+    subscriptionId: uuid("subscription_id").notNull(),
+    articleId: uuid("article_id")
+      .notNull()
+      .references(() => articleCatalog.id),
+    position: integer("position").notNull(),
+    topic: text("topic").$type<import("@/lib/articles/topics").ArticleTopic>().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.dayId, table.position] })],
+);
+export const articleSeen = tracking.table(
+  "article_seen",
+  {
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => articleSubscriptions.id, { onDelete: "cascade" }),
+    articleId: uuid("article_id")
+      .notNull()
+      .references(() => articleCatalog.id),
+    selectedAt: time("selected_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.subscriptionId, table.articleId] })],
+);
+export const articleSourceState = tracking.table("article_source_state", {
+  id: text("id").primaryKey(),
+  etag: text("etag"),
+  lastModified: text("last_modified"),
+  lastSuccessAt: time("last_success_at"),
+  nextFetchAt: time("next_fetch_at").notNull().default(new Date(0)),
+  failures: integer("failures").notNull().default(0),
+  lastError: text("last_error"),
+  leaseToken: text("lease_token"),
+  leaseUntil: time("lease_until"),
+  robotsCheckedAt: time("robots_checked_at"),
+  robotsAllowed: boolean("robots_allowed"),
+  robotsDelaySeconds: integer("robots_delay_seconds").notNull().default(0),
 });

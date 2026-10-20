@@ -5,7 +5,7 @@ Keep common behavior here and feature-specific behavior in the feature's domain 
 
 Feature cards open registration and management in a modal dialog. Existing
 `/feature?platform=…` links open the same dialog; closing it returns to the catalog.
-Dashboard navigation contains Activity and, for registered notebooks, Notes.
+Dashboard navigation contains Activity and, for registered services, Notes and Articles.
 Coding-platform activity remains together under Activity.
 
 ## Where to change
@@ -46,6 +46,11 @@ not join `platform_services`, daily collection, recaps, or activity clients. Use
 `ActivityFeatureId`/`activityFeatureIds` where activity storage is required; use
 `FeatureId` for feature navigation. Notes registration uses `{ code }` rather than
 the coding-platform username/consent body. See [Notes](notes.md).
+
+Daily Articles is another non-activity feature with shared catalog storage and account-owned
+subscriptions, selections, and seen history. Its registration body is `{ topics }`,
+with one or two supported topic IDs. It supplies a custom setup, feed panel, and
+transactional lifecycle adapter. See [Daily Articles](articles.md).
 
 ## HTTP contract
 

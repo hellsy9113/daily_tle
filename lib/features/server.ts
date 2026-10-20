@@ -11,6 +11,9 @@ import { parseCode } from "@/lib/notes/access";
 import { manageNotes, notesStatus, registerNotes } from "@/lib/notes/service";
 import { parseRegistration } from "@/lib/tracking/agreement";
 
+import { articlesStatus, registerArticles, manageArticles } from "@/lib/articles/service";
+import { parseArticleTopics } from "@/lib/articles/topics";
+
 export interface FeatureAdapter {
   parseRegistration(input: unknown): unknown;
   register(account: Account, input: unknown): Promise<TrackingStatus>;
@@ -44,6 +47,13 @@ const activityAdapters = Object.fromEntries(
 
 export const featureAdapters: Record<FeatureId, FeatureAdapter> = {
   ...activityAdapters,
+  articles: {
+    parseRegistration: parseArticleTopics,
+    register: registerArticles,
+    status: articlesStatus,
+    pause: (accountId, registrationId, paused) => manageArticles(accountId, registrationId, paused),
+    revoke: (accountId, registrationId) => manageArticles(accountId, registrationId, "revoke"),
+  },
   notes: {
     parseRegistration: parseCode,
     register: registerNotes,

@@ -8,6 +8,8 @@ import type { FeatureId } from "@/lib/features/catalog";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { NotesSetup } from "./notes-setup";
 
+import { ArticlesSetup } from "./articles-setup";
+
 /** Setup is a component slot: future services can supply a form other than a username. */
 interface FeatureView {
   Setup: ComponentType<{ platform: FeatureId; initialStatus: TrackingStatus }>;
@@ -16,6 +18,7 @@ interface FeatureView {
 
 export const featureViews: Record<FeatureId, FeatureView> = {
   notes: { Setup: NotesSetup },
+  articles: { Setup: ArticlesSetup },
   leetcode: { Setup: TrackingPanel, Dashboard: LeetcodeActivityPanel },
   gfg: { Setup: TrackingPanel, Dashboard: GfgActivityPanel },
   hackerrank: { Setup: TrackingPanel, Dashboard: HackerRankActivityPanel },

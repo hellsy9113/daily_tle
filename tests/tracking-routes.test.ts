@@ -20,6 +20,7 @@ vi.mock("@/lib/tracking/registration", () => ({
 const ownAccount: Account = {
   theme: null,
   timezone: "Asia/Kolkata",
+  articlesRegisteredAt: null,
   notesRegisteredAt: null,
   id: "own-account",
   telegramId: 101,

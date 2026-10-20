@@ -37,6 +37,31 @@ beforeEach(() => {
   });
 });
 describe("connected dashboard navigation", () => {
+  it("opens an articles-only account's reading tab without an activity connection", async () => {
+    vi.mocked(serverAccount).mockResolvedValue({
+      ...account,
+      leetcodeUsername: null,
+      articlesRegisteredAt: new Date(),
+    });
+    vi.mocked(trackingStatuses).mockResolvedValue({
+      articles: {
+        username: "Daily reading",
+        registrationId: "articles-generation",
+        paused: false,
+        connected: false,
+        status: "pending",
+        lastDelivery: null,
+        topics: ["web"],
+      },
+    });
+    const html = renderToStaticMarkup(await DashboardPage());
+    expect(html).toContain('id="daily-articles-title"');
+    expect(html).toContain('href="/dashboard?service=articles"');
+    expect(html).not.toContain('id="activity-title"');
+    expect(html).not.toContain("Connect Daily Grind");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     "shows only Activity and registered Notes in dashboard navigation (Notes registered: %s)",
     async (notesRegistered) => {

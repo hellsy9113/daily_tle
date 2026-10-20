@@ -44,6 +44,8 @@ See [tracking setup](docs/tracking.md) for Telegram credentials and registration
 
 ## Documentation
 
+- [Daily Articles](docs/articles.md): topics, shared sources, daily selections, Hobby cron and migration.
+
 - [Notes](docs/notes.md): private notes, code registration, and 20-minute guest access.
 - [Add a feature](docs/features.md): extension points, lifecycle rules, storage requirements.
 - [Tracking](docs/tracking.md): setup, consent, pause/deletion, collection and delivery guarantees.

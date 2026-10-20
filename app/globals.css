@@ -1664,3 +1664,47 @@ button:disabled {
 .notes-space > .activity-heading {
   margin-bottom: 0;
 }
+
+.article-topic-picker {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.article-topic-picker legend {
+  padding-inline: 0.5rem;
+  font-weight: 600;
+}
+.article-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 1rem;
+}
+.article-card {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  min-width: 0;
+}
+.article-card h3 {
+  margin-block: 1rem 0.5rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.article-card p {
+  overflow-wrap: anywhere;
+}
+.article-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.article-empty {
+  padding: 1.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}

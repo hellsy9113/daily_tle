@@ -5,6 +5,7 @@ import { deliveries, platformServices, type Account } from "@/lib/db/schema";
 import { platformUsername } from "@/lib/tracking/platforms";
 import type { TrackingStatus } from "@/lib/tracking/types";
 import { featureIds, isActivityFeatureId, type FeatureId } from "./catalog";
+import { articlesStatus } from "@/lib/articles/service";
 import { notesStatus } from "@/lib/notes/service";
 
 /** Two batched activity queries plus the account-owned Notes status when registered. */
@@ -41,6 +42,10 @@ export async function trackingStatuses(account: Account, ids: readonly FeatureId
       .orderBy(deliveries.platform, desc(deliveries.reportDate)),
   ]);
   for (const id of ids) {
+    if (id === "articles") {
+      statuses.articles = await articlesStatus(account);
+      continue;
+    }
     if (id === "notes") {
       statuses.notes = await notesStatus(account);
       continue;
