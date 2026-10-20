@@ -62,19 +62,17 @@ export default async function FeaturePage({
         <Setup key={selected.id} platform={selected.id} initialStatus={status} />
       </>
     ) : !account || unavailable || (selected && !status?.username && !selectedAvailable) ? (
-      <section className="tracking-panel feature-signin" aria-labelledby="feature-signin-title">
-        <h2 id="feature-signin-title">
-          {unavailable
-            ? "Tracking is temporarily unavailable"
-            : !selectedAvailable
-              ? "Service registration is being set up"
-              : "Sign in to choose your services"}
-        </h2>
-        <p className="muted">
-          {unavailable
-            ? "Please try again shortly."
-            : "Sign in with Google or Telegram. Enable only the services you want; Daily Grind is optional."}
-        </p>
+      <section className="tracking-panel feature-signin" aria-label="Sign in">
+        {(unavailable || !selectedAvailable) && (
+          <>
+            <h2>
+              {unavailable
+                ? "Tracking is temporarily unavailable"
+                : "Service registration is being set up"}
+            </h2>
+            <p className="muted">Please try again shortly.</p>
+          </>
+        )}
         {(params.error === "login" || params.error === "google-login") && (
           <p className="inline-error" role="alert">
             Sign-in expired or could not be verified. Please try again.
@@ -106,6 +104,14 @@ export default async function FeaturePage({
         Choose a service above to register or manage it. Only enabled services appear on your
         dashboard.
       </p>
+    );
+
+  if (!account)
+    return (
+      <main id="main-content" tabIndex={-1} className="signin-page">
+        <h1 className="sr-only">Sign in</h1>
+        <div className="signin-card">{serviceContent}</div>
+      </main>
     );
 
   return (

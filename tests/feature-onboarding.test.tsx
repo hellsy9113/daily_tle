@@ -57,7 +57,11 @@ describe("service selection after Telegram sign-in", () => {
   it("asks visitors to sign in before showing service selection or registration", async () => {
     vi.mocked(serverAccount).mockResolvedValue(null);
     const html = await page();
-    expect(html).toContain("Sign in to choose your services");
+    expect(html).toContain('class="signin-page"');
+    expect(html).toContain('aria-label="Sign in"');
+    expect(html).not.toContain("feature-heading");
+    expect(html).not.toContain("site-header");
+    expect(html).not.toContain("site-footer");
     expect(html).toContain('href="/api/auth/telegram/login?next=feature"');
     expect(html).not.toContain('aria-label="Tracking services"');
     expect(html).not.toContain('name="username"');

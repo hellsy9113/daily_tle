@@ -20,7 +20,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
-  const resultHeading = useRef<HTMLHeadingElement>(null);
+  const resultList = useRef<HTMLDivElement>(null);
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
     if (!open) return;
@@ -30,7 +30,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     element.showModal();
-    resultHeading.current?.focus();
+    resultList.current?.focus();
     return () => {
       element.close();
       document.body.style.overflow = overflow;
@@ -40,7 +40,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
     };
   }, [open]);
   useEffect(() => {
-    if (result && dialog.current?.open) resultHeading.current?.focus();
+    if (result && dialog.current?.open) resultList.current?.focus();
   }, [result]);
   function close() {
     request.current?.abort();
@@ -158,8 +158,7 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
         <dialog
           ref={dialog}
           className="demo-dialog"
-          aria-labelledby="demo-dialog-title"
-          aria-describedby="demo-dialog-description"
+          aria-label={`Recent solved questions for ${result?.username ?? "LeetCode"}`}
           aria-modal="true"
           onCancel={(event) => {
             event.preventDefault();
@@ -167,10 +166,6 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
           }}
         >
           <div className="demo-dialog-heading">
-            <div>
-              <p className="eyebrow">Public LeetCode lookup</p>
-              <h2 id="demo-dialog-title">Recent solved questions</h2>
-            </div>
             <button
               type="button"
               className="button secondary icon-button"
@@ -180,22 +175,11 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
               <span aria-hidden="true">✕</span>
             </button>
           </div>
-          <p id="demo-dialog-description" className="field-help">
-            Explore up to 20 public Accepted submissions. Your profile is not registered by this
-            lookup.
-          </p>
           {result ? (
             <div className="demo-results" aria-busy={busy}>
-              <div className="demo-results-heading">
-                <h3 ref={resultHeading} tabIndex={-1}>
-                  Recent solves · {result.username}
-                </h3>
-                <span className="badge badge-active">
-                  {result.count} unique {result.count === 1 ? "problem" : "problems"}
-                </span>
-              </div>
               {result.questions.length ? (
                 <div
+                  ref={resultList}
                   className="demo-results-scroll"
                   role="region"
                   aria-label="Recent solved questions list"
@@ -227,27 +211,13 @@ export function LeetCodeDemo({ botUrl }: { botUrl: string }) {
                   </ul>
                 </div>
               ) : (
-                <p className="demo-empty" role="status">
+                <div ref={resultList} tabIndex={-1} className="demo-empty" role="status">
                   No recently Accepted problems were found in this public feed. This does not mean
                   the account has never solved a problem.
-                </p>
+                </div>
               )}
-              <p className="field-help">
-                Based on up to {result.sourceLimit} public Accepted submissions. Repeated solves
-                appear once; older history may be missing. Dates use Asia/Kolkata.
-              </p>
             </div>
-          ) : (
-            !busy && (
-              <div className="demo-empty">
-                <span className="demo-empty-mark" aria-hidden="true">
-                  ↗
-                </span>
-                <p>Your next lookup starts here.</p>
-                <span>Find solved problems, revisit the links, and keep moving.</span>
-              </div>
-            )
-          )}
+          ) : null}
         </dialog>
       )}
     </section>

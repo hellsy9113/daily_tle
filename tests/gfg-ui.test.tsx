@@ -81,7 +81,7 @@ describe("GFG feature onboarding and dashboard", () => {
     const html = renderToStaticMarkup(
       await FeaturePage({ searchParams: Promise.resolve({ platform: "gfg" }) }),
     );
-    expect(html).toContain("Sign in to choose your services");
+    expect(html).toContain('aria-label="Sign in"');
     expect(html).toContain("/api/auth/telegram/login?next=gfg");
     expect(html).not.toContain('name="username"');
   });

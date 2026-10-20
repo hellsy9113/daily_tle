@@ -80,8 +80,8 @@ describe("homepage live LeetCode demo", () => {
     expect(card.textContent).toContain("Accepted");
     expect(card.textContent).toContain("IST");
     expect(card.rel).toBe("noopener noreferrer");
-    expect(container.textContent).toContain("Repeated solves appear once");
-    expect(document.activeElement?.textContent).toBe("Recent solves · example");
+    expect(document.activeElement).toBe(container.querySelector(".demo-results-scroll"));
+    expect(container.querySelector("dialog h2")).toBeNull();
   });
   it("rejects invalid input without making a request", async () => {
     await submit("two words");
@@ -111,7 +111,7 @@ describe("homepage live LeetCode demo", () => {
     expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("another_user");
     expect(container.querySelector("dialog")).toBeNull();
     await openDemo();
-    expect(container.querySelector(".demo-results-heading")?.textContent).toContain("example");
+    expect(container.querySelector("dialog")?.getAttribute("aria-label")).toContain("example");
     expect(container.querySelector(".demo-problem-grid h4")?.textContent).toBe("Two Sum");
   });
   it("distinguishes an empty public feed from a lifetime zero-solve count", async () => {
@@ -137,13 +137,13 @@ describe("homepage live LeetCode demo", () => {
     await submit("new_user");
     await act(() => finish(Response.json({ ...result, username: "old_user" })));
     expect(oldSignal?.aborted).toBe(true);
-    expect(container.querySelector(".demo-results-heading")?.textContent).toContain("new_user");
+    expect(container.querySelector("dialog")?.getAttribute("aria-label")).toContain("new_user");
   });
   it("shows results only in a scrollable dialog and restores focus after Escape", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(result));
     await submit("example");
     const dialog = container.querySelector("dialog")!;
-    expect(dialog.getAttribute("aria-labelledby")).toBe("demo-dialog-title");
+    expect(dialog.getAttribute("aria-label")).toBe("Recent solved questions for example");
     expect(dialog.querySelector("form")).toBeNull();
     expect(dialog.querySelector('.demo-results-scroll[tabindex="0"]')).not.toBeNull();
     expect(dialog.querySelector(".demo-problem-list")).not.toBeNull();

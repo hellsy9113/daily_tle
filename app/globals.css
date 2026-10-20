@@ -1733,13 +1733,16 @@ button:disabled {
 
 /* Homepage tools, optional recaps, and the public-lookup dialog. */
 .demo-dialog {
-  width: min(960px, calc(100% - 2rem));
+  width: min(560px, calc(100% - 1.5rem));
+  height: fit-content;
+  margin: auto;
+  inset: 0;
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: clamp(1.25rem, 4vw, 2.5rem);
+  padding: 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 24px 80px #00000030;
@@ -1749,9 +1752,7 @@ button:disabled {
 }
 .demo-dialog-heading {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-end;
 }
 .demo-dialog-heading .eyebrow {
   margin-bottom: 0.25rem;
@@ -1839,10 +1840,10 @@ button:disabled {
 }
 
 .demo-results-scroll {
-  max-height: min(52dvh, 480px);
+  max-height: min(58dvh, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  margin-block: 1.25rem;
+  margin-block: 0;
   padding: 4px;
   scrollbar-gutter: stable;
 }
@@ -1851,15 +1852,39 @@ button:disabled {
   margin: 0;
 }
 .demo-problem-list li + li {
-  margin-top: 0.75rem;
+  margin-top: 0.375rem;
 }
 .demo-problem-list a {
   min-height: auto;
-  padding: 1rem 1.25rem;
+  padding: 0.625rem 0.75rem;
 }
 .demo-problem-list h4 {
   margin-block: 0.5rem 0.25rem;
 }
 .demo-problem-list .demo-open {
   padding-top: 0.5rem;
+}
+
+.demo-dialog .demo-results {
+  margin-top: 0;
+}
+.signin-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+.signin-card {
+  width: min(100%, 380px);
+}
+.signin-card .feature-signin {
+  margin: 0;
+  padding: 1.5rem;
+}
+.signin-card .notes-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+.signin-card .button {
+  min-height: 48px;
 }

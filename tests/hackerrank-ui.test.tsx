@@ -65,7 +65,7 @@ describe("HackerRank optional tracking", () => {
   it("provides separate feature choices and returns sign-in to HackerRank", async () => {
     const html = renderToStaticMarkup(await feature());
     expect(html).toContain("/api/auth/telegram/login?next=hackerrank");
-    expect(html).toContain("Sign in to choose your services");
+    expect(html).toContain('aria-label="Sign in"');
     expect(html).not.toContain('name="username"');
   });
   it("registers independently and stays accessible after registration", async () => {
