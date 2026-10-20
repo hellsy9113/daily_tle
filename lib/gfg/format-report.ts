@@ -1,4 +1,3 @@
-import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import {
   getPreviousCalendarPeriod,
   type CalendarPeriodRange,
@@ -14,9 +13,8 @@ export function formatGfgDailyReport(
   saved: StoredGfgProblem[],
   periodEnd: Date,
   weeklyRange?: CalendarPeriodRange,
-  timezone = DEFAULT_TIMEZONE,
 ) {
-  const range = weeklyRange ?? getPreviousCalendarPeriod("lastday", periodEnd, timezone);
+  const range = weeklyRange ?? getPreviousCalendarPeriod("lastday", periodEnd);
   const known = new Map<string, GfgProblem>(saved.map((problem) => [problem.id, problem]));
   for (const problem of profile.problems) {
     const previous = known.get(problem.id)?.acceptedAt;
@@ -43,18 +41,18 @@ export function formatGfgDailyReport(
   if (!weeklyRange && !dated.length && !observedYesterday.length) return [];
   const date = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
-    timeZone: timezone,
+    timeZone: "Asia/Kolkata",
   }).format(range.start);
   const weekEnd = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: timezone,
+    timeZone: "Asia/Kolkata",
   }).format(range.end);
   const period = weeklyRange ? "this week's period" : "yesterday's period";
   const sections = [
     weeklyRange
-      ? `GFG weekly recap for ${profile.username}\n${date} – ${weekEnd} (${timezone}; Sunday cutoff)`
-      : `GFG daily recap for ${profile.username}\n${date} (${timezone})`,
+      ? `GFG weekly recap for ${profile.username}\n${date} – ${weekEnd} (Asia/Kolkata; Sunday cutoff)`
+      : `GFG daily recap for ${profile.username}\n${date} (Asia/Kolkata)`,
     `Total solved on the public profile: ${profile.totalSolved}.`,
     dated.length
       ? `${dated.length} unique problems have an available accepted timestamp in ${period}. First-ever acceptance and complete history are not guaranteed.`

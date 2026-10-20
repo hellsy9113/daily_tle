@@ -2,9 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
   "crons": [
-    {
-      "path": "/api/cron/tracking/tick",
-      "schedule": "*/15 * * * *"
-    }
+    { "path": "/api/cron/tracking/collect", "schedule": "15 17 * * *" },
+    { "path": "/api/cron/tracking/daily", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/tracking/retry", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/tracking/weekly", "schedule": "30 17 * * 0" },
+    { "path": "/api/cron/tracking/weekly-retry", "schedule": "0 18 * * 0" }
   ]
 }

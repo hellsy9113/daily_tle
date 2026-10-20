@@ -42,7 +42,7 @@ export interface RecentSolvedQuestions {
 export interface SolvedQuestionsResult {
   username: string;
   period: SolvedPeriod;
-  timezone: string;
+  timezone: "Asia/Kolkata";
   /** UTC ISO boundaries: start is inclusive and end is exclusive. */
   start: string;
   end: string;

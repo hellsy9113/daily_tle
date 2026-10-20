@@ -30,7 +30,7 @@ export interface StoredGfgProblem extends GfgProblem {
 }
 
 export interface GfgProgress extends GfgProfileSummary {
-  timezone: string;
+  timezone: "Asia/Kolkata";
   dateBasis: "earliest_available_timestamp" | "observation";
   solvedToday: number | null;
   solvedThisWeek: number | null;

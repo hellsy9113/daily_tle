@@ -1,4 +1,3 @@
-import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { activityDate, activityWindow, weekStart } from "@/lib/activity/calendar";
 import { compareWeeks } from "@/lib/activity/weekly";
 import type { GfgProfileSummary, GfgProgress, GfgQuery, StoredGfgProblem } from "./types";
@@ -11,9 +10,8 @@ export function buildGfgProgress(
   snapshots: GfgProgress["snapshots"],
   now: Date,
   query: GfgQuery = { period: "all", includeProblems: false },
-  timezone = DEFAULT_TIMEZONE,
 ): GfgProgress {
-  const range = activityWindow(now, timezone);
+  const range = activityWindow(now);
   const dated = problems.filter(
     (problem) => problem.acceptedAt && problem.acceptedAt <= now.toISOString(),
   );
@@ -24,22 +22,20 @@ export function buildGfgProgress(
   const weekly = new Map<string, number>();
   const observations = new Map<string, number>();
   for (const problem of dated) {
-    const date = activityDate(new Date(problem.acceptedAt!), timezone);
+    const date = activityDate(new Date(problem.acceptedAt!));
     daily.set(date, (daily.get(date) ?? 0) + 1);
     const week = monday(date);
     weekly.set(week, (weekly.get(week) ?? 0) + 1);
   }
   for (const problem of observed) {
-    const date = activityDate(new Date(problem.firstObservedAt), timezone);
+    const date = activityDate(new Date(problem.firstObservedAt));
     observations.set(date, (observations.get(date) ?? 0) + 1);
   }
   const within = (date: string) =>
     date >= (query.startDate ?? range.start) && date < (query.endDate ?? range.end);
   const selectedDays = [...daily].filter(([date]) => within(date)).sort();
   const selectedWeeks = new Map<string, number>();
-  const observedDates = new Set(
-    timezone === DEFAULT_TIMEZONE ? snapshots.map((snapshot) => snapshot.date) : [],
-  );
+  const observedDates = new Set(snapshots.map((snapshot) => snapshot.date));
   for (const [date, count] of selectedDays) {
     const week = monday(date);
     selectedWeeks.set(week, (selectedWeeks.get(week) ?? 0) + count);
@@ -53,7 +49,7 @@ export function buildGfgProgress(
   }));
   return {
     ...profile,
-    timezone,
+    timezone: "Asia/Kolkata",
     dateBasis: dated.length ? "earliest_available_timestamp" : "observation",
     solvedToday: dated.length ? (daily.get(range.today) ?? 0) : null,
     solvedThisWeek: dated.length ? (weekly.get(monday(range.today)) ?? 0) : null,
@@ -73,14 +69,10 @@ export function buildGfgProgress(
     weekly: compareWeeks(
       (dated.length ? dated : observed).map((problem) => ({
         id: problem.id,
-        date: activityDate(
-          new Date(dated.length ? problem.acceptedAt! : problem.firstObservedAt),
-          timezone,
-        ),
+        date: activityDate(new Date(dated.length ? problem.acceptedAt! : problem.firstObservedAt)),
       })),
       days,
       now,
-      timezone,
     ),
     snapshots: snapshots.filter((snapshot) => within(snapshot.date)),
     refreshing: false,

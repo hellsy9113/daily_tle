@@ -24,8 +24,6 @@ const profile: ProfileSummary = {
   connected: true,
   status: "active",
   theme: null,
-  timezone: "Asia/Kolkata",
-  timezones: ["Asia/Kolkata", "America/New_York", "UTC"],
   services: ["leetcode", "gfg", "hackerrank"].map((platform) => ({
     platform: platform as "leetcode" | "gfg" | "hackerrank",
     ...status,
@@ -71,6 +69,7 @@ describe("profile settings and confirmations", () => {
       buttons().filter((button) => button.getAttribute("aria-pressed") === "false"),
     ).toHaveLength(2);
     expect(container.textContent).toContain("Following your device theme");
+    expect(container.querySelector("#profile-timezone")).toBeNull();
     expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(3);
     expect(container.textContent).not.toContain("Revoke & delete data");
   });
@@ -94,41 +93,6 @@ describe("profile settings and confirmations", () => {
     await click("Dark mode");
     expect(document.documentElement.dataset.theme).toBeUndefined();
     expect(container.querySelector('[role="alert"]')!.textContent).toBe("Please retry.");
-  });
-  it("defaults to India and saves a different timezone without changing the theme", async () => {
-    await render();
-    const select = container.querySelector<HTMLSelectElement>("#profile-timezone")!;
-    expect(select.value).toBe("Asia/Kolkata");
-    expect(buttons().find((button) => button.textContent === "Save timezone")!.disabled).toBe(true);
-    await act(() => {
-      select.value = "America/New_York";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    vi.mocked(fetch).mockResolvedValue(Response.json({ timezone: "America/New_York" }));
-    await click("Save timezone");
-    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual({
-      timezone: "America/New_York",
-    });
-    expect(container.querySelector('[role="status"]')!.textContent).toContain("Timezone saved");
-    expect(document.documentElement.dataset.theme).toBeUndefined();
-    expect(refresh).toHaveBeenCalledOnce();
-  });
-  it("keeps a failed timezone change editable for retry", async () => {
-    await render();
-    const select = container.querySelector<HTMLSelectElement>("#profile-timezone")!;
-    await act(() => {
-      select.value = "UTC";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Please retry." }, { status: 503 }));
-    await click("Save timezone");
-    expect(select.value).toBe("UTC");
-    expect(select.disabled).toBe(false);
-    expect(buttons().find((button) => button.textContent === "Save timezone")!.disabled).toBe(
-      false,
-    );
-    expect(container.querySelector('[role="alert"]')!.textContent).toBe("Please retry.");
-    expect(refresh).not.toHaveBeenCalled();
   });
   it("requires acknowledgment, permits cancel, and clears only the revoked platform", async () => {
     await render(<TrackingPanel initialStatus={status} />);

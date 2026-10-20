@@ -1,4 +1,3 @@
-import { normalizeTimezone } from "@/lib/timezone";
 import { ApiError } from "@/lib/http/api-error";
 import type { GfgQuery } from "./types";
 
@@ -24,12 +23,12 @@ function parseDate(value: string | null): string | undefined {
 }
 
 export function parseGfgQuery(params: URLSearchParams): GfgQuery {
-  if (params.has("timezone") && !normalizeTimezone(params.get("timezone")))
-    throw new ApiError(400, "Choose a valid timezone.");
   const period = params.get("period") ?? "all";
   const include = params.get("includeProblems") ?? "false";
   if (!["daily", "weekly", "all"].includes(period) || !["true", "false"].includes(include))
     throw new ApiError(400, "Use period=daily, weekly, or all and includeProblems=true or false.");
+  if (params.has("timezone") && params.get("timezone") !== "Asia/Kolkata")
+    throw new ApiError(400, "GFG tracking uses the Asia/Kolkata timezone.");
   const startDate = parseDate(params.get("startDate"));
   const endDate = parseDate(params.get("endDate"));
   if (startDate && endDate && startDate >= endDate)

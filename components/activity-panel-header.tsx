@@ -1,5 +1,4 @@
 "use client";
-import { useTimezone } from "./timezone-provider";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
@@ -20,11 +19,10 @@ export function ActivityPanelHeader({
   children: ReactNode;
   controls?: ReactNode;
 }) {
-  const timezone = useTimezone();
   return (
     <div className="activity-heading">
       <div>
-        <p className="eyebrow">Last 365 days · {timezone}</p>
+        <p className="eyebrow">Last 365 days · Asia/Kolkata</p>
         <h2 id={titleId}>
           {platform}
           {username ? ` · ${username}` : ""}
@@ -42,7 +40,6 @@ export function ActivityPanelHeader({
 }
 
 function ChartInfo({ platform, children }: { platform: string; children: ReactNode }) {
-  const timezone = useTimezone();
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
   const popup = useRef<HTMLDivElement>(null);
@@ -129,7 +126,7 @@ function ChartInfo({ platform, children }: { platform: string; children: ReactNo
         <div className="chart-info-content">
           <p className="chart-info-title">About your {platform} chart</p>
           <p>
-            Select a calendar day to see its saved problems and links. All dates use {timezone}.
+            Select a calendar day to see its saved problems and links. All dates use Asia/Kolkata.
           </p>
           {children}
           <p>

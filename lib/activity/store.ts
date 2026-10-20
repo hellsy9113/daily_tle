@@ -22,7 +22,7 @@ export async function writeActivityObservation(
   accountId: string,
   observation: ActivityObservation,
 ) {
-  const timezone = observation.timezone ?? ACTIVITY_TIMEZONE;
+  const timezone = ACTIVITY_TIMEZONE;
   if (observation.problems.length) {
     await writer
       .insert(acceptedActivity)
@@ -75,7 +75,7 @@ export async function writeActivityObservation(
 }
 
 export async function readActivity(account: Account, now: Date): Promise<ActivityResult> {
-  const timezone = account.timezone ?? ACTIVITY_TIMEZONE;
+  const timezone = ACTIVITY_TIMEZONE;
   const range = activityWindow(now, timezone);
   const withinRange = and(
     gte(acceptedActivity.acceptedAt, activityDayStart(range.start, timezone)),

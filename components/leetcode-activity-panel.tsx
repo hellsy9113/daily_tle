@@ -1,5 +1,4 @@
 "use client";
-import { useTimezone } from "./timezone-provider";
 
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
@@ -7,13 +6,13 @@ import { featurePaths } from "@/lib/features/catalog";
 import { useJsonResource, dashboardError } from "@/lib/http/use-json-resource";
 import type { ActivityResult } from "@/lib/activity/types";
 
+const syncDateFormatter = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
+});
+
 export function LeetcodeActivityPanel({ username }: { username: string }) {
-  const timezone = useTimezone();
-  const syncDateFormatter = new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  });
   const {
     data: activity,
     busy,
@@ -121,8 +120,7 @@ export function LeetcodeActivityPanel({ username }: { username: string }) {
             )}
             {activity.lastSyncedAt && (
               <p className="activity-footer">
-                Last checked {syncDateFormatter.format(new Date(activity.lastSyncedAt))} ({timezone}
-                ).
+                Last checked {syncDateFormatter.format(new Date(activity.lastSyncedAt))} IST.
               </p>
             )}
           </>

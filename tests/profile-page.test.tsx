@@ -36,8 +36,6 @@ describe("profile access and initial theme", () => {
       connected: false,
       status: "pending",
       theme: "dark",
-      timezone: "Asia/Kolkata",
-      timezones: ["Asia/Kolkata", "America/New_York", "UTC"],
       services: [],
     });
     const html = renderToStaticMarkup(await ProfilePage());

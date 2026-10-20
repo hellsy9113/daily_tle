@@ -1,20 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useTimezone } from "./timezone-provider";
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
 import { useJsonResource } from "@/lib/http/use-json-resource";
 import { featurePaths } from "@/lib/features/catalog";
 import type { HackerRankProgress } from "@/lib/hackerrank/types";
 
+const formatter = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
+});
 export function HackerRankActivityPanel({ username }: { username: string }) {
-  const timezone = useTimezone();
-  const formatter = new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  });
   const {
     data: progress,
     busy,
@@ -95,7 +93,7 @@ export function HackerRankActivityPanel({ username }: { username: string }) {
             </p>
           )}
           <p className="activity-footer">
-            Last checked {formatter.format(new Date(progress.checkedAt))} ({timezone}).{" "}
+            Last checked {formatter.format(new Date(progress.checkedAt))} IST.{" "}
             <a
               href={`https://www.hackerrank.com/profile/${encodeURIComponent(username)}`}
               target="_blank"

@@ -1,5 +1,4 @@
 "use client";
-import { useTimezone } from "./timezone-provider";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -46,7 +45,6 @@ async function request<T>(
 }
 
 export function NotesPanel({ signedIn }: { signedIn: boolean }) {
-  const timezone = useTimezone();
   const [data, setData] = useState<NotesPageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -337,7 +335,7 @@ export function NotesPanel({ signedIn }: { signedIn: boolean }) {
                 <div className="note-card-footer">
                   <time className="muted" dateTime={note.updatedAt}>
                     {new Date(note.updatedAt).toLocaleDateString("en-IN", {
-                      timeZone: timezone,
+                      timeZone: "Asia/Kolkata",
                       day: "numeric",
                       month: "short",
                       year: "numeric",

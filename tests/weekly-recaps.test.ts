@@ -1,4 +1,3 @@
-import { dispatchTracking } from "@/lib/tracking/dispatch";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { weeklyReportPeriod, isSundayInIst } from "@/lib/tracking/weekly-period";
@@ -33,9 +32,17 @@ describe("Sunday weekly recap boundaries and schedule", () => {
     expect(week.start.toISOString()).toBe("2026-12-27T18:30:00.000Z");
     expect(week.end.toISOString()).toBe("2027-01-03T17:30:00.000Z");
   });
-  it("uses a frequent timezone-aware scheduler for all local notification windows", () => {
+  it("keeps daily schedules and adds Sunday-only 23:00 and 23:30 IST jobs", () => {
     const config = JSON.parse(readFileSync("vercel.json", "utf8"));
-    expect(config.crons).toEqual([{ path: "/api/cron/tracking/tick", schedule: "*/15 * * * *" }]);
+    expect(config.crons).toEqual(
+      expect.arrayContaining([
+        { path: "/api/cron/tracking/collect", schedule: "15 17 * * *" },
+        { path: "/api/cron/tracking/daily", schedule: "0 3 * * *" },
+        { path: "/api/cron/tracking/retry", schedule: "0 4 * * *" },
+        { path: "/api/cron/tracking/weekly", schedule: "30 17 * * 0" },
+        { path: "/api/cron/tracking/weekly-retry", schedule: "0 18 * * 0" },
+      ]),
+    );
   });
   it.each([weeklyCron, weeklyRetry])(
     "requires cron authentication before any weekly work",
@@ -52,11 +59,14 @@ describe("Sunday weekly recap boundaries and schedule", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date(instant));
       vi.stubEnv("CRON_SECRET", "cron-test");
-      expect(await dispatchTracking({ now: new Date(instant), cadence: "weekly" })).toEqual({
-        skipped: true,
-        sent: 0,
-        failed: 0,
-      });
+      const response = await weeklyCron(
+        new Request("https://example.com/api/cron/tracking/weekly", {
+          headers: { authorization: "Bearer cron-test" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual({ skipped: true, sent: 0, failed: 0 });
     },
   );
 });

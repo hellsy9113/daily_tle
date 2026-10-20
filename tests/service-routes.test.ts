@@ -77,30 +77,16 @@ describe("profile and platform service authorization", () => {
     expect(database.set).toHaveBeenCalledWith({ theme: value });
     expect(await response.json()).toEqual({ theme: value });
   });
-  it.each(["Asia/Kolkata", "America/New_York", "UTC"])(
-    "saves timezone %s for the session account",
-    async (timezone) => {
-      const response = await theme(request({ timezone }));
-      expect(response.status).toBe(200);
-      expect(database.set).toHaveBeenCalledWith({ timezone });
-      expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(await response.json()).toEqual({ timezone });
-    },
-  );
-  it.each(["No/Such_Zone", "+05:30", null, 123])(
-    "rejects invalid timezone %j without writing",
-    async (timezone) => {
-      expect((await theme(request({ timezone }))).status).toBe(400);
-      expect(database.update).not.toHaveBeenCalled();
-    },
-  );
-  it.each([{ theme: "system" }, { theme: "dark", accountId: "other" }, {}, null])(
-    "rejects unsupported profile settings %j",
-    async (body) => {
-      expect((await theme(request(body))).status).toBe(400);
-      expect(database.update).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    { theme: "system" },
+    { theme: "dark", accountId: "other" },
+    { timezone: "America/New_York" },
+    {},
+    null,
+  ])("rejects unsupported profile settings %j", async (body) => {
+    expect((await theme(request(body))).status).toBe(400);
+    expect(database.update).not.toHaveBeenCalled();
+  });
   it.each([true, false])("changes only the session's platform pause to %s", async (paused) => {
     expect((await pause(request({ registrationId, paused }), context("gfg"))).status).toBe(200);
     expect(setServicePaused).toHaveBeenCalledExactlyOnceWith(

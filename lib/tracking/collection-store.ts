@@ -1,4 +1,3 @@
-import { DEFAULT_TIMEZONE, localClock, localTime } from "@/lib/timezone";
 import "server-only";
 import { and, eq, getTableColumns, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -10,19 +9,18 @@ import { writeCollectedResult, type CollectedResult } from "./result-store";
 
 export type ClaimedCollection = typeof dailyCollections.$inferSelect & { username: string };
 
-export async function prepareCollections(tx: Transaction, now: Date, timezone = DEFAULT_TIMEZONE) {
-  const range = getPreviousCalendarPeriod("lastday", now, timezone);
-  const reportDate = localClock(range.start, timezone).date;
-  const cutoff = localTime(localClock(range.end, timezone).date, 510, timezone);
+export async function prepareCollections(tx: Transaction, now: Date) {
+  const range = getPreviousCalendarPeriod("lastday", now);
+  const reportDate = new Date(range.start.getTime() + 330 * 60_000).toISOString().slice(0, 10);
+  const cutoff = new Date(range.end.getTime() + 8.5 * 60 * 60_000);
   await tx.execute(sql`
-    INSERT INTO ${dailyCollections} (account_id, registration_id, platform, timezone, report_date, period_start, period_end, recap_eligible, next_attempt_at)
-    SELECT a.id, s.registration_id, s.platform, ${timezone}, ${reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
+    INSERT INTO ${dailyCollections} (account_id, registration_id, platform, report_date, period_start, period_end, recap_eligible, next_attempt_at)
+    SELECT a.id, s.registration_id, s.platform, ${reportDate}::date, ${range.start.toISOString()}::timestamptz, ${range.end.toISOString()}::timestamptz,
       coalesce((a.status = 'active' AND NOT s.paused AND a.chat_id IS NOT NULL
         AND a.connected_at <= ${cutoff.toISOString()}::timestamptz
         AND CASE s.platform WHEN 'gfg' THEN a.gfg_registered_at WHEN 'hackerrank' THEN a.hackerrank_registered_at ELSE a.registered_at END <= ${cutoff.toISOString()}::timestamptz), false),
       ${now.toISOString()}::timestamptz
     FROM ${accounts} a JOIN ${platformServices} s ON s.account_id = a.id
-    WHERE a.timezone = ${timezone}
     ON CONFLICT (registration_id, report_date) DO NOTHING
   `);
   // A prepared legacy report already committed its activity in the same transaction.
@@ -31,7 +29,7 @@ export async function prepareCollections(tx: Transaction, now: Date, timezone = 
     UPDATE ${dailyCollections} c SET status = 'complete', lease_token = NULL, lease_until = NULL, last_error = NULL
     FROM ${deliveries} d
     WHERE c.registration_id = d.registration_id AND c.report_date = d.report_date
-      AND c.timezone = ${timezone} AND c.report_date = ${reportDate}::date AND c.status IN ('pending', 'failed')
+      AND c.report_date = ${reportDate}::date AND c.status IN ('pending', 'failed')
       AND d.cadence = 'daily' AND d.messages IS NOT NULL
   `);
 }
@@ -41,8 +39,6 @@ export async function claimCollection(
   now: Date,
   allowGfg = true,
   allowHackerRank = true,
-  timezone?: string,
-  recover = true,
 ): Promise<ClaimedCollection | null> {
   // Lock only the job here. Saving always locks the account first and rechecks the lease.
   const candidate = db()
@@ -51,11 +47,7 @@ export async function claimCollection(
     .where(
       and(
         eq(dailyCollections.reportDate, reportDate),
-        timezone
-          ? sql`${dailyCollections.accountId} IN (SELECT id FROM ${accounts} WHERE timezone = ${timezone})`
-          : undefined,
         sql`${dailyCollections.attempts} < 3`,
-        recover ? undefined : eq(dailyCollections.attempts, 0),
         allowGfg ? undefined : ne(dailyCollections.platform, "gfg"),
         allowHackerRank ? undefined : ne(dailyCollections.platform, "hackerrank"),
         lte(dailyCollections.nextAttemptAt, now),
@@ -123,7 +115,6 @@ export async function completeCollection(
           registrationId: job.registrationId,
           platform: job.platform,
           reportDate: job.reportDate,
-          timezone: leased.timezone,
           start: job.start,
           end: job.end,
           messages,

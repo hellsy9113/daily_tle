@@ -1,13 +1,14 @@
 import type { SolvedQuestionsResult } from "@/lib/leetcode/types";
 import { splitMessage } from "./format-submissions";
 
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
 export function formatSolvedQuestions(result: SolvedQuestionsResult): string[] {
-  const dateFormatter = new Intl.DateTimeFormat("en-IN", {
-    timeZone: result.timezone,
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
   const startDate = dateFormatter.format(new Date(result.start));
   // The API's end is exclusive; display the last calendar date included in the period.
   const endDate = dateFormatter.format(new Date(Date.parse(result.end) - 1));

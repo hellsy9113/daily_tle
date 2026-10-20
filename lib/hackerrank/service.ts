@@ -73,7 +73,7 @@ export async function getHackerRankProgress(account: Account, now = new Date()) 
   ]);
   if (!state?.profile) throw new ApiError(503, "HackerRank is synchronizing. Try again shortly.");
   return {
-    ...buildHackerRankProgress(state.profile, problems, snapshots, now, account.timezone),
+    ...buildHackerRankProgress(state.profile, problems, snapshots, now),
     refreshing: Boolean(state.leaseToken && state.leaseUntil && state.leaseUntil > now),
     refreshFailed: Boolean(state.lastError),
   };

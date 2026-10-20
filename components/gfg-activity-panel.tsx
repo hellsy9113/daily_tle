@@ -1,20 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useTimezone } from "./timezone-provider";
 import { ActivityInsights } from "./activity-insights";
 import { ActivityPanelHeader } from "./activity-panel-header";
 import { useJsonResource } from "@/lib/http/use-json-resource";
 import { featurePaths } from "@/lib/features/catalog";
 import type { GfgProgress } from "@/lib/gfg/types";
 
+const formatter = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
+});
+
 export function GfgActivityPanel({ username }: { username: string | null }) {
-  const timezone = useTimezone();
-  const formatter = new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  });
   const {
     data: progress,
     busy,
@@ -120,7 +119,7 @@ export function GfgActivityPanel({ username }: { username: string | null }) {
                 </p>
               )}
               <p className="activity-footer">
-                Last checked {formatter.format(new Date(progress.checkedAt))} ({timezone}).{" "}
+                Last checked {formatter.format(new Date(progress.checkedAt))} IST.{" "}
                 <a
                   href={`https://www.geeksforgeeks.org/profile/${encodeURIComponent(username)}/`}
                   target="_blank"

@@ -1,16 +1,19 @@
-import {
-  DEFAULT_TIMEZONE,
-  localClock,
-  localTime,
-  localDayStart,
-  addCalendarDays,
-} from "@/lib/timezone";
-import { weekStart } from "@/lib/activity/calendar";
-export function isSundayInIst(now: Date, timezone = DEFAULT_TIMEZONE) {
-  return new Date(`${localClock(now, timezone).date}T12:00:00Z`).getUTCDay() === 0;
+import { getPreviousCalendarPeriod } from "@/lib/leetcode/calendar-periods";
+
+const IST_OFFSET = 330 * 60_000;
+
+export function isSundayInIst(now: Date) {
+  return new Date(now.getTime() + IST_OFFSET).getUTCDay() === 0;
 }
-export function weeklyReportPeriod(now: Date, timezone = DEFAULT_TIMEZONE) {
-  const start = weekStart(localClock(now, timezone).date);
-  const cutoff = localTime(addCalendarDays(start, 6), 23 * 60, timezone);
-  return { start: localDayStart(start, timezone), end: cutoff, reportDate: start, cutoff };
+
+/** Freeze Monday through Sunday's 23:00 IST cutoff, including on recovery. */
+export function weeklyReportPeriod(now: Date) {
+  const previous = getPreviousCalendarPeriod("lastweek", now);
+  const cutoff = new Date(previous.end.getTime() + (6 * 24 + 23) * 60 * 60_000);
+  return {
+    start: previous.end,
+    end: cutoff,
+    reportDate: new Date(previous.end.getTime() + IST_OFFSET).toISOString().slice(0, 10),
+    cutoff,
+  };
 }

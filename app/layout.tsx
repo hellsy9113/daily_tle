@@ -3,8 +3,6 @@ import { serverAccount } from "@/lib/auth/session";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { TimezoneProvider } from "@/components/timezone-provider";
-import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,11 +22,8 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   let theme: "light" | "dark" | undefined;
-  let timezone = DEFAULT_TIMEZONE;
   try {
-    const account = await serverAccount();
-    theme = account?.theme ?? undefined;
-    timezone = account?.timezone ?? DEFAULT_TIMEZONE;
+    theme = (await serverAccount())?.theme ?? undefined;
   } catch (error) {
     unstable_rethrow(error);
   }
@@ -42,7 +37,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
-        <TimezoneProvider timezone={timezone}>{children}</TimezoneProvider>
+        {children}
       </body>
     </html>
   );

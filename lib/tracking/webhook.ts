@@ -152,7 +152,7 @@ export async function processTrackingUpdate(update: TrackingUpdate): Promise<str
           : `${platformLabels[id]} ${platformUsername(account, id)}`,
       )
       .join(" and ");
-    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. ${account.timezone}. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
+    return `Daily tracking is active for ${names}. Daily reports arrive between 8:30 and 9:30 a.m. Asia/Kolkata. Use /stop to pause all recaps. Individual platform pause choices stay unchanged; manage them on the Feature page.`;
   });
 }
 

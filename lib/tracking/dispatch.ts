@@ -1,4 +1,3 @@
-import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import "server-only";
 import {
   claimCollection,
@@ -49,20 +48,8 @@ export async function dispatchTracking({
   budgetMs = 260_000,
   pause = sleep,
   cadence = "daily",
-  timezone = DEFAULT_TIMEZONE,
-  recover = true,
-}: {
-  now?: Date;
-  budgetMs?: number;
-  pause?: typeof sleep;
-  cadence?: "daily" | "weekly";
-  timezone?: string;
-  recover?: boolean;
-} = {}) {
-  if (
-    cadence === "weekly" &&
-    (!isSundayInIst(now, timezone) || now < weeklyReportPeriod(now, timezone).cutoff)
-  )
+}: { now?: Date; budgetMs?: number; pause?: typeof sleep; cadence?: "daily" | "weekly" } = {}) {
+  if (cadence === "weekly" && (!isSundayInIst(now) || now < weeklyReportPeriod(now).cutoff))
     return { skipped: true, sent: 0, failed: 0 };
   trackingBot();
   const lock = await acquireDispatchLock(now);
@@ -78,9 +65,7 @@ export async function dispatchTracking({
   };
   try {
     const reportDate =
-      cadence === "weekly"
-        ? await prepareWeeklyDeliveries(now, timezone)
-        : await prepareDeliveries(now, timezone);
+      cadence === "weekly" ? await prepareWeeklyDeliveries(now) : await prepareDeliveries(now);
     const processDelivery = async (delivery: ClaimedDelivery) => {
       try {
         ensureTime();
@@ -188,8 +173,6 @@ export async function dispatchTracking({
                     Date.now() >= hackerRankRateLimitedUntil,
                     cadence === "daily",
                     cadence,
-                    timezone,
-                    recover,
                   )
                 : null;
             if (delivery) {
@@ -202,8 +185,6 @@ export async function dispatchTracking({
               new Date(),
               Date.now() >= gfgRateLimitedUntil,
               Date.now() >= hackerRankRateLimitedUntil,
-              timezone,
-              recover,
             );
             if (!job) return;
             await processCollection(job);
@@ -221,7 +202,7 @@ export async function dispatchTracking({
       cadence === "daily" &&
       performance.now() + 12_000 < deadline &&
       Date.now() >= rateLimitedUntil &&
-      (await prepareEmptyDayReports(reportDate, new Date(), timezone))
+      (await prepareEmptyDayReports(reportDate, new Date()))
     )
       await runWorkers();
     if (performance.now() + 30_000 < deadline) await cleanExpiredData(new Date());
@@ -235,8 +216,7 @@ export async function dispatchTracking({
 export async function handleTrackingCron(request: Request, cadence: "daily" | "weekly" = "daily") {
   try {
     requireCron(request);
-    const { runScheduledTracking } = await import("./scheduler");
-    return Response.json(await runScheduledTracking(new Date(), 260_000, cadence), {
+    return Response.json(await dispatchTracking({ cadence }), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

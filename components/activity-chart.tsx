@@ -1,5 +1,4 @@
 "use client";
-import { useTimezone } from "./timezone-provider";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { activityLevel, activityWeeks } from "@/lib/activity/calendar";
@@ -42,7 +41,6 @@ export function ActivityChart({
   onSelectDay?: (day: ActivityDay) => void;
   detailsId?: string;
 }) {
-  const timezone = useTimezone();
   const helpId = useId();
   const [selectedDate, setSelectedDate] = useState(days.at(-1)?.date ?? "");
   const selected = days.find((day) => day.date === selectedDate) ?? days.at(-1);
@@ -79,7 +77,7 @@ export function ActivityChart({
   return (
     <>
       <p id={helpId} className="sr-only">
-        Each square is one day in {timezone}. Use left and right arrow keys for weeks, up and down
+        Each square is one day in Asia/Kolkata. Use left and right arrow keys for weeks, up and down
         for days, and Home or End for the first or last day. Select a day for its count
         {onSelectDay ? " and saved problem links" : ""}.
       </p>

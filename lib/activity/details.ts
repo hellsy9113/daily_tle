@@ -1,4 +1,4 @@
-import { addCalendarDays } from "@/lib/timezone";
+import { addCalendarDays, DEFAULT_TIMEZONE } from "@/lib/timezone";
 import "server-only";
 import { and, asc, eq, gte, isNotNull, lt, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -23,8 +23,8 @@ export async function getActivityDay(
 ): Promise<ActivityDayDetails> {
   requireActivityPlatform(account, platform);
   if (platform === "hackerrank") {
-    const start = activityDayStart(date, account.timezone);
-    const end = activityDayStart(addCalendarDays(date, 1), account.timezone);
+    const start = activityDayStart(date, DEFAULT_TIMEZONE);
+    const end = activityDayStart(addCalendarDays(date, 1), DEFAULT_TIMEZONE);
     const rows = await db()
       .select({
         id: hackerRankProblems.id,
@@ -62,10 +62,10 @@ export async function getActivityDay(
       .where(
         and(
           eq(acceptedActivity.accountId, account.id),
-          gte(acceptedActivity.acceptedAt, activityDayStart(date, account.timezone)),
+          gte(acceptedActivity.acceptedAt, activityDayStart(date, DEFAULT_TIMEZONE)),
           lt(
             acceptedActivity.acceptedAt,
-            activityDayStart(addCalendarDays(date, 1), account.timezone),
+            activityDayStart(addCalendarDays(date, 1), DEFAULT_TIMEZONE),
           ),
           lte(acceptedActivity.acceptedAt, now),
         ),
@@ -91,8 +91,8 @@ export async function getActivityDay(
       ),
     )
     .limit(1);
-  const start = activityDayStart(date, account.timezone);
-  const end = activityDayStart(addCalendarDays(date, 1), account.timezone);
+  const start = activityDayStart(date, DEFAULT_TIMEZONE);
+  const end = activityDayStart(addCalendarDays(date, 1), DEFAULT_TIMEZONE);
   const timestamp = dated ? gfgProblems.acceptedAt : gfgProblems.firstObservedAt;
   const rows = await db()
     .select({ id: gfgProblems.id, title: gfgProblems.title, difficulty: gfgProblems.difficulty })

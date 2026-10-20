@@ -256,84 +256,40 @@ const record = (accountId: string, history: ReturnType<typeof accepted>[], at = 
 const onDay = (result: Awaited<ReturnType<typeof readActivity>>, date: string) =>
   result.days.find((day) => day.date === date)!;
 
-describe("account timezone activity and delivery", () => {
-  it("persists India as the default for new accounts", async () => {
-    const user = await account();
-    expect(user.timezone).toBe("Asia/Kolkata");
-    expect((await profileSummary(user)).timezone).toBe("Asia/Kolkata");
-  });
-  it("stores and reads LeetCode accepts and details under the chosen local day", async () => {
-    const user = await activeAccount();
-    const [local] = await db()
+describe("fixed India timezone", () => {
+  it("uses India days and schedules accounts even if an obsolete timezone preference remains", async () => {
+    const created = await activeAccount();
+    const [user] = await db()
       .update(accounts)
       .set({ timezone: "America/New_York" })
-      .where(eq(accounts.id, user.id))
+      .where(eq(accounts.id, created.id))
       .returning();
-    const later = new Date("2026-10-14T03:00:00Z");
-    await db().transaction((tx) =>
-      writeActivityObservation(
-        tx,
-        user.id,
-        observeAcceptedHistory(
-          [accepted("local-day", "2026-10-13T23:00:00Z")],
-          later,
-          local.timezone,
-        ),
-      ),
-    );
-    const progress = await readActivity(local, later);
-    expect(progress.timezone).toBe("America/New_York");
+    await db()
+      .insert(acceptedActivity)
+      .values({
+        accountId: user.id,
+        date: "2026-10-12",
+        timezone: "America/New_York",
+        titleSlug: "saved-before-removal",
+        title: "Saved before removal",
+        acceptedAt: new Date("2026-10-12T23:00:00Z"),
+      });
+    const progress = await readActivity(user, now);
+    expect(progress.timezone).toBe("Asia/Kolkata");
     expect(onDay(progress, "2026-10-13").count).toBe(1);
     expect(
-      (await getActivityDay(local, "leetcode", "2026-10-13", later)).problems.map((p) => p.id),
-    ).toEqual(["local-day"]);
-    expect((await getActivityDay(local, "leetcode", "2026-10-14", later)).problems).toEqual([]);
-    // Previously saved instants regroup after changing the account preference.
-    expect(
-      onDay(await readActivity({ ...local, timezone: "Asia/Kolkata" }, later), "2026-10-14").count,
-    ).toBe(1);
-  });
-  it("prepares only the requested timezone, freezes its boundaries, and never replays a sent date after a timezone change", async () => {
-    const india = await activeAccount(101);
-    const other = await activeAccount(102);
-    await db()
-      .update(accounts)
-      .set({ timezone: "America/New_York" })
-      .where(eq(accounts.id, other.id));
-    const morning = new Date("2026-10-14T12:30:00Z");
-    const date = await prepareDeliveries(morning, "America/New_York");
-    expect(date).toBe("2026-10-13");
-    const rows = await db().select().from(deliveries);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ accountId: other.id, timezone: "America/New_York" });
-    expect(rows[0].start.toISOString()).toBe("2026-10-13T04:00:00.000Z");
-    expect(rows[0].end.toISOString()).toBe("2026-10-14T04:00:00.000Z");
-    await db()
-      .update(deliveries)
-      .set({ status: "sent", messages: ["saved"], sentParts: 1 })
-      .where(eq(deliveries.id, rows[0].id));
-    await db().update(accounts).set({ timezone: "Asia/Kolkata" }).where(eq(accounts.id, other.id));
-    await prepareDeliveries(morning, "Asia/Kolkata");
-    const retained = await db().select().from(deliveries).where(eq(deliveries.accountId, other.id));
-    expect(retained).toHaveLength(1);
-    expect(retained[0]).toMatchObject({
-      timezone: "America/New_York",
-      status: "sent",
-      messages: ["saved"],
-    });
-    expect(
-      await db().select().from(deliveries).where(eq(deliveries.accountId, india.id)),
-    ).toHaveLength(1);
-  });
-  it("waits until recovery before reclaiming failed work in a local morning window", async () => {
-    await activeAccount();
-    const date = await prepareDeliveries(now);
-    const job = (await claimCollection(date, now, true, true, "Asia/Kolkata", false))!;
-    expect(job).toBeTruthy();
-    await failCollection(job, "lookup_502");
-    const retryAt = new Date(now.getTime() + 60_000);
-    expect(await claimCollection(date, retryAt, true, true, "Asia/Kolkata", false)).toBeNull();
-    expect(await claimCollection(date, retryAt, true, true, "Asia/Kolkata", true)).not.toBeNull();
+      (await getActivityDay(user, "leetcode", "2026-10-13", now)).problems.map(
+        (problem) => problem.id,
+      ),
+    ).toEqual(["saved-before-removal"]);
+    await prepareDeliveries(now);
+    const [delivery] = await db()
+      .select()
+      .from(deliveries)
+      .where(eq(deliveries.accountId, user.id));
+    expect(delivery.timezone).toBe("Asia/Kolkata");
+    expect(delivery.start.toISOString()).toBe("2026-10-11T18:30:00.000Z");
+    expect(delivery.end.toISOString()).toBe("2026-10-12T18:30:00.000Z");
   });
 });
 
@@ -1869,7 +1825,6 @@ describe("durable delivery processing", () => {
     expect(getLastDaySolvedQuestions).toHaveBeenCalledWith(
       "user_101",
       new Date("2026-10-12T18:30:00.000Z"),
-      "Asia/Kolkata",
     );
     expect(sendTrackingMessage).toHaveBeenCalledWith(
       101,

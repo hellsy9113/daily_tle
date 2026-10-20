@@ -1,4 +1,3 @@
-import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { getAcceptedHistory } from "./accepted-history";
 import type { CalendarPeriodRange } from "./calendar-periods";
 import type { AcceptedSubmission, SolvedPeriod, SolvedQuestionsResult } from "./types";
@@ -8,7 +7,6 @@ export async function getSolvedQuestions(
   username: string,
   period: SolvedPeriod,
   range: CalendarPeriodRange,
-  timezone = DEFAULT_TIMEZONE,
 ): Promise<SolvedQuestionsResult> {
   const { username: parsedUsername, submissions: history } = await getAcceptedHistory(username);
   const start = range.start.getTime();
@@ -35,7 +33,7 @@ export async function getSolvedQuestions(
   return {
     username: parsedUsername,
     period,
-    timezone,
+    timezone: "Asia/Kolkata",
     start: range.start.toISOString(),
     end: range.end.toISOString(),
     count: questions.length,

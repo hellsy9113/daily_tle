@@ -1,4 +1,3 @@
-import { normalizeTimezone } from "@/lib/timezone";
 import { eq } from "drizzle-orm";
 import { requireAccount } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
@@ -27,23 +26,12 @@ export async function PATCH(request: Request) {
     });
     if (
       !isRecord(body) ||
-      !Object.keys(body).length ||
-      Object.keys(body).some((key) => key !== "theme" && key !== "timezone")
+      Object.keys(body).some((key) => key !== "theme") ||
+      (body.theme !== "light" && body.theme !== "dark")
     )
-      throw new ApiError(400, "Choose a supported profile setting.");
-    const settings: { theme?: "light" | "dark"; timezone?: string } = {};
-    if ("theme" in body) {
-      if (body.theme !== "light" && body.theme !== "dark")
-        throw new ApiError(400, "Choose light or dark mode.");
-      settings.theme = body.theme;
-    }
-    if ("timezone" in body) {
-      const timezone = normalizeTimezone(body.timezone);
-      if (!timezone) throw new ApiError(400, "Choose a valid timezone.");
-      settings.timezone = timezone;
-    }
-    await db().update(accounts).set(settings).where(eq(accounts.id, account.id));
-    return Response.json(settings, { headers: { "Cache-Control": "no-store" } });
+      throw new ApiError(400, "Choose light or dark mode.");
+    await db().update(accounts).set({ theme: body.theme }).where(eq(accounts.id, account.id));
+    return Response.json({ theme: body.theme }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);
   }
