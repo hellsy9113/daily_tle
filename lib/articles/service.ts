@@ -137,10 +137,23 @@ export function fillDailyArticleSlots(accountId: string, registrationId: string,
   return readDailyArticles(accountId, now, { fill: true, registrationId });
 }
 
+/** Replace the visible list only when unseen catalog matches are available. */
+export function rotateDailyArticles(accountId: string, registrationId: string, now = new Date()) {
+  return readDailyArticles(accountId, now, { rotate: true, registrationId });
+}
+
 async function readDailyArticles(
   accountId: string,
   now: Date,
-  { fill = false, registrationId }: { fill?: boolean; registrationId?: string } = {},
+  {
+    fill = false,
+    rotate = false,
+    registrationId,
+  }: {
+    fill?: boolean;
+    rotate?: boolean;
+    registrationId?: string;
+  } = {},
 ): Promise<DailyArticleFeed> {
   const date = localClock(now).date;
   return db().transaction(async (tx) => {
@@ -165,13 +178,14 @@ async function readDailyArticles(
         })
         .returning();
     }
-    if (creating || fill) {
-      const existing = fill
-        ? await tx
-            .select({ position: articleFeedItems.position })
-            .from(articleFeedItems)
-            .where(eq(articleFeedItems.dayId, day.id))
-        : [];
+    if (creating || fill || rotate) {
+      const existing =
+        fill && !rotate
+          ? await tx
+              .select({ position: articleFeedItems.position })
+              .from(articleFeedItems)
+              .where(eq(articleFeedItems.dayId, day.id))
+          : [];
       const emptySlots = Array.from(
         { length: DAILY_ARTICLE_LIMIT },
         (_, index) => index + 1,
@@ -194,6 +208,14 @@ async function readDailyArticles(
       `)
         : [];
       if (choices.length) {
+        if (rotate) {
+          await tx.delete(articleFeedItems).where(eq(articleFeedItems.dayId, day.id));
+          [day] = await tx
+            .update(articleFeedDays)
+            .set({ generatedAt: now })
+            .where(eq(articleFeedDays.id, day.id))
+            .returning();
+        }
         await tx.insert(articleFeedItems).values(
           choices.map((choice, index) => ({
             dayId: day.id,

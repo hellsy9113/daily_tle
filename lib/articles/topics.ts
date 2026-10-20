@@ -37,6 +37,7 @@ export interface ArticleCard {
   url: string;
 }
 export interface ArticleRefreshResult {
+  mode?: "upstream" | "catalog";
   inserted: number;
   sources: number;
   failed: number;

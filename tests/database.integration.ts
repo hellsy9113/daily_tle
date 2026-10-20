@@ -3544,21 +3544,19 @@ describe("account-triggered article catalog refresh", () => {
     vi.setSystemTime(next);
     expect((await dailyArticles(user.id, next)).articles).toHaveLength(1);
   });
-  it("reserves the account cooldown atomically under concurrent clicks", async () => {
+  it("reserves upstream work once under concurrent clicks", async () => {
     const { cookie, status } = await subscriber();
     const fetcher = vi.fn(publisher);
     vi.stubGlobal("fetch", fetcher);
     const results = await Promise.all(
       Array.from({ length: 8 }, () => refreshArticles(manual(cookie, status.registrationId!))),
     );
-    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
-    expect(results.filter((r) => r.status === 429)).toHaveLength(7);
-    expect(results.find((r) => r.status === 429)!.headers.get("retry-after")).toBe("900");
+    expect(results.filter((r) => r.status === 200)).toHaveLength(8);
     expect(fetcher.mock.calls.filter(([url]) => !String(url).endsWith("robots.txt"))).toHaveLength(
       3,
     );
   });
-  it("keeps account cooldowns private and shares publisher cooldowns with other accounts and cron", async () => {
+  it("refreshes upstream once per IST day and shares publisher cooldowns with other accounts and cron", async () => {
     const first = await subscriber(),
       second = await subscriber(102);
     const fetcher = vi.fn(publisher);
@@ -3568,7 +3566,7 @@ describe("account-triggered article catalog refresh", () => {
     );
     fetcher.mockClear();
     expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
-      429,
+      200,
     );
     const other = await refreshArticles(manual(second.cookie, second.status.registrationId!));
     expect(other.status).toBe(200);
@@ -3591,10 +3589,56 @@ describe("account-triggered article catalog refresh", () => {
     expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
       200,
     );
+    expect(fetcher).not.toHaveBeenCalled();
+    const tomorrow = new Date(now.getTime() + 86400000);
+    vi.setSystemTime(tomorrow);
+    expect((await refreshArticles(manual(first.cookie, first.status.registrationId!))).status).toBe(
+      200,
+    );
     expect(fetcher.mock.calls.filter(([url]) => !String(url).endsWith("robots.txt"))).toHaveLength(
       3,
     );
     expect(await db().select().from(articleCatalog)).toHaveLength(3);
+  });
+  it("rotates newest unseen relevant catalog matches and preserves the list on exhaustion", async () => {
+    const { user, status } = await subscriber();
+    const fetcher = vi.fn(publisher);
+    await db()
+      .insert(articleCatalog)
+      .values(
+        Array.from({ length: 15 }, (_, i) => ({
+          canonicalUrl: `https://example.com/rotate-${i}`,
+          title: `Article ${i}`,
+          source: "Catalog",
+          publishedAt: new Date(now.getTime() - i * 1000),
+          topics: [i === 0 ? "dsa" : "web"] as ("web" | "dsa")[],
+          summary: "Short",
+        })),
+      );
+    const original = await dailyArticles(user.id, now);
+    await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher });
+    expect((await dailyArticles(user.id, now)).articles).toEqual(original.articles);
+    fetcher.mockClear();
+    expect(
+      await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).toMatchObject({ mode: "catalog" });
+    const rotated = await dailyArticles(user.id, now);
+    expect(rotated.articles.map((a) => a.title)).toEqual(
+      [7, 8, 9, 10, 11, 12].map((i) => `Article ${i}`),
+    );
+    expect(rotated.articles.every((a) => a.topic === "web")).toBe(true);
+    expect(
+      await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).toMatchObject({ mode: "catalog" });
+    const last = await dailyArticles(user.id, now);
+    expect(last.articles).toHaveLength(5); // Two remaining seeded matches plus three fetched matches.
+    expect(
+      await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).toMatchObject({ mode: "catalog" });
+    expect((await dailyArticles(user.id, now)).articles).toEqual(last.articles);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await db().select().from(articleFeedItems)).toHaveLength(5);
+    expect(await db().select().from(articleSeen)).toHaveLength(17);
   });
   it("coordinates source leases between a simultaneous cron and manual request", async () => {
     const { user, status } = await subscriber();
@@ -3641,8 +3685,8 @@ describe("account-triggered article catalog refresh", () => {
         (s) => s.nextFetchAt.getTime() >= now.getTime() + 3600000,
       ),
     ).toBe(true);
-    await expect(
-      refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
-    ).rejects.toMatchObject({ status: 429 });
+    expect(
+      await refreshAccountArticles(user.id, status.registrationId!, { now, fetcher }),
+    ).toMatchObject({ mode: "catalog", sources: 0 });
   });
 });

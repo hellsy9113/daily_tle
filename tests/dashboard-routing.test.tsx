@@ -55,7 +55,7 @@ describe("connected dashboard navigation", () => {
       },
     });
     const html = renderToStaticMarkup(await DashboardPage());
-    expect(html).toContain('id="daily-articles-title"');
+    expect(html).toContain('aria-label="Daily Articles"');
     expect(html).toContain('href="/dashboard?service=articles"');
     expect(html).not.toContain('id="activity-title"');
     expect(html).not.toContain("Connect Daily Grind");

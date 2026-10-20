@@ -112,9 +112,9 @@ export function ArticlesSetup({ initialStatus }: { initialStatus: TrackingStatus
           ))}
         </fieldset>
         <p className="field-help">
-          Up to 6 articles each day, using Asia/Kolkata boundaries. Source availability may mean
-          fewer articles. Topics change future selections. Refresh can fill empty slots today;
-          existing selections stay in place.
+          Up to 6 articles at a time, using Asia/Kolkata boundaries. Availability may mean fewer
+          articles. Topics change tomorrow’s selection. The first Refresh each day fills empty
+          slots; later refreshes show different unseen articles from the catalog.
         </p>
         <button
           className="button primary"

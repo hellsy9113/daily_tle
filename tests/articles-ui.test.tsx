@@ -128,20 +128,30 @@ describe("Daily Articles interface", () => {
       }),
     );
     expect(fetch).toHaveBeenNthCalledWith(3, "/api/articles", expect.any(Object));
-    expect(container.textContent).toContain("4 new articles saved");
+    expect(container.textContent).not.toContain("Catalog refresh cooldown ends at");
     expect(container.textContent).toContain("A web tutorial");
-    expect(container.textContent).toContain("up to six articles");
   });
-  it("retains the list and explains cooldowns without another upstream attempt", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));
-    await act(() => root.render(<ArticlesPanel />));
+  it("shows different catalog matches on later refreshes without a cooldown section", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ error: "Please wait 15 minutes" }, { status: 429 }),
+      Response.json({ ...feed, nextRefreshAt: "2026-10-20T14:00:00Z" }),
+    );
+    await act(() => root.render(<ArticlesPanel />));
+    expect(container.textContent).not.toContain("Catalog refresh cooldown ends at");
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ mode: "catalog" }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...feed,
+        articles: [{ ...feed.articles[0], id: "two", title: "Another tutorial" }],
+      }),
     );
     await retry();
-    expect(container.textContent).toContain("Please wait 15 minutes");
-    expect(container.textContent).toContain("A web tutorial");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Another tutorial");
+    expect(container.textContent).not.toContain("A web tutorial");
+    expect(container.querySelector(".profile-notice")).toBeNull();
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ mode: "catalog" }));
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));
+    await retry();
+    expect(container.querySelector(".profile-notice")).toBeNull();
   });
   it("disables refresh during ingestion and aborts client work when the panel unmounts", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json(feed));

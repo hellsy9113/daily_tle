@@ -21,8 +21,9 @@ Selection prefers matching unseen articles published within the last 30 days,
 then unseen evergreen content. Future publications and old non-evergreen news are
 excluded. Previously selected articles are never repeated: exhaustion produces
 fewer than six, or an empty list. Ordinary reads preserve the saved list until
-midnight IST. An explicit user refresh can fill empty slots up to six total while
-keeping existing selections. Topic changes apply to the next day's selection. Each account
+midnight IST. The first explicit refresh each IST day fills empty slots while keeping
+existing selections. Later refreshes replace the visible list with up to six different
+unseen catalog matches, newest first; if exhausted, the current list is retained. Topic changes apply to the next day's selection. Each account
 has independent preferences and seen history. Ordinary reads only query PostgreSQL.
 
 Revocation deletes preferences, daily selections and seen history transactionally.
@@ -41,9 +42,12 @@ several topics. Complete metadata batches from these feeds are retained in the
 shared catalog so ETag/304 caching never loses articles for other topic subscribers.
 Daily selections still use each reader's own topic preferences.
 
-An atomic 15-minute cooldown per registration prevents repeated clicks from starting
-more upstream work. Rejected attempts return 429 with `Retry-After`. Cron and manual
-refresh share publisher leases, six-hour successful-poll cooldowns, conditional
+The first refresh each IST day atomically reserves upstream work per registration.
+The existing `nextRefreshAt` timestamp stores that reservation plus 15 minutes; it
+is retained for compatibility and no longer blocks catalog-only refreshes. Later clicks
+that IST day only rotate unseen catalog matches and never contact publishers, even
+after the old 15-minute window expires. The next IST day permits upstream work again.
+Cron and the first manual refresh share publisher leases, six-hour successful-poll cooldowns, conditional
 headers, robots policy and Retry-After/backoff. Another account can refresh independently
 but cannot bypass a publisher's shared cooldown. Concurrent cron/manual work only
 fetches an eligible source once. No account locks are held during network requests;
@@ -57,8 +61,9 @@ browser. No additional cron jobs are configured.
 
 The result reports catalog additions, cached/cooling sources, and partial source
 failures. The UI then immediately displays the saved list with empty slots filled from the
-updated catalog. Existing articles are never replaced and at most six articles are
-selected per account per IST day. Cron only ingests shared metadata; it never fills
+updated catalog. The first refresh preserves existing articles. Later refreshes replace them with up to
+six unseen relevant catalog matches, retaining seen history to prevent repeats.
+Exhaustion retains the current list without a notice. Cron only ingests shared metadata; it never fills
 or modifies an existing user's list. Manual refresh is a separate authenticated POST
 and does not invoke the cron endpoint. Both can independently execute; shared source
 leases and cooldowns prevent duplicate publisher requests if they happen to overlap.
@@ -144,7 +149,8 @@ available and unseen evergreen matches fill gaps. No fabricated articles or full
 article copies are generated. Loading, empty, error and retry states use the shared
 resource hook; retrying a read does not trigger upstream requests or change today's
 saved selection. Explicit catalog refresh is separate: it fetches metadata and
-atomically fills remaining slots. A full six-article list stays unchanged.
+atomically fills remaining slots on the first refresh each IST day. Later refreshes
+rotate the visible list using the catalog alone, retaining it if no unseen matches remain.
 
 ## Verification
 

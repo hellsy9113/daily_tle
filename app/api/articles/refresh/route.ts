@@ -3,7 +3,7 @@ import { requireSameOrigin } from "@/lib/tracking/security";
 import { readJson, privateJson } from "@/lib/http/private";
 import { ApiError, errorResponse } from "@/lib/http/api-error";
 import { isRecord } from "@/lib/http/validation";
-import { ArticleRefreshCooldown, refreshAccountArticles } from "@/lib/articles/refresh";
+import { refreshAccountArticles } from "@/lib/articles/refresh";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,9 +21,6 @@ export async function POST(request: Request) {
       throw new ApiError(400, "Provide your current Daily Articles registration.");
     return privateJson(await refreshAccountArticles(account.id, body.registrationId));
   } catch (error) {
-    const response = errorResponse(error);
-    if (error instanceof ArticleRefreshCooldown)
-      response.headers.set("Retry-After", String(error.retryAfter));
-    return response;
+    return errorResponse(error);
   }
 }
