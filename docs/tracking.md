@@ -357,3 +357,12 @@ that volume or adding a queue.
 Unauthorized account requests return `401`, cross-origin mutations `403`, and
 registration conflicts `409`. Existing LeetCode validation and upstream error
 statuses are preserved. Account responses do not expose chat IDs or tokens.
+
+### Account deletion
+
+Profile → Delete account requires explicit confirmation. `DELETE /api/profile` accepts
+`{ "confirmPermanentDeletion": true }` with an authenticated session and matching Origin.
+An account-first transaction deletes all account-owned data, including notes, article
+preferences/history, registrations, connection tokens, and sessions. Shared articles
+remain available. Session cookies are cleared after success. External platform
+accounts and Telegram messages already delivered are unaffected.

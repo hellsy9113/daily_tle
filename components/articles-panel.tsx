@@ -73,10 +73,8 @@ export function ArticlesPanel() {
             {refreshing ? "Refreshing…" : busy ? "Loading…" : "Refresh articles"}
           </button>
           <InfoPopover label="Daily Articles information">
-            Recent unseen articles come first, then unseen evergreen reading. The first Refresh each
-            IST day fetches publisher metadata and fills empty slots. Later refreshes show different
-            unseen matches from the catalog, up to six at a time. Links open the original article in
-            a new tab.
+            Up to 6 unseen articles for your topics. Refresh for more matches. Links open the
+            original article.
           </InfoPopover>
         </div>
       </div>
@@ -110,11 +108,7 @@ export function ArticlesPanel() {
           {!data.articles.length && (
             <div className="article-empty">
               <h3>No unseen matches today</h3>
-              <p>
-                There are no suitable unseen articles in the shared catalog for this selection. Try
-                Refresh to check for more matches, or try again tomorrow. Previously selected
-                articles will not be repeated.
-              </p>
+              <p>No new articles for your topics. Refresh or check again tomorrow.</p>
             </div>
           )}
           <div className="article-grid">

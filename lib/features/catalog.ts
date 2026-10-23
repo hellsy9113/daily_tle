@@ -40,8 +40,7 @@ export const features = [
     name: "GeeksforGeeks",
     label: "GFG",
     description: "Follow your solved inventory and newly observed practice in a separate calendar.",
-    coverage:
-      "GFG publishes totals and a solved inventory. Its timestamps currently omit a timezone, so newly observed activity is clearly labeled and historical daily counts remain unavailable.",
+    coverage: "Some solve dates are unavailable; newly observed problems are labeled.",
     readyMessage:
       "Your GFG activity is ready on Dashboard. Problems without verified solve dates are labeled as newly observed.",
     dashboard: true,
@@ -88,8 +87,7 @@ export const features = [
     name: "Daily Articles",
     label: "Daily Articles",
     description: "A small daily reading list for the topics you care about.",
-    coverage:
-      "Choose 1–2 topics. Up to 6 unseen articles at a time, from a shared catalog of publisher feeds and public APIs. The first Refresh each IST day fills empty slots; later refreshes show different catalog matches. Availability may mean fewer articles.",
+    coverage: "Choose up to 2 topics for up to 6 unseen articles. Refresh for more matches.",
     readyMessage: "Your daily reading is ready on Dashboard.",
     dashboard: true,
   },
