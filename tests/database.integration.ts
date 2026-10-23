@@ -1,3 +1,4 @@
+import { deleteAccount } from "@/lib/account";
 import { randomUUID } from "node:crypto";
 import { registerDailyGrind, manageDailyGrind } from "@/lib/daily-grind/service";
 import { readFile, readdir } from "node:fs/promises";
@@ -3869,5 +3870,59 @@ describe("Google and Daily Grind migration", () => {
     } finally {
       await admin.unsafe(`DROP SCHEMA IF EXISTS ${upgrade} CASCADE`);
     }
+  });
+});
+
+describe("permanent account deletion", () => {
+  it("removes registrations and sessions while preserving another account", async () => {
+    const own = await activeAccount(901);
+    const other = await activeAccount(902);
+    const token = await createSession(own.id);
+    const otherToken = await createSession(other.id);
+    const { notebooks, notes, notesSessions, articleSubscriptions, articleSeen, articleCatalog } =
+      await import("@/lib/db/schema");
+    const [book] = await db().insert(notebooks).values({ accountId: own.id }).returning();
+    await db().insert(notes).values({ notebookId: book.id, text: "Private note" });
+    await db()
+      .insert(notesSessions)
+      .values({
+        notebookId: book.id,
+        tokenHash: "deleted-notes-session",
+        expiresAt: new Date(now.getTime() + 60_000),
+      });
+    const [subscription] = await db()
+      .insert(articleSubscriptions)
+      .values({ accountId: own.id, topics: ["web"] })
+      .returning();
+    const [article] = await db()
+      .insert(articleCatalog)
+      .values({
+        canonicalUrl: `https://example.com/${randomUUID()}`,
+        title: "Shared article",
+        source: "Example",
+        topics: ["web"],
+      })
+      .returning();
+    await db()
+      .insert(articleSeen)
+      .values({ subscriptionId: subscription.id, articleId: article.id });
+    await deleteAccount(own.id);
+    expect(await db().select().from(notes).where(eq(notes.notebookId, book.id))).toHaveLength(0);
+    expect(
+      await db().select().from(notesSessions).where(eq(notesSessions.notebookId, book.id)),
+    ).toHaveLength(0);
+    expect(
+      await db().select().from(articleSeen).where(eq(articleSeen.subscriptionId, subscription.id)),
+    ).toHaveLength(0);
+    expect(
+      await db().select().from(articleCatalog).where(eq(articleCatalog.id, article.id)),
+    ).toHaveLength(1);
+    expect(await accountForToken(token)).toBeNull();
+    expect((await accountForToken(otherToken))?.id).toBe(other.id);
+    expect(await db().select().from(accounts).where(eq(accounts.id, own.id))).toHaveLength(0);
+    expect(
+      await db().select().from(platformServices).where(eq(platformServices.accountId, own.id)),
+    ).toHaveLength(0);
+    await deleteAccount(own.id);
   });
 });

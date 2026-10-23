@@ -123,7 +123,7 @@ export default async function FeaturePage({
         <h1>{account ? "Choose your services." : "Your progress starts with sign-in."}</h1>
         <p className="lead">
           {account
-            ? "Enable services independently. Register once to use each service and manage it here."
+            ? "Choose and manage your services."
             : "Sign in with Google or Telegram, then choose the services you want to use."}
         </p>
       </div>

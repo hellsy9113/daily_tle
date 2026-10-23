@@ -112,9 +112,7 @@ export function ArticlesSetup({ initialStatus }: { initialStatus: TrackingStatus
           ))}
         </fieldset>
         <p className="field-help">
-          Up to 6 articles at a time, using Asia/Kolkata boundaries. Availability may mean fewer
-          articles. Topics change tomorrow’s selection. The first Refresh each day fills empty
-          slots; later refreshes show different unseen articles from the catalog.
+          Choose up to 2 topics for up to 6 articles. Topic changes apply tomorrow (IST).
         </p>
         <button
           className="button primary"

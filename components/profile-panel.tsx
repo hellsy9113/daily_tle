@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ConsentDialog } from "./consent-dialog";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ProfileSummary } from "@/lib/profile";
@@ -13,6 +14,28 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
   const [themeBusy, setThemeBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  async function removeAccount() {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await requestJson("/api/profile", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmPermanentDeletion: true }),
+      });
+      router.replace("/");
+      router.refresh();
+    } catch (failure) {
+      setDeleteError(
+        failure instanceof Error ? failure.message : "Could not delete your account. Try again.",
+      );
+      setDeleteBusy(false);
+    }
+  }
   async function changeTheme(theme: "light" | "dark") {
     if (themeBusy) return;
     setThemeBusy(true);
@@ -39,9 +62,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
       <div>
         <p className="eyebrow">Your account</p>
         <h1>Profile &amp; settings</h1>
-        <p className="lead">
-          Manage your account and appearance. Open Feature to manage services and saved data.
-        </p>
+        <p className="lead">Manage your account, appearance, and services.</p>
       </div>
       {error && (
         <p className="inline-error" role="alert">
@@ -112,9 +133,7 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
       </section>
       <section className="tracking-panel profile-services" aria-labelledby="profile-services-title">
         <h2 id="profile-services-title">Services &amp; data</h2>
-        <p className="field-help">
-          Register, pause, resume, or revoke a service on its Feature page.
-        </p>
+        <p className="field-help">Manage services in Feature.</p>
         <table>
           <thead>
             <tr>
@@ -148,6 +167,39 @@ export function ProfilePanel({ initialProfile }: { initialProfile: ProfileSummar
           </tbody>
         </table>
       </section>
+      <section className="tracking-panel" aria-labelledby="delete-account-title">
+        <h2 id="delete-account-title">Delete account</h2>
+        <p className="field-help">Permanently delete your account and all saved data.</p>
+        <button
+          className="button danger"
+          onClick={() => {
+            setDeleteError("");
+            setDeleting(true);
+          }}
+        >
+          Delete account
+        </button>
+      </section>
+      {deleting && (
+        <ConsentDialog
+          title="Delete your account?"
+          acknowledgment="I understand this permanently deletes my account and saved data."
+          confirmLabel="Permanently delete account"
+          destructive
+          busy={deleteBusy}
+          error={deleteError}
+          onCancel={() => setDeleting(false)}
+          onConfirm={() => void removeAccount()}
+        >
+          <p>
+            Your activity, notes, article preferences, and sessions will be deleted. Telegram recaps
+            will stop. This cannot be undone.
+          </p>
+          <p>
+            Your coding-platform accounts and messages already delivered to Telegram are unaffected.
+          </p>
+        </ConsentDialog>
+      )}
     </div>
   );
 }

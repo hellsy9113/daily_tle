@@ -8,7 +8,8 @@ import { registerUsername, trackingStatus } from "@/lib/tracking/registration";
 import { registerGfg } from "@/lib/gfg/service";
 import { registerHackerRank } from "@/lib/hackerrank/service";
 import { registerCodeforces } from "@/lib/codeforces/service";
-import { GET as profile, PATCH as theme } from "@/app/api/profile/route";
+import { deleteAccount } from "@/lib/account";
+import { GET as profile, PATCH as theme, DELETE as removeAccount } from "@/app/api/profile/route";
 import {
   GET as serviceStatus,
   POST as serviceRegister,
@@ -22,7 +23,12 @@ import { POST as codeforces } from "@/app/api/tracking/codeforces/route";
 
 const database = vi.hoisted(() => ({ update: vi.fn(), set: vi.fn(), where: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ db: () => database }));
-vi.mock("@/lib/auth/session", () => ({ requireAccount: vi.fn() }));
+vi.mock("@/lib/auth/session", () => ({
+  requireAccount: vi.fn(),
+  SESSION_COOKIE: "tracking_session",
+  cookieOptions: { path: "/", httpOnly: true },
+}));
+vi.mock("@/lib/account", () => ({ deleteAccount: vi.fn() }));
 vi.mock("@/lib/profile", () => ({ profileSummary: vi.fn() }));
 vi.mock("@/lib/tracking/services", () => ({ revokeService: vi.fn(), setServicePaused: vi.fn() }));
 vi.mock("@/lib/tracking/registration", () => ({
@@ -257,5 +263,40 @@ describe.each([
     ).toBe(401);
     expect((await serviceRegister(request({}, "POST"), context(id))).status).toBe(401);
     expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe("account deletion", () => {
+  it("rejects cross-origin and unconfirmed deletion", async () => {
+    expect(
+      (
+        await removeAccount(
+          request({ confirmPermanentDeletion: true }, "DELETE", "https://evil.example"),
+        )
+      ).status,
+    ).toBe(403);
+    expect((await removeAccount(request({}, "DELETE"))).status).toBe(400);
+    expect(
+      (
+        await removeAccount(
+          request({ confirmPermanentDeletion: true, accountId: "other" }, "DELETE"),
+        )
+      ).status,
+    ).toBe(400);
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+  it("requires authentication", async () => {
+    vi.mocked(requireAccount).mockRejectedValue(new ApiError(401, "Sign in"));
+    expect(
+      (await removeAccount(request({ confirmPermanentDeletion: true }, "DELETE"))).status,
+    ).toBe(401);
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+  it("deletes only the authenticated account and clears cookies", async () => {
+    const response = await removeAccount(request({ confirmPermanentDeletion: true }, "DELETE"));
+    expect(response.status).toBe(200);
+    expect(deleteAccount).toHaveBeenCalledWith(account.id);
+    expect(response.headers.get("set-cookie")).toContain("tracking_session=");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });

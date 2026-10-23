@@ -7,8 +7,9 @@ import { ServiceControl, PausedService } from "@/components/service-control";
 import { TrackingPanel } from "@/components/tracking-panel";
 import type { ProfileSummary } from "@/lib/profile";
 
+const replace = vi.hoisted(() => vi.fn());
 const refresh = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, replace }) }));
 const registrationId = "10000000-0000-4000-8000-000000000001";
 const status = {
   username: "my_profile",
@@ -75,6 +76,38 @@ describe("profile settings and confirmations", () => {
     expect(container.querySelectorAll('a[href^="/feature?platform="]')).toHaveLength(4);
     expect(container.querySelector('a[href="/feature?platform=codeforces"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Revoke & delete data");
+  });
+  it("requires confirmation before deleting and redirects after success", async () => {
+    await render();
+    await click("Delete account");
+    expect(buttons().find((b) => b.textContent === "Permanently delete account")!.disabled).toBe(
+      true,
+    );
+    await click("Cancel");
+    expect(fetch).not.toHaveBeenCalled();
+    await click("Delete account");
+    await act(() => container.querySelector<HTMLInputElement>("dialog input")!.click());
+    vi.mocked(fetch).mockResolvedValue(Response.json({ deleted: true }));
+    await click("Permanently delete account");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/profile",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ confirmPermanentDeletion: true }),
+      }),
+    );
+    expect(replace).toHaveBeenCalledWith("/");
+  });
+  it("keeps account deletion retryable after failure", async () => {
+    await render();
+    await click("Delete account");
+    await act(() => container.querySelector<HTMLInputElement>("dialog input")!.click());
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Try again." }, { status: 503 }));
+    await click("Permanently delete account");
+    expect(container.querySelector("dialog [role=alert]")!.textContent).toBe("Try again.");
+    expect(buttons().find((b) => b.textContent === "Permanently delete account")!.disabled).toBe(
+      false,
+    );
   });
   it.each(["light", "dark"] as const)(
     "saves %s mode and updates the document after success",
